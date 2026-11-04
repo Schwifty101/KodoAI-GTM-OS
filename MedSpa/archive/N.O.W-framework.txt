@@ -1,0 +1,149 @@
+# The NOW Framework (Sales Messaging)
+
+The goal of this framework is **not to convince people to buy**. The goal is to make the cost of staying the same feel greater than the cost of changing.
+
+---
+
+# N — Name the Pain
+
+People don't buy because they have a problem.
+
+They buy because they have a **specific, painful, emotionally relevant problem**.
+
+**Vague problems don't sell. Specific pain does.**
+
+### ❌ Bad
+> Do you want to grow your business?
+
+### ✅ Good
+> You're stuck at $500k because you're still the only salesperson, and every month your revenue depends entirely on you.
+
+The more specific the pain, the more the prospect sees themselves in it.
+
+**Rule:** If they don't feel the pain, they won't fix it.
+
+---
+
+# O — Open the Gap
+
+Show the difference between:
+
+- **Current State** (where they are today)
+- **Future State** (where they could be)
+
+Increase the perceived distance between these two realities.
+
+### Current State
+- Slow
+- Manual
+- Founder-dependent
+- Constant firefighting
+- No predictable growth
+
+### Future State
+- Systems run without you
+- A trained sales team closes deals
+- Predictable revenue
+- Freedom to focus on growth
+
+The bigger this gap appears, the more valuable your solution becomes.
+
+> **Rule:** Bigger gap = Bigger perceived value = Higher price tolerance.
+
+---
+
+# W — Withdraw the Path
+
+This is where most people get sales wrong.
+
+They:
+- Oversell
+- Chase prospects
+- Follow up endlessly
+- Try to convince
+
+Instead, become selective.
+
+Position your offer as being for people who are ready to solve the problem **now**.
+
+### Example
+
+> I only work with founders who are serious about fixing this problem right now.
+
+> If you're not ready yet, we're probably not the right fit.
+
+Scarcity and selectivity increase perceived value.
+
+People naturally want what feels difficult to access.
+
+---
+
+# The Formula
+
+```text
+Specific Pain
+      ↓
+Show the Gap
+      ↓
+Withdraw Access
+      ↓
+Create Urgency
+      ↓
+Higher Conversions
+```
+
+Or as an equation:
+
+```text
+The bigger the pain
++ The bigger the gap
++ The more you withdraw access
+= The more urgency you create
+= The more you sell.
+```
+
+---
+
+# LLM Prompt
+
+## Task
+
+Rewrite the following sales copy using the **NOW Framework**.
+
+### Step 1 — Name the Pain
+- Replace vague statements with a highly specific, emotionally relevant pain point.
+- Make the reader immediately think, "That's exactly my situation."
+- Use concrete examples, numbers, consequences, or frustrations instead of generic language.
+
+### Step 2 — Open the Gap
+- Contrast the prospect's **current state** with their **desired future state**.
+- Make the transformation feel significant and valuable.
+- Increase the perceived cost of staying where they are.
+
+### Step 3 — Withdraw the Path
+- Do **not** sound needy or desperate.
+- Do **not** oversell.
+- Position the offer as being intended only for people who are genuinely ready to solve the problem now.
+- Create selectivity rather than pressure.
+
+## Writing Style
+
+- Conversational
+- Direct
+- Short sentences
+- Plain English
+- Confident, not arrogant
+- Psychologically compelling
+- No hype
+- No exaggerated claims
+- No corporate jargon
+- Make the reader feel understood rather than sold to.
+
+## Output Format
+
+Return:
+
+1. **Name the Pain**
+2. **Open the Gap**
+3. **Withdraw the Path**
+4. **Final rewritten sales copy**

@@ -161,8 +161,7 @@ def test_tel_link_query_string_is_stripped() -> None:
 
 def test_mailto_and_free_text_emails_are_both_collected() -> None:
     html = (
-        '<body><a href="mailto:info@salonx.pk?subject=Hi">Mail</a>'
-        "<p>bookings@salonx.pk</p></body>"
+        '<body><a href="mailto:info@salonx.pk?subject=Hi">Mail</a><p>bookings@salonx.pk</p></body>'
     )
     tree = _tree(html)
     text = visible_text(tree)
@@ -175,8 +174,7 @@ def test_cloudflare_obfuscated_email_is_decoded() -> None:
     the address to every visitor."""
     encoded = _cfemail("owner@salonx.pk", key=0x2A)
     html = (
-        f'<body><a class="__cf_email__" data-cfemail="{encoded}">'
-        "[email&#160;protected]</a></body>"
+        f'<body><a class="__cf_email__" data-cfemail="{encoded}">[email&#160;protected]</a></body>'
     )
     tree = _tree(html)
     assert extract_emails(tree, visible_text(tree)) == ["owner@salonx.pk"]
@@ -290,9 +288,7 @@ def test_contact_pages_rank_above_about_pages() -> None:
 
 def test_link_text_finds_a_contact_page_with_an_unhelpful_path() -> None:
     html = '<body><a href="/pages/p2">Get in touch</a></body>'
-    assert find_crawl_targets(_tree(html), "https://salonx.pk/") == [
-        "https://salonx.pk/pages/p2"
-    ]
+    assert find_crawl_targets(_tree(html), "https://salonx.pk/") == ["https://salonx.pk/pages/p2"]
 
 
 def test_offsite_links_and_assets_are_not_crawl_targets() -> None:
@@ -303,6 +299,21 @@ def test_offsite_links_and_assets_are_not_crawl_targets() -> None:
       <a href="#contact">Contact</a>
     </body>"""
     assert find_crawl_targets(_tree(html), "https://salonx.pk/") == []
+
+
+def test_an_unparseable_href_is_skipped_not_fatal() -> None:
+    """A DFW med spa's booking plugin left a placeholder host in its markup.
+    ``urljoin`` raises on the bracketed non-IP host, and that exception ended
+    a 557-site crawl at row 534. The bad link is skipped; the good one stays."""
+    html = """<body>
+      <a href="https://[ameliastepbooking]/book">Book</a>
+      <a href="/contact-us">Contact</a>
+      <a href="https://[ameliastepbooking]/fb">Facebook</a>
+      <a href="https://facebook.com/salonx">Facebook</a>
+    </body>"""
+    targets = find_crawl_targets(_tree(html), "https://salonx.pk/")
+    assert targets == ["https://salonx.pk/contact-us"]
+    assert extract_socials(_tree(html), "https://salonx.pk/")[0] == "https://facebook.com/salonx"
 
 
 def test_crawl_targets_are_deduped_and_capped() -> None:
@@ -352,7 +363,7 @@ def test_an_empty_page_yields_nothing_and_says_so() -> None:
 
 
 def test_parse_page_accepts_bytes_with_a_declared_charset() -> None:
-    body = '<body><p>Call 0300-1234567</p></body>'.encode("windows-1252")
+    body = "<body><p>Call 0300-1234567</p></body>".encode("windows-1252")
     extract = parse_page("https://x.pk/", body, "text/html; charset=windows-1252")
     assert [p.e164 for p in extract.text_phones] == ["+923001234567"]
 

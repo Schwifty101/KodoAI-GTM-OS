@@ -1,0 +1,391 @@
+# LinkedIn DM Framework
+
+The goal of LinkedIn outreach is **not to pitch your product**.
+
+The goal is to **start conversations with qualified prospects by proving you understand their world.**
+
+---
+
+# Core Principles
+
+Everything comes down to three things:
+
+1. **Relevance** — Make the message about them.
+2. **Specificity** — Prove you've done your homework.
+3. **Consistency** — Follow a repeatable outreach system.
+
+---
+
+# Rule 1 — Earn the Right to DM
+
+Don't rely on InMail.
+
+Instead:
+
+1. Send a personalized connection request.
+2. Wait for acceptance.
+3. Start the conversation via DM.
+
+The connection acceptance is permission to start a conversation.
+
+---
+
+# Rule 2 — Use Voice Notes Strategically
+
+Voice notes create trust because they:
+
+- Feel human
+- Show effort
+- Build rapport faster than text
+
+Use them for:
+
+- Following up with non-responders
+- Re-engaging cold leads
+- High-priority prospects
+
+Don't send voice notes to everyone.
+
+---
+
+# Rule 3 — Use Video for High-Value Prospects
+
+Video is the strongest trust builder because it:
+
+- Interrupts the normal pattern
+- Shows personality
+- Demonstrates effort
+
+Reserve video for:
+
+- High-priority prospects
+- Warm leads that went cold
+- Referral or event follow-ups
+
+---
+
+# Rule 4 — Have a System
+
+Treat LinkedIn like a CRM.
+
+Suggested pipeline:
+
+- Connected
+- DM Sent
+- Responded
+- Meeting Scheduled
+- Nurture
+- Closed Lost
+
+Consistency beats random outreach.
+
+---
+
+# Rule 5 — Give Value Before You Pitch
+
+Never start with your company.
+
+Start with **their business.**
+
+DM Formula:
+
+## 1. Observation
+
+Something specific you noticed.
+
+> "Only two of your AEs posted on LinkedIn in the last month."
+
+---
+
+## 2. Implication
+
+Why that matters.
+
+> "That's likely costing qualified inbound opportunities."
+
+---
+
+## 3. Value
+
+Offer something useful.
+
+> "I built a framework that fixes this."
+
+---
+
+## 4. Low-Friction Ask
+
+Ask for almost nothing.
+
+Examples:
+
+- Open to seeing it?
+- Want me to send it over?
+- Worth sharing?
+
+---
+
+# Rule 6 — Be Hyper-Specific
+
+Generic personalization isn't personalization.
+
+Bad:
+
+> Congrats on the new role!
+
+Good:
+
+> Really enjoyed your post about reverse selling, especially your point about asking prospects what would disqualify you.
+
+Good personalization comes from:
+
+- Recent posts
+- Promotions
+- Company news
+- Hiring
+- Product launches
+- Profile experience
+- About section
+
+Spend 30–60 seconds researching before messaging.
+
+---
+
+# Rule 7 — Ask One Question
+
+Every additional question creates friction.
+
+Bad:
+
+- Are you using LinkedIn?
+- How's outbound?
+- What's your biggest challenge?
+- When can we chat?
+
+Good:
+
+> Are you currently using LinkedIn for outbound?
+
+Best question types:
+
+- Yes / No
+- Clarifying
+- Permission-based
+
+Avoid:
+
+- Multiple questions
+- Huge open-ended questions
+
+One message.
+
+One question.
+
+---
+
+# Rule 8 — Make It About Them
+
+Count pronouns.
+
+Too many:
+
+- I
+- We
+- Our
+- My
+
+Not enough:
+
+- You
+- Your
+
+Lead with:
+
+- Their business
+- Their goals
+- Their problem
+- Their opportunity
+
+People care about themselves before they care about your solution.
+
+---
+
+# Rule 9 — Mirror Their Communication Style
+
+Adapt to how they communicate.
+
+Mirror:
+
+- Response speed
+- Message length
+- Tone
+- Formality
+- Emoji usage
+- Energy
+
+People naturally trust people who communicate like they do.
+
+---
+
+# Rule 10 — End With a Clear Next Step
+
+Never let conversations fade.
+
+Always finish with a simple next action.
+
+Examples:
+
+- Want me to send the framework?
+- Open to learning more?
+- Thursday at 3 or Friday at 9?
+
+Never drop a scheduling link immediately.
+
+Suggest two times instead.
+
+---
+
+# The LinkedIn DM Formula
+
+```text
+Research
+      ↓
+Specific Observation
+      ↓
+Explain Why It Matters
+      ↓
+Offer Value
+      ↓
+One Simple Question
+      ↓
+Clear Next Step
+```
+
+---
+
+# The Three Pillars
+
+## 1. Relevance
+
+Make every message about the prospect.
+
+Not about you.
+
+---
+
+## 2. Specificity
+
+Reference something real.
+
+Examples:
+
+- Recent post
+- Promotion
+- Company announcement
+- Hiring
+- Industry trend
+
+Specificity proves effort.
+
+---
+
+## 3. Systems
+
+Daily consistency wins.
+
+Example cadence:
+
+25 DMs/day
+↓
+125/week
+↓
+500/month
+↓
+6,000/year
+
+Great outreach isn't about intensity.
+
+It's about consistency.
+
+---
+
+# LLM Prompt
+
+## Task
+
+Rewrite the following LinkedIn outreach message using this framework.
+
+### Step 1 — Research & Personalize
+
+- Reference something real and specific.
+- Use recent posts, company news, hiring, promotions, product launches, or profile details.
+- Avoid generic compliments.
+
+### Step 2 — Lead With an Observation
+
+- Identify something specific about the prospect's business.
+- Demonstrate that you've done your homework.
+
+### Step 3 — Explain the Implication
+
+- Explain why the observation matters.
+- Highlight the cost, risk, or missed opportunity.
+
+### Step 4 — Offer Value
+
+- Share a useful insight, framework, resource, or idea.
+- Don't pitch immediately.
+- Give before asking.
+
+### Step 5 — Ask One Low-Friction Question
+
+Ask only one simple question.
+
+Prefer:
+
+- Yes/No
+- Clarifying
+- Permission-based
+
+Examples:
+
+- Open to seeing it?
+- Worth sharing?
+- Is this relevant?
+
+### Step 6 — End With a Clear Next Step
+
+Always suggest a concrete next action.
+
+Examples:
+
+- Thursday at 3 or Friday at 9?
+- Want me to send the framework?
+- Happy to share an example.
+
+## Writing Style
+
+- Conversational
+- Short sentences
+- Plain English
+- Customer-centric
+- Specific
+- Helpful
+- Non-pushy
+- Confident
+- Human
+- No corporate jargon
+- No hype
+- No generic personalization
+- Make the reader feel understood before presenting the solution.
+
+## Output Format
+
+Return:
+
+1. Personalized Opening
+2. Observation
+3. Implication
+4. Value Offer
+5. Low-Friction Question
+6. Final LinkedIn DM

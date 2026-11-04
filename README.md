@@ -531,6 +531,113 @@ so a US egress IP answers a Lahore query with the wrong businesses. Falling back
 to direct would produce a full run of plausible, wrong data, so
 `resolve_proxy("google_maps")` raises instead. This is correctness, not evasion.
 
+**A cached Maps re-run sees about one scroll page per query.** Measured during
+the Phase 9 recon: the same six New York queries gave 269 unique businesses
+live and 102 from cache. `GoogleMapsSource._store` keeps the single richest
+payload per query, but a live query merges every scroll's payload, so a repeat
+of a city × category inside the 7-day listing TTL is silently thinner than the
+first run. Store all payloads (or the merged parse) before relying on a
+repeat run for anything.
+
+**ContactOut's API is not the ContactOut extension.** A key issued from the
+extension's account answers every API call with HTTP 200 and a canned
+"Example Person" (`email1@example.com`) — a 200 is not data, the same lesson
+as Instagram's. The Phase 9 spike treats that response as a miss; the API
+itself is sales-gated.
+
+**`--email` will not spend a credit on an unscreened row.** Run
+`spike_medspa_ny.py --qualify` first (cache only, no network). It writes
+`core/icp.py`'s account and buyer verdicts into the state file. `--email` refuses
+without them and queues **only `qualified` accounts**, qualified buyers first.
+Ambiguous accounts never get a credit (operator decision, 30 Sep 2026); they
+wait for a human. `--retry-missing` re-walks the no-email backlog, and
+`--until-hunter-exhausted` stops the run when Hunter's allowance is gone.
+`--region ut` runs the same pipeline on Utah. Utah has no state-registry stage,
+because its Division of Corporations hasn't been reconned. The category map in
+`icp.CATEGORY_CLASSES` carries its measured counts. Moving a category between
+classes is a new measurement, not an edit (see §8's ICP note: the massage
+categories were guessed ambiguous and measured at 0 of 21).
+
+**Hunter has a gate, not just a queue order (operator, 7 Oct 2026).** Utah
+batch 1 sorted its queue well and then kept walking it, so 32 of its 48 Hunter
+calls went to domain searches on rows with no buyer, for 1 email.
+`icp.hunter_eligible` now refuses any Hunter call unless all of these hold:
+the account is `qualified`, the buyer is `qualified` with a first and last
+name, the business has its own domain, nothing cheaper already found an
+address, and no other row on the same domain has been called this run. Domain
+search is off unless you pass `--allow-domain-search`. `--hunter-key {1,2,3,4}`
+picks `HUNTER_API_KEY` or `HUNTER_API_KEY_<n>` and prints that key's live
+balance. `--hunter-budget N` (default 25) is a hard cap on live *calls*, and the
+balance does **not** cap it. Hunter charges a search only when the finder
+returns an address (Houston: 140 calls cost 46 searches), so capping calls at
+the number of searches left stops spend at about a third of the allowance. To
+use up a key, pass a high budget with `--until-hunter-exhausted`. `--email --dry-run` prints the exact spend plan; show
+it to the operator before a live run. Each row's `email.attempts` records why
+Hunter was skipped, and the CSV's `hunter_gate` column shows it.
+`--gate-all-metered` applies the same account and buyer rules to Tomba, Snov,
+Prospeo and RocketReach.
+
+**`--hunter-keys 3,1,4,2` spends several keys in one run (29 Oct 2026).** Order
+them soonest reset first, because an unused search is lost at reset. The run
+prints every key's live balance and refuses to go live if any balance is
+unknown. When Hunter answers 429/402 ("limit for the number of searches per
+billing period"), the *same* query is retried on the next key, so the row is
+answered rather than recorded as a miss. `--until-hunter-exhausted` stops only
+when the last key is spent. The Hunter cache key never contains the API key: a
+cached "not found" is a fact about the query, so rotation never re-pays for
+one. The summary line reports live calls per key slot. A key whose live
+balance reads 0 is skipped. A balance of 1 is not trustworthy, because
+Hunter's charges land late: keys 1 and 4 both read "1 search left" on 29 Oct
+and answered 429 on the first call. Pinned in `tests/test_spike_medspa.py`.
+
+**When every key is spent, the queue stops and the free site-email step stops
+with it.** The waterfall breaks out once every vendor is dead, so rows below
+that point never get their free `site_personal` check. Run that check alone on
+the untried rows; DFW b2q found 2 more this way. Leave every other row with no
+`email` key, so it is queued again after the reset.
+
+**`--master` appends a batch to `texas_medspa_leads_master.csv`.** The master
+is the batch CSV's columns plus `batch` and `lead_tier`. `email` means an
+address that is **not accept-all**, whatever its score; this includes Tomba's
+`accept_all: true` even when it labels the address `valid`. An address the mail
+server **rejected** (`invalid`, as RocketReach returned once in San Antonio) is
+kept off too: it would bounce. `linkedin` means
+otherwise a qualified buyer with a LinkedIn URL; an accept-all address on such
+a row is blanked on the master only and stays in the state file and batch CSV.
+Rows are deduped on `maps_url`, then on (website domain, buyer name), so a
+second branch of the same owner is one lead. The one rewrite allowed is
+`linkedin` → `email` in place. The previous file is copied to
+`data/spike/master_backups/` before each write, and the write is refused if
+any accept-all row would land on the master. `--dry-run` prints what would
+happen.
+
+**Stages may overlap, but Maps may not (29 Oct 2026).** `FetchCache.put` is a
+Postgres upsert, so two processes caching one URL no longer crash on a
+duplicate key; the second waits for the first to commit. That makes it safe to
+crawl one metro while Maps discovers the next. Two Maps runs at once stay off
+the table: pacing is per process, and two would double the rate from one IP.
+Pinned by `test_two_processes_caching_one_url_do_not_collide`.
+
+**`--linkedin` spends Serper on the rows that can use it.** Once `--qualify`
+has run, only qualified accounts are searched. Rows with no qualified buyer go
+first, biggest by review count, because LinkedIn is their only route to a
+Hunter-eligible buyer. `--serper-budget N` caps live calls; rows left over keep
+no `linkedin` key, so a later run picks them up.
+
+**Texas is discovered one metro at a time.** `--region tx --metro houston
+--tiles 0`. Note that `--tiles` defaults to 3, so pass `0` to get every tile.
+Each row stores `metro`, taken from the query that found it, and
+`address_city`. The CSV appends both. Discovery reports how many address cities
+fall outside the metro's tile list, and keeps those rows. Later metros dedupe
+against Houston with `--exclude`. `--slice --into <batch.json>` cuts a batch
+(category, in-state ZIP, own domain) reproducibly, and `--buyers` prints every
+chosen buyer with its evidence so you can eyeball them.
+
+**A cached 429 is not an answer.** The spike's `cached_json` used to cache a
+vendor's "out of searches" like any other response, which made the no-email
+backlog unretryable for 30 days after the quota reset. It now refetches cached
+402/429 bodies. Any new vendor code must do the same.
+
 **We never test whether a number has WhatsApp.** There is no legitimate API for
 it and automating WhatsApp Web gets the probing number banned. `whatsapp.py`
 scores published evidence and nothing in it should ever make a network call.

@@ -54,6 +54,30 @@ class Settings(BaseSettings):
     meta_app_id: str = ""
     meta_app_secret: str = ""
     meta_access_token: str = ""
+    # Phase 9 recon (scripts/spike_medspa_ny.py). §4.1 excludes these for
+    # Pakistan — "effectively no coverage of Pakistani SMBs" — which is a
+    # statement about PK coverage, not about the vendors. A US vertical is the
+    # case they were built for, and the spike measures whether that holds.
+    hunter_api_key: str = ""
+    # Further Hunter free-tier accounts, each with its own 50 searches + 100
+    # verifications and its own reset day. The spike picks one per run with
+    # ``--hunter-key {1,2,3,4}``; slot 1 is ``hunter_api_key``.
+    hunter_api_key_2: str = ""
+    hunter_api_key_3: str = ""
+    hunter_api_key_4: str = ""
+    contactout_api_key: str = ""
+    # The rest of the Phase 9 waterfall. Measured Sep 2026 on one control with
+    # known ground truth; see §8's vendor table for what each returns and which
+    # two do not work (Lusha refuses every contact on compliance grounds, and
+    # Apollo's free plan answers every endpoint with 403 API_INACCESSIBLE).
+    tomba_api_key: str = ""
+    tomba_api_secret: str = ""
+    snov_api_user_id: str = ""
+    snov_api_key: str = ""
+    prospeo_api_key: str = ""
+    rocketreach_api_key: str = ""
+    lusha_api_key: str = ""
+    apollo_api_key: str = ""
 
     # ---------------------------------------------------------------- pacing (§7)
     concurrency: int = Field(default=3, ge=1, le=8)

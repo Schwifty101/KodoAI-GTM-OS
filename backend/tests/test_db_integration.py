@@ -85,9 +85,7 @@ def test_full_row_round_trip(db_session: Session) -> None:
     )
     db_session.flush()
 
-    loaded = db_session.execute(
-        select(Business).where(Business.id == business.id)
-    ).scalar_one()
+    loaded = db_session.execute(select(Business).where(Business.id == business.id)).scalar_one()
     assert len(loaded.contacts) == 1
     assert loaded.contacts[0].wa_label == WhatsAppLabel.CONFIRMED
     assert loaded.contacts[0].belongs_to == "owner"
@@ -96,9 +94,7 @@ def test_full_row_round_trip(db_session: Session) -> None:
 def test_place_id_is_unique_within_a_run(db_session: Session) -> None:
     run = _make_run(db_session)
     for _ in range(2):
-        db_session.add(
-            Business(run_id=run.id, name="X", name_norm="x", place_id="ChIJsame")
-        )
+        db_session.add(Business(run_id=run.id, name="X", name_norm="x", place_id="ChIJsame"))
     with pytest.raises(IntegrityError):
         db_session.flush()
 
@@ -164,6 +160,69 @@ def test_cache_put_get_round_trip(fetch_cache: FetchCache) -> None:
 
 def test_cache_miss_returns_none(fetch_cache: FetchCache) -> None:
     assert fetch_cache.get("https://example.com/never-fetched") is None
+
+
+def test_a_second_put_is_what_the_same_session_reads_back(fetch_cache: FetchCache) -> None:
+    """The upsert bypasses the identity map. ``cached_json`` loads a cached
+    429, refetches, and puts the 200 — a ``get`` in that same session must
+    then see the 200, not the row it loaded first."""
+    url = "https://api.hunter.io/v2/email-finder?domain=a.com"
+    fetch_cache.put(url, b'{"errors": []}', status=429)
+    assert fetch_cache.get(url).status == 429
+
+    fetch_cache.put(url, b'{"data": {}}', status=200)
+
+    assert fetch_cache.get(url).status == 200
+    assert fetch_cache.get(url).body == b'{"data": {}}'
+    rows = fetch_cache.session.scalars(select(RawFetch).where(RawFetch.url_hash == url_hash(url)))
+    assert len(rows.all()) == 1
+
+
+def test_two_processes_caching_one_url_do_not_collide(tmp_path) -> None:
+    """Two scripts fetching the same page used to crash the second one on a
+    duplicate key: both looked, both saw no row, both inserted. Now the second
+    waits for the first to commit and overwrites it.
+
+    Real commits on two connections, so the row is deleted afterwards."""
+    import threading
+
+    from leadscraper.config import get_settings
+    from leadscraper.core.cache import DiskArchive
+    from tests.conftest import _test_engine
+
+    engine = _test_engine()
+    url = f"https://example.com/race-{uuid.uuid4()}"
+    archive = DiskArchive(tmp_path)
+    first, second = Session(engine), Session(engine)
+    errors: list[BaseException] = []
+
+    def other_process() -> None:
+        try:
+            FetchCache(second, get_settings(), archive).put(url, b"second", status=404)
+            second.commit()
+        except BaseException as exc:  # noqa: BLE001 — reported by the assert below
+            errors.append(exc)
+
+    try:
+        FetchCache(first, get_settings(), archive).put(url, b"first")  # holds the row, uncommitted
+        worker = threading.Thread(target=other_process)
+        worker.start()
+        worker.join(0.5)  # it is now waiting on the first writer's lock
+        first.commit()
+        worker.join(10)
+
+        assert not worker.is_alive()
+        assert errors == []
+        with Session(engine) as check:
+            assert check.get(RawFetch, url_hash(url)).status == 404
+    finally:
+        first.rollback()
+        second.rollback()
+        with Session(engine) as cleanup:
+            cleanup.query(RawFetch).filter_by(url_hash=url_hash(url)).delete()
+            cleanup.commit()
+        first.close()
+        second.close()
 
 
 def test_cache_normalises_urls_on_the_way_in_and_out(fetch_cache: FetchCache) -> None:

@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import os
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from leadscraper.config import Settings, get_settings
@@ -100,8 +103,9 @@ class DiskArchive:
         path = self.path_for(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         # Write-then-rename so a crash mid-write never leaves a truncated body
-        # that a later run would happily parse as real content.
-        tmp = path.with_suffix(".gz.tmp")
+        # that a later run would happily parse as real content. The temp name
+        # is per process and thread, so two writers of one key never share it.
+        tmp = path.with_suffix(f".gz.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_bytes(gzip.compress(body))
         tmp.replace(path)
         return path
@@ -183,22 +187,29 @@ class FetchCache:
         key = url_hash(url)
         path = self.archive.write(key, body)
         now = datetime.now(UTC)
-
-        row = self.session.get(RawFetch, key)
-        if row is None:
-            row = RawFetch(url_hash=key)
-            self.session.add(row)
-
-        row.url = normalise_url(url)
-        row.status = status
-        row.content_type = content_type
-        row.body_path = str(path)
-        row.body_bytes = len(body)
-        row.source = source
-        row.kind = kind.value
-        row.fetched_at = now
-        row.expires_at = now + self.ttl_for(kind)
-        self.session.flush()
+        values = {
+            "url": normalise_url(url),
+            "status": status,
+            "content_type": content_type,
+            "body_path": str(path),
+            "body_bytes": len(body),
+            "source": source,
+            "kind": kind.value,
+            "fetched_at": now,
+            "expires_at": now + self.ttl_for(kind),
+        }
+        # One statement, not get-then-add: two processes caching the same URL
+        # both saw no row, both inserted, and the second died on a duplicate
+        # key mid-stage. A concurrent writer now waits for the first to commit
+        # and overwrites it — the newer body wins, as it does in one process.
+        stmt = pg_insert(RawFetch).values(url_hash=key, **values)
+        self.session.execute(
+            stmt.on_conflict_do_update(index_elements=[RawFetch.url_hash], set_=values)
+        )
+        # The upsert bypasses the identity map. A row this session already
+        # loaded would otherwise keep answering get() with its old status and
+        # expiry — a refetched 429 would still read as a 429.
+        self.session.get(RawFetch, key, populate_existing=True)
         return key
 
     def is_fresh(self, url: str, kind: FetchKind = FetchKind.DETAIL) -> bool:

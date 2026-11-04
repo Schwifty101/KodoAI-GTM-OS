@@ -72,10 +72,22 @@ _EMAIL_RE = re.compile(
 # means emailing Sentry about a Lahore salon.
 _EMAIL_NOISE_DOMAINS = frozenset(
     {
-        "example.com", "example.org", "domain.com", "yourdomain.com",
-        "email.com", "sentry.io", "sentry.wixpress.com", "wix.com",
-        "wordpress.org", "wordpress.com", "godaddy.com", "squarespace.com",
-        "schema.org", "w3.org", "googleapis.com", "gstatic.com",
+        "example.com",
+        "example.org",
+        "domain.com",
+        "yourdomain.com",
+        "email.com",
+        "sentry.io",
+        "sentry.wixpress.com",
+        "wix.com",
+        "wordpress.org",
+        "wordpress.com",
+        "godaddy.com",
+        "squarespace.com",
+        "schema.org",
+        "w3.org",
+        "googleapis.com",
+        "gstatic.com",
     }
 )
 
@@ -104,8 +116,23 @@ _CONTACT_TEXT_RE = re.compile(r"contact|get in touch|reach us|رابطہ", re.IG
 _ABOUT_TEXT_RE = re.compile(r"\babout\b|our story|our team|who we are", re.IGNORECASE)
 
 _NON_PAGE_SUFFIXES = (
-    ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".zip", ".mp4",
-    ".doc", ".docx", ".xls", ".xlsx", ".css", ".js", ".ico", ".xml",
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".zip",
+    ".mp4",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".css",
+    ".js",
+    ".ico",
+    ".xml",
 )
 
 # --------------------------------------------------------------------------- #
@@ -114,10 +141,24 @@ _NON_PAGE_SUFFIXES = (
 
 _JSONLD_BUSINESS_TYPES = frozenset(
     {
-        "organization", "corporation", "store", "restaurant", "cafe", "bakery",
-        "beautysalon", "hairsalon", "dayspa", "healthandbeautybusiness",
-        "autorepair", "automotivebusiness", "realestateagent", "professionalservice",
-        "foodestablishment", "sportsactivitylocation", "place", "medicalclinic",
+        "organization",
+        "corporation",
+        "store",
+        "restaurant",
+        "cafe",
+        "bakery",
+        "beautysalon",
+        "hairsalon",
+        "dayspa",
+        "healthandbeautybusiness",
+        "autorepair",
+        "automotivebusiness",
+        "realestateagent",
+        "professionalservice",
+        "foodestablishment",
+        "sportsactivitylocation",
+        "place",
+        "medicalclinic",
     }
 )
 
@@ -262,8 +303,7 @@ def _looks_like_whatsapp_widget(node) -> bool:
         if current is None:
             return False
         blob = " ".join(
-            [current.tag or ""]
-            + [f"{k} {v or ''}" for k, v in (current.attributes or {}).items()]
+            [current.tag or ""] + [f"{k} {v or ''}" for k, v in (current.attributes or {}).items()]
         )
         if _WIDGET_HINT_RE.search(blob):
             return True
@@ -341,6 +381,20 @@ def _is_plausible_email(email: str) -> bool:
     return "." in domain and len(domain) > 3
 
 
+def _absolute(base_url: str, href: str) -> str | None:
+    """``urljoin``, or None for an href no URL parser accepts.
+
+    Measured on a DFW med spa, Oct 2026: a booking plugin left
+    ``https://[ameliastepbooking]/…`` in the page, ``urljoin`` raised
+    ``ValueError`` on the bracketed non-IP host, and the exception ended the
+    whole crawl at row 534. One bad link is one link, not a page.
+    """
+    try:
+        return urljoin(base_url, href)
+    except ValueError:
+        return None
+
+
 def extract_socials(tree: HTMLParser, base_url: str) -> tuple[str | None, str | None]:
     """First real Facebook and Instagram *profile* link on the page.
 
@@ -354,7 +408,9 @@ def extract_socials(tree: HTMLParser, base_url: str) -> tuple[str | None, str | 
         href = (node.attributes.get("href") or "").strip()
         if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
             continue
-        absolute = urljoin(base_url, href)
+        absolute = _absolute(base_url, href)
+        if absolute is None:
+            continue
         host = registrable_domain(absolute) or ""
         if _SOCIAL_NOISE_RE.search(urlsplit(absolute).path):
             continue
@@ -469,7 +525,9 @@ def find_crawl_targets(tree: HTMLParser, base_url: str, limit: int = 3) -> list[
         if not href or href.startswith(("#", "mailto:", "tel:", "javascript:", "callto:")):
             continue
 
-        absolute = urljoin(base_url, href)
+        absolute = _absolute(base_url, href)
+        if absolute is None:
+            continue
         parts = urlsplit(absolute)
         if parts.scheme not in ("http", "https"):
             continue

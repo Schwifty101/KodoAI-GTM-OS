@@ -23,9 +23,14 @@
  * has to be answerable per run and per batch. It matches on the batch **recorded
  * at pull time**, so a business that has since gained a website still appears
  * under the batch it was actually messaged in.
+ *
+ * Selection is re-copying, not re-extracting. The ledger's rows are already
+ * marked; ticking some of them and copying only those numbers is how an operator
+ * resumes a send that stopped halfway, or re-sends to a subset, without pulling
+ * anything new. It writes nothing — no mark, no clear, no suppression.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   api,
@@ -45,6 +50,11 @@ export default function ExtractedScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // The row a shift-click extends *from*, as an index into the list as
+  // rendered — "everything between these two rows" is a statement about what is
+  // on screen, and the screen is what the operator is reading.
+  const anchor = useRef<number | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -71,14 +81,73 @@ export default function ExtractedScreen() {
     api.batches().then(setCatalogue).catch((e) => setError(String(e)));
   }, []);
 
+  // A filter change, a clear or a reload replaces the list. Ids that are no
+  // longer on it must not stay selected, or "copy 12 selected" would put numbers
+  // on the clipboard from rows the operator can no longer see.
+  useEffect(() => {
+    anchor.current = null;
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Set(entries.map((e) => e.id));
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [entries]);
+
+  /**
+   * Tick one row, or — holding shift — every row between it and the last one
+   * ticked. The whole range takes the clicked box's new state, so shift-clicking
+   * a ticked row clears the span as readily as it fills one.
+   */
+  const toggleRow = useCallback(
+    (index: number, checked: boolean, extend: boolean) => {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        const from = extend && anchor.current !== null ? anchor.current : index;
+        const [lo, hi] = from <= index ? [from, index] : [index, from];
+        for (let i = lo; i <= hi; i += 1) {
+          const id = entries[i]?.id;
+          if (!id) continue;
+          if (checked) next.add(id);
+          else next.delete(id);
+        }
+        return next;
+      });
+      // The anchor follows the row actually clicked, shift or not, so a second
+      // shift-click extends from there rather than from the first row ever
+      // touched.
+      anchor.current = index;
+    },
+    [entries],
+  );
+
   const numbers = useMemo(
     () => [...new Set(entries.flatMap((e) => e.numbers))],
     [entries],
   );
+  // Selected rows in listed order, deduped the same way `numbers` is: two
+  // businesses sharing a landline are one paste, not two.
+  const selectedNumbers = useMemo(
+    () => [
+      ...new Set(
+        entries.filter((e) => selected.has(e.id)).flatMap((e) => e.numbers),
+      ),
+    ],
+    [entries, selected],
+  );
+  const allSelected = entries.length > 0 && selected.size === entries.length;
   const total = useMemo(
     () => Object.values(counts).reduce((sum, n) => sum + n, 0),
     [counts],
   );
+
+  async function copyNumbers(list: string[], what: string) {
+    setNotice(
+      (await copyToClipboard(list.join("\n")))
+        ? `Copied ${list.length} ${what} number(s).`
+        : "The browser refused the clipboard.",
+    );
+  }
 
   async function clearOne(entry: ExtractionEntry) {
     try {
@@ -135,7 +204,8 @@ export default function ExtractedScreen() {
       <h1>Extracted</h1>
       <p className="subtitle">
         Businesses already pulled for outreach. Clearing one puts it back in the
-        queue — it is not a §15 suppression.
+        queue — it is not a §15 suppression. Tick rows (shift-click for a range)
+        to re-copy just those numbers.
       </p>
 
       {error && <div className="notice bad">{error}</div>}
@@ -185,18 +255,37 @@ export default function ExtractedScreen() {
         <span className="muted">
           extracted{loading && " · loading…"} · {numbers.length} distinct number(s)
         </span>
+        {selected.size > 0 && (
+          <>
+            <span className="badge likely">
+              {selected.size} selected · {selectedNumbers.length} number(s)
+            </span>
+            {/* "Deselect", never "clear" — on this screen clear is the word for
+                retracting a send, and the two must not blur together. */}
+            <button className="small" onClick={() => setSelected(new Set())}>
+              Deselect all
+            </button>
+          </>
+        )}
         <span className="spacer" />
         <Link href="/results">
           <button>Back to results</button>
         </Link>
+        {/* Two buttons rather than one that changes meaning: "copy" landing on a
+            subset because three rows happened to be ticked is the kind of
+            surprise that gets the wrong list messaged. */}
+        {selected.size > 0 && (
+          <button
+            className="primary"
+            onClick={() => copyNumbers(selectedNumbers, "selected")}
+            disabled={selectedNumbers.length === 0}
+            title="Only the numbers on the ticked rows, as they were sent"
+          >
+            Copy {selectedNumbers.length} selected
+          </button>
+        )}
         <button
-          onClick={async () =>
-            setNotice(
-              (await copyToClipboard(numbers.join("\n")))
-                ? `Copied ${numbers.length} number(s).`
-                : "The browser refused the clipboard.",
-            )
-          }
+          onClick={() => copyNumbers(numbers, "listed")}
           disabled={numbers.length === 0}
           title="Re-copy every number in this list, as it was sent"
         >
@@ -211,6 +300,23 @@ export default function ExtractedScreen() {
         <table>
           <thead>
             <tr>
+              <th style={{ width: 28 }}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = selected.size > 0 && !allSelected;
+                  }}
+                  onChange={(e) => {
+                    anchor.current = null;
+                    setSelected(
+                      e.target.checked ? new Set(entries.map((x) => x.id)) : new Set(),
+                    );
+                  }}
+                  disabled={entries.length === 0}
+                  title="Select every row listed"
+                />
+              </th>
               <th>business</th>
               <th>batch</th>
               <th>city</th>
@@ -223,8 +329,29 @@ export default function ExtractedScreen() {
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => (
-              <tr key={entry.id}>
+            {entries.map((entry, index) => (
+              <tr
+                key={entry.id}
+                className={selected.has(entry.id) ? "selected" : ""}
+              >
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(entry.id)}
+                    onChange={(e) =>
+                      toggleRow(
+                        index,
+                        e.target.checked,
+                        // The change came from a click on the box, so the native
+                        // event is the MouseEvent that carries the modifier. A
+                        // keyboard toggle has no shiftKey and reads as false,
+                        // which is the right answer for it.
+                        (e.nativeEvent as MouseEvent).shiftKey === true,
+                      )
+                    }
+                    title="Click to select · shift-click to select the range from the last row you clicked"
+                  />
+                </td>
                 <td>{entry.business_name ?? <span className="muted">—</span>}</td>
                 <td className="small">
                   <LedgerBatch entry={entry} catalogue={catalogue} />
@@ -272,7 +399,7 @@ export default function ExtractedScreen() {
             ))}
             {entries.length === 0 && !loading && (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <span className="muted">
                     {batchFilter
                       ? "Nothing from this batch has been extracted yet."

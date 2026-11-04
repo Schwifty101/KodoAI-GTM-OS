@@ -115,7 +115,8 @@ The layering is consistent and worth matching when adding a source:
   (§9.3 evidence scoring), `webparse.py` (one HTML page → wa.me, widgets, `tel:`,
   JSON-LD, socials), `site_evidence.py` (a domain's pages → scored findings), `cache.py`
   (§7 content-addressed archive), `pacing.py`, `geo.py`, `scoring.py`,
-  `textnorm.py`, `batches.py` (_BATCH_SPEC's cascade — food only).
+  `textnorm.py`, `batches.py` (_BATCH_SPEC's cascade — food only), `icp.py`
+  (MedSpa/ §3's account and buyer gates; measured category map).
 - `sources/` — one module per external source. Cache-first fetch, own circuit breaker,
   own pacing policy. Parsing is a pure function taking `(url, body)` so it is testable
   from a string literal.
@@ -201,8 +202,12 @@ data, and most are pinned by a test.
   cp1252 raises `UnicodeEncodeError` on Urdu and Arabic text.
 - **Run only one pytest process at a time**, and never point tests at the main DB. Tests
   use a separate `leads_test` database, reset automatically by conftest.
-- **Never run two scraping scripts concurrently.** Two processes writing the same cache
-  key produce a duplicate-key crash, and the DB session only commits at stage end.
+- **Never run two Google Maps scrapers concurrently.** Pacing is per process, so two
+  would double the rate from one unproxied IP. Other stages may overlap a Maps run, or
+  each other on different inputs: `FetchCache.put` has been an upsert since 29 Oct 2026,
+  so two writers of one cache key no longer crash on a duplicate key. The second one
+  *waits* for the first to commit, though, and a stage that commits only at its end
+  holds that lock for the whole stage. Never point two processes at the same state file.
 - **Postgres is on port 5433**, not 5432. Containers stop when Docker Desktop stops but
   the volumes survive; `docker compose up -d` brings the seven existing runs back.
 - **A 200 is not a page.** Instagram answers a logged-out fetch with HTTP 200 and 605 KB
