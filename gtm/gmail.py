@@ -42,9 +42,11 @@ def build_raw_message(to: str, subject: str, body: str) -> str:
     return base64.urlsafe_b64encode(m.as_bytes()).decode()
 
 
-def create_draft(svc, to: str, subject: str, body: str) -> str:
-    out = svc.users().drafts().create(userId="me", body={"message": {"raw": build_raw_message(to, subject, body)}}).execute()
-    return out["id"]
+def create_draft(svc, to: str, subject: str, body: str, thread_id: str | None = None) -> str:
+    message = {"raw": build_raw_message(to, subject, body)}
+    if thread_id:
+        message["threadId"] = thread_id  # Touch 2 and 3 reply in the Touch 1 thread
+    return svc.users().drafts().create(userId="me", body={"message": message}).execute()["id"]
 
 
 def send_draft(svc, draft_id: str) -> str:

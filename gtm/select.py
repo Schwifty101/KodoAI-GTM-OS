@@ -11,6 +11,13 @@ REASON_SYSTEM = (
 )
 
 
+def blocked_reason(lead: dict, suppressed: set[str], contacted: set[str]) -> str | None:
+    """One entry (an email or a domain) blocks the whole company: MedSpa allows one Touch 1 per company."""
+    email = (lead.get("owner_email") or "").lower()
+    keys = {email, email.split("@")[-1], (lead.get("domain") or "").lower()} - {""}
+    return "suppressed" if keys & suppressed else "already_contacted" if keys & contacted else None
+
+
 def select_decision(lead: dict, suppressed: set[str], contacted: set[str]) -> tuple[bool, str]:
     """(selected?, code). suppressed and contacted hold lowercase emails AND domains, so one entry blocks a whole company."""
     if lead.get("status") != Status.SIGNALLED.value:
@@ -18,11 +25,9 @@ def select_decision(lead: dict, suppressed: set[str], contacted: set[str]) -> tu
     email = (lead.get("owner_email") or "").lower()
     if not email or lead.get("email_verified") is not True:
         return False, "no_email"
-    keys = {email, email.split("@")[-1], (lead.get("domain") or "").lower()} - {""}
-    if keys & suppressed:
-        return False, "suppressed"
-    if keys & contacted:
-        return False, "already_contacted"
+    blocked = blocked_reason(lead, suppressed, contacted)
+    if blocked:
+        return False, blocked
     handoff = (lead.get("signal") or {}).get("relevant_handoff")
     if lead.get("vector") not in VECTORS or not handoff:
         return False, "no_handoff"

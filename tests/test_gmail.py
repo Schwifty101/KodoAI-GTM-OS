@@ -61,3 +61,15 @@ def test_creating_a_draft_never_calls_send():
     svc = FakeGmail()
     create_draft(svc, "a@b.com", "s", "b")
     assert [c[0] for c in svc.calls] == ["create"]
+
+
+def test_create_draft_in_an_existing_thread_sets_the_thread_id():
+    svc = FakeGmail()
+    create_draft(svc, "a@b.com", "Re: s", "b", thread_id="thread-9")
+    assert svc.calls[0][1]["body"]["message"]["threadId"] == "thread-9"
+
+
+def test_create_draft_without_a_thread_sets_no_thread_id():
+    svc = FakeGmail()
+    create_draft(svc, "a@b.com", "s", "b")
+    assert "threadId" not in svc.calls[0][1]["body"]["message"]

@@ -15,6 +15,8 @@ from gtm.hunter import HunterPool
 from gtm.llm import complete_json
 from gtm.owner_search import search_owner_finder
 from gtm.search import serper_search
+from gtm.draft import run_draft, run_followups
+from gtm.gmail import gmail_service
 from gtm.select import run_select
 from gtm.signals import fetch_evidence, run_signals
 from gtm.scrape import DEFAULT_QUERIES, new_batch, scrape_city
@@ -56,6 +58,19 @@ def cmd_select(a: argparse.Namespace) -> None:
     print(f"selected {run_select(get_db(), complete_json, a.batch)} leads")
 
 
+def cmd_draft(a: argparse.Namespace) -> None:
+    print(f"drafted {run_draft(get_db(), complete_json, gmail_service, a.batch, date.today())} Touch 1 emails in Gmail Drafts (nothing sent)")
+
+
+def cmd_followups(a: argparse.Namespace) -> None:
+    print(f"drafted {run_followups(get_db(), gmail_service, date.today())} follow-ups in Gmail Drafts (nothing sent)")
+
+
+def cmd_mailbox_add(a: argparse.Namespace) -> None:
+    get_db().table("mailboxes").upsert({"address": a.address, "daily_cap": a.cap, "enabled_on": a.enabled_on or str(date.today())}, on_conflict="address").execute()
+    print(f"mailbox {a.address} enabled from {a.enabled_on or date.today()}, cap {a.cap}/day")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="gtm")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -81,6 +96,17 @@ def main() -> None:
     x = sub.add_parser("select")
     x.add_argument("--batch", required=True)
     x.set_defaults(fn=cmd_select)
+    d = sub.add_parser("draft", help="Touch 1 drafts for selected AND approved leads")
+    d.add_argument("--batch", required=True)
+    d.set_defaults(fn=cmd_draft)
+    f = sub.add_parser("followups", help="Touch 2 (Day 3) and Touch 3 (Day 7) drafts that are due")
+    f.set_defaults(fn=cmd_followups)
+    m = sub.add_parser("mailbox")
+    m.add_argument("action", choices=["add"])
+    m.add_argument("--address", required=True)
+    m.add_argument("--cap", type=int, default=get_settings().daily_cap)
+    m.add_argument("--enabled-on", help="YYYY-MM-DD; a new mailbox needs its own warm-up first")
+    m.set_defaults(fn=cmd_mailbox_add)
     a = p.parse_args()
     a.fn(a)
 
