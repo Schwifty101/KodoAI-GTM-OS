@@ -48,3 +48,11 @@ export type Touch = {
   scheduled_for: string | null; sent_at: string | null; outcome: string | null;
   leads: { name: string; owner_email: string | null; status: string; mailbox_id: string | null } | null;
 };
+
+export type BatchMetrics = {
+  batch_id: string; name: string; created_at: string;
+  scraped: number; cleaned: number; enriched: number; signalled: number; signal_led: number; drafted: number;
+  sent: number; bounced: number; replied: number; positive: number; booked: number;
+  apify_usd: number; hunter_credits: number; serper_queries: number; groq_tokens: number;
+  apify_usd_per_lead: number | null; apify_usd_per_verified_email: number | null; hunter_credits_per_verified_email: number | null;
+};

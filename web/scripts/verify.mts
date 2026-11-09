@@ -28,6 +28,11 @@ const rc = await row(3);
 check("reject sets status rejected, reason operator, not approved", rc.status === "rejected" && rc.reject_reason === "operator" && !rc.approved);
 check("reject leaves a lead that is not `selected` alone", (await row(4)).status === "sent");
 
+// Task 19: the dashboard view under the operator session
+await admin.from("leads").update({ owner_email: "d@v1.com", email_verified: true }).eq("place_id", "TEST_v1");
+const dm = await supabase.from("batch_metrics").select("scraped,enriched").eq("batch_id", batch!.id).single();
+check("dashboard view is readable by the operator and counts the batch", dm.data?.scraped === 4 && dm.data?.enriched === 1);
+
 // Task 18: outreach actions
 const { data: mb } = await admin.from("mailboxes").insert({ address: "pytest-verify@example.com", paused: true, paused_reason: "test" }).select("id").single();
 await clearPause(mb!.id);
