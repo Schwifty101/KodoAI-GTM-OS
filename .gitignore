@@ -34,3 +34,12 @@ Thumbs.db
 
 # Spike output — raw payloads are large and regenerable
 backend/data/
+
+/graphify-out
+/.superpowers
+/.secrets
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+.next/
