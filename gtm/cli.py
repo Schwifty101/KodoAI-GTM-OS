@@ -18,6 +18,7 @@ from gtm.search import serper_search
 from gtm.draft import run_draft, run_followups
 from gtm.gmail import gmail_service
 from gtm.select import run_select
+from gtm.send import allowance, send_due
 from gtm.signals import fetch_evidence, run_signals
 from gtm.scrape import DEFAULT_QUERIES, new_batch, scrape_city
 
@@ -66,6 +67,24 @@ def cmd_followups(a: argparse.Namespace) -> None:
     print(f"drafted {run_followups(get_db(), gmail_service, date.today())} follow-ups in Gmail Drafts (nothing sent)")
 
 
+def cmd_send(a: argparse.Namespace) -> None:
+    db, s = get_db(), get_settings()
+    if not a.confirm:
+        for mb in db.table("mailboxes").select("*").execute().data:
+            room = allowance(mb, date.today(), s.ramp_start, s.ramp_step, min(s.daily_cap, mb["daily_cap"]))
+            print(f"{mb['address']}: paused={mb['paused']} allowance today={room}")
+        sys.exit("Dry run only. Sending is a separate, explicit action: add --confirm to send due drafts.")
+    print(send_due(db, gmail_service, date.today(), s))
+
+
+def cmd_mailbox(a: argparse.Namespace) -> None:
+    if a.action == "unpause":
+        get_db().table("mailboxes").update({"paused": False, "paused_reason": None}).eq("address", a.address).execute()
+        print(f"mailbox {a.address} unpaused")
+    else:
+        cmd_mailbox_add(a)
+
+
 def cmd_mailbox_add(a: argparse.Namespace) -> None:
     get_db().table("mailboxes").upsert({"address": a.address, "daily_cap": a.cap, "enabled_on": a.enabled_on or str(date.today())}, on_conflict="address").execute()
     print(f"mailbox {a.address} enabled from {a.enabled_on or date.today()}, cap {a.cap}/day")
@@ -102,11 +121,14 @@ def main() -> None:
     f = sub.add_parser("followups", help="Touch 2 (Day 3) and Touch 3 (Day 7) drafts that are due")
     f.set_defaults(fn=cmd_followups)
     m = sub.add_parser("mailbox")
-    m.add_argument("action", choices=["add"])
+    m.add_argument("action", choices=["add", "unpause"])
     m.add_argument("--address", required=True)
     m.add_argument("--cap", type=int, default=get_settings().daily_cap)
     m.add_argument("--enabled-on", help="YYYY-MM-DD; a new mailbox needs its own warm-up first")
-    m.set_defaults(fn=cmd_mailbox_add)
+    m.set_defaults(fn=cmd_mailbox)
+    x2 = sub.add_parser("send", help="send due drafts (dry run unless --confirm)")
+    x2.add_argument("--confirm", action="store_true")
+    x2.set_defaults(fn=cmd_send)
     a = p.parse_args()
     a.fn(a)
 
