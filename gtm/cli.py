@@ -17,6 +17,7 @@ from gtm.owner_search import search_owner_finder
 from gtm.search import serper_search
 from gtm.draft import run_draft, run_followups
 from gtm.gmail import gmail_service
+from gtm.replies import run_replies
 from gtm.select import run_select
 from gtm.send import allowance, send_due
 from gtm.signals import fetch_evidence, run_signals
@@ -77,6 +78,10 @@ def cmd_send(a: argparse.Namespace) -> None:
     print(send_due(db, gmail_service, date.today(), s))
 
 
+def cmd_replies(a: argparse.Namespace) -> None:
+    print(run_replies(get_db(), gmail_service, complete_json))
+
+
 def cmd_mailbox(a: argparse.Namespace) -> None:
     if a.action == "unpause":
         get_db().table("mailboxes").update({"paused": False, "paused_reason": None}).eq("address", a.address).execute()
@@ -126,6 +131,8 @@ def main() -> None:
     m.add_argument("--cap", type=int, default=get_settings().daily_cap)
     m.add_argument("--enabled-on", help="YYYY-MM-DD; a new mailbox needs its own warm-up first")
     m.set_defaults(fn=cmd_mailbox)
+    r = sub.add_parser("replies", help="read replies and bounces; stop sequences; honour opt-outs")
+    r.set_defaults(fn=cmd_replies)
     x2 = sub.add_parser("send", help="send due drafts (dry run unless --confirm)")
     x2.add_argument("--confirm", action="store_true")
     x2.set_defaults(fn=cmd_send)

@@ -73,3 +73,27 @@ def test_create_draft_without_a_thread_sets_no_thread_id():
     svc = FakeGmail()
     create_draft(svc, "a@b.com", "s", "b")
     assert "threadId" not in svc.calls[0][1]["body"]["message"]
+
+
+def _b64(s: str) -> str:
+    return base64.urlsafe_b64encode(s.encode()).decode()
+
+
+def test_parse_message_reads_headers_and_plain_text_body():
+    from gtm.gmail import parse_message
+
+    api = {"payload": {"mimeType": "text/plain", "headers": [{"name": "From", "value": "Dana <dana@glow.com>"}, {"name": "Subject", "value": "Re: Hi"},
+                                                           {"name": "Auto-Submitted", "value": "auto-replied"}], "body": {"data": _b64("Sounds good.")}}}
+    m = parse_message(api)
+    assert m["from"] == "Dana <dana@glow.com>" and m["subject"] == "Re: Hi" and m["body"] == "Sounds good."
+    assert m["headers"]["auto-submitted"] == "auto-replied"  # header names are lowercased
+
+
+def test_parse_message_prefers_plain_text_in_multipart_and_strips_html_otherwise():
+    from gtm.gmail import parse_message
+
+    multi = {"payload": {"mimeType": "multipart/alternative", "headers": [], "parts": [
+        {"mimeType": "text/html", "body": {"data": _b64("<p>html</p>")}}, {"mimeType": "text/plain", "body": {"data": _b64("plain")}}]}}
+    assert parse_message(multi)["body"] == "plain"
+    html_only = {"payload": {"mimeType": "text/html", "headers": [], "body": {"data": _b64("<p>Hello <b>there</b></p>")}}}
+    assert parse_message(html_only)["body"] == "Hello there"

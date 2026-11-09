@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import re
 from email.message import EmailMessage
+from html import unescape
 from pathlib import Path
 
 from gtm.config import get_settings
@@ -52,3 +54,39 @@ def create_draft(svc, to: str, subject: str, body: str, thread_id: str | None = 
 def send_draft(svc, draft_id: str) -> str:
     out = svc.users().drafts().send(userId="me", body={"id": draft_id}).execute()
     return out["threadId"]
+
+
+def _decode(data: str) -> str:
+    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", "replace")
+
+
+def _walk(part: dict):
+    yield part
+    for p in part.get("parts") or []:
+        yield from _walk(p)
+
+
+def parse_message(m: dict) -> dict:
+    """A Gmail API message becomes {from, subject, headers (names lowercased), body (plain text)}."""
+    payload = m["payload"]
+    headers = {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
+    parts = list(_walk(payload))
+    plain = [_decode(p["body"]["data"]) for p in parts if p.get("mimeType") == "text/plain" and (p.get("body") or {}).get("data")]
+    if plain:
+        body = "\n".join(plain)
+    else:
+        html = " ".join(_decode(p["body"]["data"]) for p in parts if p.get("mimeType") == "text/html" and (p.get("body") or {}).get("data"))
+        body = re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", html)))
+    return {"from": headers.get("from", ""), "subject": headers.get("subject", ""), "headers": headers, "body": body.strip()}
+
+
+def thread_messages(svc, thread_id: str) -> list[dict]:
+    t = svc.users().threads().get(userId="me", id=thread_id, format="full").execute()
+    return [parse_message(m) for m in t.get("messages", [])]
+
+
+def recent_bounces(svc, days: int = 7) -> list[dict]:
+    """Delivery-failure notices often arrive outside the original thread, so search for them."""
+    q = f"from:(mailer-daemon OR postmaster) newer_than:{days}d"
+    ids = svc.users().messages().list(userId="me", q=q).execute().get("messages", [])
+    return [parse_message(svc.users().messages().get(userId="me", id=i["id"], format="full").execute()) for i in ids]
