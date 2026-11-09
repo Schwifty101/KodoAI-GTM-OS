@@ -10,7 +10,7 @@ ROLE_LOCALS = {
     "inquiries", "manager", "hr", "careers", "jobs", "press", "webmaster", "noreply", "no-reply", "concierge", "scheduling",
     "schedule", "clinic", "medspa", "staff", "customerservice", "patientcare",
 }
-_AUTHORITY = re.compile(r"\b(founder|co-?founder|owner|co-?owner|ceo|chief executive|proprietor)\b", re.I)
+_AUTHORITY = re.compile(r"\b(founder|co-?founder|owner|co-?owner|ceo|chief executive|coo|chief operating officer|executive director|proprietor)\b", re.I)
 _PRESIDENT = re.compile(r"\bpresident\b", re.I)
 _NOT_PRESIDENT = re.compile(r"\b(vice|assistant|associate)\b", re.I)
 
@@ -20,8 +20,9 @@ def is_role_email(email: str) -> bool:
 
 
 def is_decision_maker(title: str | None) -> bool:
-    """Founder, owner, CEO or equivalent. Directors, managers and VPs are not (conservative; Soban can widen)."""
-    if not title:
+    """MedSpa 3 buyers: founder, co-founder, owner, CEO, president, COO, executive director, owner medical director.
+    Managers, VPs, other directors and franchise-local contacts are not."""
+    if not title or re.search(r"\bfranchise", title, re.I):  # MedSpa 3: franchise-local contacts are a hard stop
         return False
     if _AUTHORITY.search(title):
         return True

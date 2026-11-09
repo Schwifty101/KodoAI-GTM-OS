@@ -16,12 +16,12 @@ def test_personal_email_is_not_role():
     assert not is_role_email("dana@spa.com") and not is_role_email("dana.whitfield@spa.com")
 
 
-@pytest.mark.parametrize("title", ["Founder & CEO", "Owner", "Co-Owner", "Founder", "CEO", "President", "Owner/Operator", "Owner & Medical Director", "Franchise Owner"])
+@pytest.mark.parametrize("title", ["Founder & CEO", "Owner", "Co-Owner", "Founder", "CEO", "President", "Owner/Operator", "Owner & Medical Director", "COO", "Chief Operating Officer", "Executive Director"])
 def test_decision_maker_titles(title):
     assert is_decision_maker(title)
 
 
-@pytest.mark.parametrize("title", ["Practice Manager", "Office Manager", "Medical Director", "Aesthetician", "Vice President of Operations", "General Manager", "Marketing Associate", None, ""])
+@pytest.mark.parametrize("title", ["Practice Manager", "Office Manager", "Medical Director", "Aesthetician", "Vice President of Operations", "Franchise Owner", "General Manager", "Marketing Associate", None, ""])
 def test_not_decision_maker_titles(title):
     assert not is_decision_maker(title)
 

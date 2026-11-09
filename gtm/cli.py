@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from datetime import date
 
 from gtm.apify import MIN_CAP, run_places
 from gtm.db import get_db
@@ -13,6 +15,7 @@ from gtm.hunter import HunterPool
 from gtm.llm import complete_json
 from gtm.owner_search import search_owner_finder
 from gtm.search import serper_search
+from gtm.signals import fetch_evidence, run_signals
 from gtm.scrape import DEFAULT_QUERIES, new_batch, scrape_city
 
 
@@ -41,6 +44,13 @@ def cmd_enrich(a: argparse.Namespace) -> None:
     print(run_enrich(get_db(), finders, a.batch, a.limit))
 
 
+def cmd_signals(a: argparse.Namespace) -> None:
+    age = a.max_age_days or get_settings().signal_max_age_days
+    if not age:
+        sys.exit("No signal recency window is set. MedSpa/ does not define one: set SIGNAL_MAX_AGE_DAYS in .env or pass --max-age-days.")
+    print(run_signals(get_db(), complete_json, fetch_evidence, a.batch, date.today(), age))
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="gtm")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -59,6 +69,10 @@ def main() -> None:
     e.add_argument("--limit", type=int, help="max leads this run (each can cost Hunter credits)")
     e.add_argument("--finders", default="site,search,hunter", help="comma list, tried in order, cheapest first")
     e.set_defaults(fn=cmd_enrich)
+    g = sub.add_parser("signals")
+    g.add_argument("--batch", required=True)
+    g.add_argument("--max-age-days", type=int)
+    g.set_defaults(fn=cmd_signals)
     a = p.parse_args()
     a.fn(a)
 
