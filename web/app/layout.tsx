@@ -11,6 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <nav>
           <span className="brand">GTM OS</span>
           <Link href="/leads">Leads</Link>
+          <Link href="/review">Review</Link>
         </nav>
         <main>{children}</main>
       </body>
