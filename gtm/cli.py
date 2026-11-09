@@ -6,6 +6,7 @@ import argparse
 
 from gtm.apify import MIN_CAP, run_places
 from gtm.db import get_db
+from gtm.clean import run_clean
 from gtm.scrape import DEFAULT_QUERIES, new_batch, scrape_city
 
 
@@ -19,6 +20,10 @@ def cmd_scrape(a: argparse.Namespace) -> None:
     print(f"batch {batch}: {new} new leads, {known} already known")
 
 
+def cmd_clean(a: argparse.Namespace) -> None:
+    print(run_clean(get_db(), a.batch))
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="gtm")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -29,6 +34,9 @@ def main() -> None:
     s.add_argument("--max-places", type=int, default=40, help="per query")
     s.add_argument("--max-usd", type=float, default=MIN_CAP)
     s.set_defaults(fn=cmd_scrape)
+    c = sub.add_parser("clean")
+    c.add_argument("--batch", required=True)
+    c.set_defaults(fn=cmd_clean)
     a = p.parse_args()
     a.fn(a)
 
