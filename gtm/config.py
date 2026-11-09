@@ -25,6 +25,7 @@ class Settings:
     hunter_keys: list[str] = field(default_factory=list)
     groq_api_key: str = ""
     gemini_api_key: str = ""
+    serper_api_key: str = ""  # env SERP_API_KEY (SERP_PROVIDER=serper)
     google_oauth_client_file: str = ""
     # Sending. Defaults are placeholders until the Task 7 gate sets them.
     daily_cap: int = 40
@@ -56,6 +57,7 @@ class Settings:
             hunter_keys=_keys(env, "HUNTER_API_KEY"),
             groq_api_key=s("GROQ_API_KEY"),
             gemini_api_key=s("GEMINI_API_KEY"),
+            serper_api_key=s("SERP_API_KEY"),
             google_oauth_client_file=s("GOOGLE_OAUTH_CLIENT_FILE"),
             daily_cap=n("DAILY_CAP", d.daily_cap),
             ramp_start=n("RAMP_START", d.ramp_start),

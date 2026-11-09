@@ -18,3 +18,7 @@ def test_blank_keys_are_ignored():
 def test_pause_thresholds_have_defaults():
     s = Settings.from_env({})
     assert (s.pause_bounce_rate, s.pause_min_sends) == (0.03, 20)
+
+
+def test_serper_key_is_read_from_serp_api_key():
+    assert Settings.from_env({"SERP_API_KEY": "s"}).serper_api_key == "s"
