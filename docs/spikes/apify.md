@@ -26,3 +26,18 @@ Actor: `compass/crawler-google-places` (verified exists, id `nwua9Gu5YrADL7ZDj`)
 
 ## Funnel inputs for Task 7 (Apify side only)
 Cost per scraped place about $0.004-0.005. Keeping "Medical spa" and near categories retains roughly 63-74%. Hunter and signal losses are measured in the other spikes.
+
+## A2: query optimisation on the Sugar Land tile (2026-11-10, $0.6304 more; Apify total $1.4760 of the $2 cap)
+
+**Correction to the table above:** "63-74% Medical spa" used Google's single primary `categoryName`, which misfiles real med spas (27 of 193 places are med spas listed under Spa, Health spa, Skin care clinic, Facial spa or Laser hair removal, e.g. "EOV Med Spa" = Health spa). Counting a place as on-ICP when **"Medical spa" is anywhere in its `categories` list OR its name matches `med ?spa|medical spa|aesthetic`**: **162 of 193 (84%)**. What it still excludes is really off-ICP: day spas, dermatology, urology, foot care, coworking space, laser-training school. Task 9 uses this rule, not the primary category.
+
+| Run (Sugar Land, website filter) | Places | On-ICP | Cost | USD per on-ICP place |
+|---|---|---|---|---|
+| B baseline, "med spa", max 40 | 40 | 33 (82%) | $0.2002 | $0.0061 |
+| C four queries x 20: "medspa", "medical spa", "botox", "aesthetics clinic" | 78 (no duplicates) | 48 (62%) | $0.3902 | $0.0081 |
+| D "med spa" + `categoryFilterWords` (medical spa, health spa, skin care clinic, laser hair removal service, facial spa) | 40 | 36 (90%) | $0.2402 | $0.0067 |
+
+- **Query wording matters less than variety.** "medspa" returned 18 on-ICP places but only 1 that "med spa" had not already found: Google treats them as the same search. C's 17 extra on-ICP places over the baseline came from different intents ("botox", "aesthetics clinic"), which also have lower precision (10/20 and 12/18 on-ICP). The union of all three runs was 51 on-ICP places against 33 for the baseline alone, so one query per tile leaves about a third of the places unfound.
+- **`categoryFilterWords` is not worth it.** Values must be lowercase entries from a fixed list (400+ allowed values; "medical spa" is one). It lifted precision from 82% to 90%, missed 1 of the baseline's 33 on-ICP places (a plastic-surgery practice that also runs a med spa), and bills an extra $0.001 per place for the field. The Python cleaning pass does the same job for free.
+- **Recommended query set per tile:** "med spa", "aesthetics clinic", "botox" with the `website: withWebsite` filter and no category filter; classify afterwards with the rule above. Expect about 60-80% of returned places to be on-ICP overall and about $0.006-0.008 per on-ICP place.
+- **Not measured:** how many tiles a metro needs; whether tiles from other cities show the same overlap pattern.

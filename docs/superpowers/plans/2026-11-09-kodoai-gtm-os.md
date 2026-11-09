@@ -106,7 +106,8 @@ Inputs the spec implies but nobody would think to test, most likely first:
 
 **Interfaces:**
 - Consumes: `get_db`, `log_cost`, Task 2's measured input shape.
-- Produces: `place_to_lead(item: dict, batch_id: str) -> dict`; `scrape_city(db, run_actor, city: str, state: str, queries: list[str], batch_id: str) -> tuple[int, int]` returns `(new, already_known)`. `run_actor` is injected so tests use a fake.
+- Produces: `place_to_lead(item: dict, batch_id: str) -> dict`; `scrape_city(db, run_actor, city: str, state: str, queries: list[str], batch_id: str)  # default queries: "med spa", "aesthetics clinic", "botox", with the website filter and no category filter (A2)
+   -> tuple[int, int]` returns `(new, already_known)`. `run_actor` is injected so tests use a fake.
 
 - [ ] **Step 1: Failing tests.** `test_place_to_lead_keeps_only_needed_fields` (output keys are exactly the stored lead columns); `test_known_place_id_is_skipped_not_duplicated` (second scrape of the same place returns `(0, 1)` and the row count stays 1); `test_known_place_is_never_requeued_for_enrichment` (its status is unchanged).
 - [ ] **Step 2: Implement** with insert-on-conflict-do-nothing on `place_id`; status `scraped`; log Apify cost.
@@ -119,7 +120,7 @@ Inputs the spec implies but nobody would think to test, most likely first:
 **Interfaces:** Produces `clean_decision(lead: dict) -> str | None` (reject reason or `None`); `run_clean(db, batch_id: str) -> dict[str, int]` (counts by reason). Reasons: `chain`, `category`, `day_spa`, `closed`, `no_website`, `not_us`, `duplicate_domain`.
 
 - [ ] **Step 1: Failing tests,** one per reason, plus `test_two_places_same_domain_keep_first_reject_second` (Review Focus 1: exactly one survives as `cleaned`, the other is `rejected/duplicate_domain`) and `test_day_spa_is_rejected_but_med_spa_is_kept`.
-- [ ] **Step 2: Implement** pure rules; chain detection uses a small `data/chains.txt` list plus "same name across many places in the batch". Run tests, add CLI `gtm clean`, commit.
+- [ ] **Step 2: Implement** pure rules. On-ICP means "Medical spa" appears anywhere in the place's `categories` list OR its name matches `med ?spa|medical spa|aesthetic` (measured: the primary `categoryName` alone drops 27 real med spas, `docs/spikes/apify.md` A2). Chain detection uses a small `data/chains.txt` list plus "same name across many places in the batch". Run tests, add CLI `gtm clean`, commit.
 
 ### Task 10: Enrich pass
 
