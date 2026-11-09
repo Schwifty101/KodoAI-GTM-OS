@@ -1,0 +1,19 @@
+# CLAUDE.md
+
+KodoAI GTM OS for med spa outreach. Spec: `docs/superpowers/specs/2026-11-09-kodoai-gtm-os-design.md`. Plan: `docs/superpowers/plans/2026-11-09-kodoai-gtm-os.md`. Outreach content rules live in `MedSpa/` and are not redefined in code.
+
+## Commands
+- `uv run pytest -q` runs the suite. Tests marked `db` hit the real Supabase project and clean up after themselves.
+- `uv run python -m gtm.cli <pass>` runs a pass: scrape, clean, enrich, signals, select, draft, send, replies.
+- `cd web && npm run dev` runs the UI locally.
+
+## Rules
+- Supabase Postgres is the only database. `gtm/config.py` is the only reader of the environment.
+- Statuses: scraped, cleaned/rejected, enriched/no_buyer, signalled, selected, drafted, sent, replied, booked; side states bounced, suppressed, unsubscribed.
+- US only. No day spas. Lead identity is Google place ID, unique globally.
+- A signal needs a source URL and a date. Never invent one.
+- Enriched means a named decision-maker (founder, owner, CEO or equivalent) with a verified email. Role addresses never qualify.
+- Check `suppression` and "already contacted" before every draft and send. A reply or bounce stops that lead's remaining touches. Cadence is Day 0/3/7, no Touch 4.
+- Footer values (`POSTAL_ADDRESS`, `AD_DISCLOSURE`, `OPT_OUT_LINE`) are empty by default: append if set, never invent, never block sending on empty.
+- Every paid call writes a `cost_log` row. Never print or commit keys. The Supabase secret key is script-side only, never in the browser.
+- Send is always a separate explicit action from draft.
