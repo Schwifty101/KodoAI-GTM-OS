@@ -15,6 +15,7 @@ from gtm.hunter import HunterPool
 from gtm.llm import complete_json
 from gtm.owner_search import search_owner_finder
 from gtm.search import serper_search
+from gtm.select import run_select
 from gtm.signals import fetch_evidence, run_signals
 from gtm.scrape import DEFAULT_QUERIES, new_batch, scrape_city
 
@@ -51,6 +52,10 @@ def cmd_signals(a: argparse.Namespace) -> None:
     print(run_signals(get_db(), complete_json, fetch_evidence, a.batch, date.today(), age))
 
 
+def cmd_select(a: argparse.Namespace) -> None:
+    print(f"selected {run_select(get_db(), complete_json, a.batch)} leads")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="gtm")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -73,6 +78,9 @@ def main() -> None:
     g.add_argument("--batch", required=True)
     g.add_argument("--max-age-days", type=int)
     g.set_defaults(fn=cmd_signals)
+    x = sub.add_parser("select")
+    x.add_argument("--batch", required=True)
+    x.set_defaults(fn=cmd_select)
     a = p.parse_args()
     a.fn(a)
 
