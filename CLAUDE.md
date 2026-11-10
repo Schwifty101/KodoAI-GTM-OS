@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+Start here for the current state: docs/HANDOFF.md
+
 KodoAI GTM OS for med spa outreach. Spec: `docs/superpowers/specs/2026-11-09-kodoai-gtm-os-design.md`. Plan: `docs/superpowers/plans/2026-11-09-kodoai-gtm-os.md`. Outreach content rules live in `MedSpa/` and are not redefined in code.
 
 ## Commands
