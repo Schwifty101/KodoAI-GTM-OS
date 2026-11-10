@@ -6,7 +6,7 @@ KodoAI GTM OS for med spa outreach. Spec: `docs/superpowers/specs/2026-11-09-kod
 
 ## Commands
 - `uv run pytest -q` runs the suite. Tests marked `db` hit the real Supabase project and clean up after themselves.
-- `uv run python -m gtm.cli <pass>` runs a pass: scrape, clean, enrich, signals, select, draft, send, replies.
+- `uv run python -m gtm.cli <pass>` runs a pass: scrape, clean, enrich, signals, select, draft, followups, send, replies. Also `mailbox add|unpause` and `import-history FILE` (Notion history into suppression). `send` is a dry run unless `--confirm`, and reads replies first.
 - `cd web && npm run dev` runs the UI locally (login: email link to the operator address). The UI has no send button in v1: sending is `uv run python -m gtm.cli send --confirm` (spec section 7: passes run as commands). Edit drafts in Gmail; the Gmail draft is what goes out.
 - `cd web && node --env-file=.env.local --env-file=../.env --import tsx scripts/verify.mts` checks the UI's write actions against the real database under RLS.
 
