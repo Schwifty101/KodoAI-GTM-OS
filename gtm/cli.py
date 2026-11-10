@@ -12,6 +12,7 @@ from gtm.clean import run_clean
 from gtm.config import get_settings
 from gtm.enrich import hunter_domain_finder, run_enrich, site_owner_finder
 from gtm.hunter import HunterPool
+from gtm.import_history import parse_line, run_import
 from gtm.llm import complete_json
 from gtm.owner_search import search_owner_finder
 from gtm.search import serper_search
@@ -61,7 +62,9 @@ def cmd_select(a: argparse.Namespace) -> None:
 
 
 def cmd_draft(a: argparse.Namespace) -> None:
-    print(f"drafted {run_draft(get_db(), complete_json, gmail_service, a.batch, date.today())} Touch 1 emails in Gmail Drafts (nothing sent)")
+    db = get_db()
+    only = {m["id"] for m in db.table("mailboxes").select("id,address").in_("address", a.mailbox).execute().data} if a.mailbox else None
+    print(f"drafted {run_draft(db, complete_json, gmail_service, a.batch, date.today(), only)} Touch 1 emails in Gmail Drafts (nothing sent)")
 
 
 def cmd_followups(a: argparse.Namespace) -> None:
@@ -78,6 +81,11 @@ def cmd_send(a: argparse.Namespace) -> None:
             print(f"{mb['address']}: paused={mb['paused']} allowance today={room}")
         sys.exit("Dry run only. Sending is a separate, explicit action: add --confirm to send due drafts.")
     print(send_with_reply_check(db, gmail_service, complete_json, date.today(), s))  # replies first, then send
+
+
+def cmd_import_history(a: argparse.Namespace) -> None:
+    recs = [parse_line(l) for l in open(a.file) if l.strip()]
+    print(f"read {len(recs)} history rows;", run_import(get_db(), recs), "suppression rows added")
 
 
 def cmd_replies(a: argparse.Namespace) -> None:
@@ -124,6 +132,7 @@ def main() -> None:
     x.set_defaults(fn=cmd_select)
     d = sub.add_parser("draft", help="Touch 1 drafts for selected AND approved leads")
     d.add_argument("--batch", required=True)
+    d.add_argument("--mailbox", action="append", help="only assign these mailbox addresses (repeatable)")
     d.set_defaults(fn=cmd_draft)
     f = sub.add_parser("followups", help="Touch 2 (Day 3) and Touch 3 (Day 7) drafts that are due")
     f.set_defaults(fn=cmd_followups)
@@ -133,6 +142,9 @@ def main() -> None:
     m.add_argument("--cap", type=int, default=get_settings().daily_cap)
     m.add_argument("--enabled-on", help="YYYY-MM-DD; a new mailbox needs its own warm-up first")
     m.set_defaults(fn=cmd_mailbox)
+    h = sub.add_parser("import-history", help="load Notion history lines (email|website|status|reply|DNC) into suppression")
+    h.add_argument("file")
+    h.set_defaults(fn=cmd_import_history)
     r = sub.add_parser("replies", help="read replies and bounces; stop sequences; honour opt-outs")
     r.set_defaults(fn=cmd_replies)
     x2 = sub.add_parser("send", help="send due drafts (dry run unless --confirm)")

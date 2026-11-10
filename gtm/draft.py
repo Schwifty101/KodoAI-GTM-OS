@@ -140,7 +140,7 @@ def _store(db, gmail_for, lead: dict, mailbox_id: str, touch_no: int, subject: s
                                 "subject": subject, "body": body, "objective": objective, "scheduled_for": today.isoformat()}).execute()
 
 
-def run_draft(db, llm, gmail_for, batch_id: str, today: date) -> int:
+def run_draft(db, llm, gmail_for, batch_id: str, today: date, only_mailboxes: set[str] | None = None) -> int:
     rows = db.table("leads").select("*").eq("batch_id", batch_id).eq("status", Status.SELECTED.value).eq("approved", True).execute().data
     suppressed, contacted = _blocklists(db)
     done = 0
@@ -155,7 +155,7 @@ def run_draft(db, llm, gmail_for, batch_id: str, today: date) -> int:
             continue  # stays `selected`, retried next run
         if not d:
             continue
-        mailbox_id = assign_mailbox(db, lead["id"], today)
+        mailbox_id = assign_mailbox(db, lead["id"], today, only_mailboxes)
         _store(db, gmail_for, lead, mailbox_id, 1, d["subject"], _with_footer(d["body"]), d["objective"], today)
         db.table("leads").update({"status": Status.DRAFTED.value}).eq("id", lead["id"]).execute()
         done += 1

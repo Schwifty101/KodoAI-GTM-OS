@@ -21,7 +21,7 @@ US_STATES = {
 }
 US_ABBR = set(US_STATES.values())
 # A booking page or social profile is not a business website: Hunter cannot search it.
-PLATFORM_DOMAINS = ("instagram.", "facebook.", "linktr.ee", "square.site", "vagaro.", "booksy.", "mindbody", "google.", "glossgenius", "schedulicity")
+PLATFORM_DOMAINS = ("instagram.", "facebook.", "linktr.ee", "square.site", "vagaro.", "booksy.", "mindbody", "google.", "glossgenius", "schedulicity", "visibook")
 ON_ICP_NAME = re.compile(r"med ?spa|medical spa|aesthetic", re.I)
 CHAIN_MIN = 3  # same brand this many times in one batch means a multi-location group, not an independent
 CHAINS = [ln.strip().lower() for ln in (Path(__file__).parent / "data" / "chains.txt").read_text().splitlines() if ln.strip() and not ln.startswith("#")]

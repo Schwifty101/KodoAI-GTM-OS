@@ -182,9 +182,10 @@ def lead_row(db, i):
 def test_assign_mailbox_spreads_load_and_is_sticky(world):
     db, bid, mbs = world
     ids = [r["id"] for r in db.table("leads").select("id").eq("batch_id", bid).order("place_id").execute().data]
-    first = [assign_mailbox(db, i) for i in ids[:2]]
+    only = {m["id"] for m in mbs}
+    first = [assign_mailbox(db, i, only=only) for i in ids[:2]]
     assert sorted(first) == sorted(m["id"] for m in mbs)  # least loaded each time, so the two go to different mailboxes
-    assert assign_mailbox(db, ids[0]) == first[0]  # sticky
+    assert assign_mailbox(db, ids[0], only=only) == first[0]  # sticky
 
 
 @pytest.mark.db
@@ -194,7 +195,7 @@ def test_assign_mailbox_ignores_paused_and_not_yet_enabled_mailboxes(world):
     db.table("mailboxes").update({"enabled_on": "2999-01-01"}).eq("id", mbs[1]["id"]).execute()
     lid = db.table("leads").select("id").eq("batch_id", bid).limit(1).execute().data[0]["id"]
     with pytest.raises(RuntimeError):
-        assign_mailbox(db, lid)
+        assign_mailbox(db, lid, only={m["id"] for m in mbs})
 
 
 @pytest.mark.db
@@ -202,7 +203,7 @@ def test_run_draft_creates_a_gmail_draft_a_touch_row_and_marks_the_lead_drafted(
     db, bid, mbs = world
     svc = Fake()
     good = {"subject": "Glow Med Spa / phone and DM booking", "body": GOOD, "objective": OBJ}
-    n = run_draft(db, llm_returning(good), lambda mailbox: svc, bid, date(2026, 11, 10))
+    n = run_draft(db, llm_returning(good), lambda mailbox: svc, bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs})
     assert n == 2  # the unapproved lead is not drafted
     a, c = lead_row(db, 0), lead_row(db, 2)
     assert a["status"] == "drafted" and a["mailbox_id"] in {m["id"] for m in mbs} and c["status"] == "selected"
@@ -215,18 +216,18 @@ def test_run_draft_creates_a_gmail_draft_a_touch_row_and_marks_the_lead_drafted(
 
 @pytest.mark.db
 def test_run_draft_skips_a_suppressed_lead_and_marks_it_suppressed(world):
-    db, bid, _ = world
+    db, bid, mbs = world
     db.table("suppression").insert({"domain": "glow0.com", "reason": "pytest"}).execute()
     good = {"subject": "Glow Med Spa / phone and DM booking", "body": GOOD, "objective": OBJ}
-    assert run_draft(db, llm_returning(good), lambda m: Fake(), bid, date(2026, 11, 10)) == 1
+    assert run_draft(db, llm_returning(good), lambda m: Fake(), bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs}) == 1
     assert lead_row(db, 0)["status"] == "suppressed" and lead_row(db, 1)["status"] == "drafted"
 
 
 @pytest.mark.db
 def test_run_draft_leaves_the_lead_selected_when_the_model_cannot_produce_a_clean_draft(world):
-    db, bid, _ = world
+    db, bid, mbs = world
     bad = {"subject": "x", "body": "nope", "objective": OBJ}
-    assert run_draft(db, llm_returning(bad), lambda m: Fake(), bid, date(2026, 11, 10)) == 0
+    assert run_draft(db, llm_returning(bad), lambda m: Fake(), bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs}) == 0
     assert lead_row(db, 0)["status"] == "selected" and db.table("touches").select("id").execute().data == []
 
 
