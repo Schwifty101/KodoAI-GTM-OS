@@ -26,7 +26,7 @@ def test_every_contacted_company_blocks_its_address_and_its_domain():
 
 @pytest.mark.parametrize("line,reason", [
     ("a@x.com|https://x.com|Disqualified||DNC", "do-not-contact"),
-    ("a@x.com|https://x.com|Bounced|Bounce|", "bounce"),
+    ("a@x.com|https://x.com|Bounced|Bounce|", "notion-bounce"),
     ("a@x.com|https://x.com|Not Interested|Negative|", "not-interested"),
     ("a@x.com|https://x.com|Replied|Negative|", "not-interested"),
     ("a@x.com|https://x.com|Sent||", "notion-contacted"),
@@ -63,7 +63,7 @@ def test_run_import_inserts_once_and_is_rerunnable():
         again = run_import(db, recs)
         assert first == {"emails": 2, "domains": 2} and again == {"emails": 0, "domains": 0}
         got = {(r["email"], r["domain"], r["reason"]) for r in db.table("suppression").select("*").like("reason", "%").execute().data}
-        assert ("pytest-imp-b@other-imp.example", None, "bounce") in got and (None, "glow-imp.example", "notion-contacted") in got
+        assert ("pytest-imp-b@other-imp.example", None, "notion-bounce") in got and (None, "glow-imp.example", "notion-contacted") in got
     finally:
         db.table("suppression").delete().in_("domain", ["glow-imp.example", "other-imp.example"]).execute()
         db.table("suppression").delete().like("email", "pytest-imp-%").execute()

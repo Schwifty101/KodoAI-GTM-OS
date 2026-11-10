@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from support import purge_test_suppression
 from gtm.config import Settings
 from gtm.db import get_db
 from gtm.scrape import new_batch, place_to_lead
@@ -64,7 +65,7 @@ def world():
     mb = db.table("mailboxes").insert({"address": "pytest-send@example.com", "daily_cap": 40, "enabled_on": TODAY.isoformat()}).execute().data[0]
     yield db, bid, mb
     db.table("suppression").delete().like("reason", "pytest%").execute()
-    db.table("suppression").delete().in_("reason", ["opt-out reply", "bounce"]).execute()  # written by apply_reply in the reply-check test
+    purge_test_suppression(db)  # written by apply_reply in the reply-check test; only the tests' own addresses
     db.table("leads").delete().like("place_id", "TEST_%").execute()
     db.table("mailboxes").delete().like("address", "pytest-send%").execute()
     db.table("batches").delete().eq("id", bid).execute()

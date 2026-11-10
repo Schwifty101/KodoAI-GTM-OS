@@ -19,7 +19,7 @@ def _reason(r: dict) -> str:
     if r["dnc"]:
         return "do-not-contact"
     if r["reply"] == "Bounce" or r["status"] == "Bounced":
-        return "bounce"
+        return "notion-bounce"  # not "bounce": that reason belongs to live replies, and test cleanup once deleted by it
     if r["reply"] == "Negative" or r["status"] == "Not Interested":
         return "not-interested"
     return "notion-contacted"

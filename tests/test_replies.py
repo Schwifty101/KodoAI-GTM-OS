@@ -1,5 +1,6 @@
 import pytest
 
+from support import purge_test_suppression
 from gtm.db import get_db
 from gtm.replies import apply_reply, classify_reply, new_text, run_replies
 from gtm.scrape import new_batch, place_to_lead
@@ -80,7 +81,7 @@ def world():
                                     {"lead_id": l["id"], "touch_no": 2, "status": "drafted", "scheduled_for": "2026-11-13"}]).execute()
     yield db, leads, mb
     db.table("suppression").delete().like("reason", "pytest%").execute()
-    db.table("suppression").delete().in_("reason", ["opt-out reply", "bounce"]).execute()
+    purge_test_suppression(db)
     db.table("leads").delete().like("place_id", "TEST_%").execute()
     db.table("mailboxes").delete().like("address", "pytest-rep%").execute()
     db.table("batches").delete().eq("id", bid).execute()
