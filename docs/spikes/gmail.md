@@ -16,5 +16,8 @@
 4. Save it as `.secrets/google_oauth_client.json` and set `GOOGLE_OAUTH_CLIENT_FILE=.secrets/google_oauth_client.json` in `.env`.
 5. Run `uv run python -c "from gtm.gmail import *; from gtm.gmail import gmail_service as g; s=g('soban@kodoai.xyz'); print(create_draft(s,'soban@kodoai.xyz','GTM OS test','Draft only, not sent.'))"`: a browser opens, approve, and a draft appears in Gmail Drafts.
 
-## Open
-Live draft check (step 5) not done until the credential exists.
+## Verified live (2026-11-10)
+Desktop-app OAuth client (Internal) saved at `.secrets/google_oauth_client.json`; first login for soban@kodoai.xyz succeeded with the compose and readonly scopes; `create_draft` returned a draft ID (a draft titled "GTM OS test" in Drafts, nothing sent). The token is stored in git-ignored `.secrets/`.
+
+## Still unverified live
+Sending (`send_draft`), reading threads and bounces (`thread_messages`, `recent_bounces`), and thread/header behaviour of Touch 2 and 3. Those first run on the first real send.
