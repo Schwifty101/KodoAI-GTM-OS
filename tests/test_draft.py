@@ -230,6 +230,9 @@ def test_run_draft_leaves_the_lead_selected_when_the_model_cannot_produce_a_clea
     assert lead_row(db, 0)["status"] == "selected" and db.table("touches").select("id").execute().data == []
 
 
+T1 = lambda svc, tid: [{"from": "Soban <s@kodoai.xyz>", "subject": "s", "headers": {"message-id": "<touch1@mail.gmail.com>"}, "body": ""}]  # noqa: E731
+
+
 def sent_touch1(db, lead_id, mailbox_id, sent_on):
     db.table("leads").update({"status": "sent", "mailbox_id": mailbox_id}).eq("id", lead_id).execute()
     db.table("touches").insert({"lead_id": lead_id, "touch_no": 1, "status": "sent", "subject": "Glow Med Spa / booking", "body": GOOD, "objective": OBJ,
@@ -242,16 +245,20 @@ def test_run_followups_drafts_touch_2_in_the_same_thread_on_day_3_and_touch_3_on
     lid = lead_row(db, 0)["id"]
     sent_touch1(db, lid, mbs[0]["id"], "2026-11-10")
     svc = Fake()
-    assert run_followups(db, lambda m: svc, date(2026, 11, 12)) == 0  # day 2: not due
-    assert run_followups(db, lambda m: svc, date(2026, 11, 13)) == 1  # day 3
+    assert run_followups(db, lambda m: svc, date(2026, 11, 12), thread_messages=T1) == 0  # day 2: not due
+    assert run_followups(db, lambda m: svc, date(2026, 11, 13), thread_messages=T1) == 1  # day 3
     t2 = db.table("touches").select("*").eq("lead_id", lid).eq("touch_no", 2).execute().data[0]
     assert t2["subject"] == "Re: Glow Med Spa / booking" and t2["scheduled_for"] == "2026-11-13" and "or is it not a priority?" in t2["body"]
     assert svc.calls[0]["body"]["message"]["threadId"] == "thread-1"
-    assert run_followups(db, lambda m: svc, date(2026, 11, 13)) == 0  # not drafted twice
+    import base64
+    from email import message_from_bytes
+    raw = message_from_bytes(base64.urlsafe_b64decode(svc.calls[0]["body"]["message"]["raw"]))
+    assert raw["In-Reply-To"] == "<touch1@mail.gmail.com>" and raw["References"] == "<touch1@mail.gmail.com>"
+    assert run_followups(db, lambda m: svc, date(2026, 11, 13), thread_messages=T1) == 0  # not drafted twice
     db.table("touches").update({"status": "sent"}).eq("id", t2["id"]).execute()
-    assert run_followups(db, lambda m: svc, date(2026, 11, 17)) == 1  # day 7 from Touch 1
+    assert run_followups(db, lambda m: svc, date(2026, 11, 17), thread_messages=T1) == 1  # day 7 from Touch 1
     t3 = db.table("touches").select("*").eq("lead_id", lid).eq("touch_no", 3).execute().data[0]
-    assert "partners" in t3["body"] and run_followups(db, lambda m: svc, date(2026, 12, 30)) == 0  # there is no Touch 4
+    assert "partners" in t3["body"] and run_followups(db, lambda m: svc, date(2026, 12, 30), thread_messages=T1) == 0  # there is no Touch 4
 
 
 @pytest.mark.db
@@ -261,4 +268,4 @@ def test_a_reply_bounce_or_opt_out_stops_the_sequence(world, stopper):
     lid = lead_row(db, 0)["id"]
     sent_touch1(db, lid, mbs[0]["id"], "2026-11-10")
     db.table("leads").update({"status": stopper}).eq("id", lid).execute()
-    assert run_followups(db, lambda m: Fake(), date(2026, 11, 20)) == 0
+    assert run_followups(db, lambda m: Fake(), date(2026, 11, 20), thread_messages=T1) == 0

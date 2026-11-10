@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
 import type { Mailbox, Touch } from "@/lib/types";
 import { clearPause, markBooked, setOutcome } from "@/lib/actions";
+import { fetchAll } from "@/lib/fetchAll";
 
 const TOUCH_COLS = "id,lead_id,touch_no,status,subject,body,scheduled_for,sent_at,outcome,leads(name,owner_email,status,mailbox_id)";
 const today = () => new Date().toISOString().slice(0, 10);
@@ -16,12 +17,14 @@ export default function Outreach() {
   const [err, setErr] = useState("");
 
   const load = useCallback(async () => {
-    const [m, t] = await Promise.all([
-      supabase.from("mailboxes").select("*").order("address"),
-      supabase.from("touches").select(TOUCH_COLS).order("scheduled_for", { ascending: true }).limit(1000),
-    ]);
-    if (m.error || t.error) setErr((m.error ?? t.error)!.message);
-    else { setErr(""); setMailboxes(m.data ?? []); setTouches((t.data ?? []) as unknown as Touch[]); }
+    try {
+      const [m, t] = await Promise.all([
+        supabase.from("mailboxes").select("*").order("address"),
+        fetchAll<Touch>((a, b) => supabase.from("touches").select(TOUCH_COLS).order("scheduled_for", { ascending: true }).order("id").range(a, b) as unknown as PromiseLike<{ data: Touch[] | null; error: { message: string } | null }>),
+      ]);
+      if (m.error) throw new Error(m.error.message);
+      setErr(""); setMailboxes(m.data ?? []); setTouches(t);
+    } catch (e) { setErr((e as Error).message); }
   }, []);
   useEffect(() => { if (ready) load(); }, [ready, load]);
   if (!ready) return null;

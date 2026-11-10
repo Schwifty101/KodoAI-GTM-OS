@@ -155,3 +155,23 @@ def test_model_failure_leaves_the_lead_enriched_for_a_retry(enriched):
 
     out = run_signals(db, boom, lambda lead: {"pages": PAGES, "platform": None}, bid, TODAY, 90)
     assert out == {"llm_error": 3} and row(db, 0)["status"] == "enriched"
+
+
+def test_signal_date_the_model_supplies_must_appear_on_the_page():
+    """The page says October 28; a model that answers today's date for an undated or older posting must not get a 'current' signal."""
+    rec, vector, signal_led = judge(raw(current_signal={**raw()["current_signal"], "date": "2026-11-09"}))
+    assert rec["current_signal"] is None and signal_led is False and vector == "capacity"
+
+
+def test_a_signal_on_a_page_with_no_date_at_all_is_dropped():
+    pages = [{"url": PAGES[0]["url"], "text": "We are hiring a Front Desk Coordinator. Apply by phone."}, PAGES[1]]
+    rec, _, signal_led = judge_to_signal(raw(), pages, TODAY, 90)
+    assert rec["current_signal"] is None and signal_led is False
+
+
+@pytest.mark.parametrize("posted", ["Posted 2026-10-28", "Posted Oct 28, 2026", "Posted October 28, 2026", "Posted 10/28/2026",
+                                    "Posted 28 October 2026", "Posted Oct. 28, 2026", "Posted October 28 2026", "Posted 28 Oct 2026"])
+def test_common_date_formats_on_the_page_ground_the_signal(posted):
+    pages = [{"url": PAGES[0]["url"], "text": f"We are hiring a Front Desk Coordinator. {posted}."}, PAGES[1]]
+    rec, _, signal_led = judge_to_signal(raw(), pages, TODAY, 90)
+    assert rec["current_signal"] is not None and signal_led is True

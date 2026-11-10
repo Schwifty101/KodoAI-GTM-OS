@@ -21,7 +21,7 @@ def test_decision_maker_titles(title):
     assert is_decision_maker(title)
 
 
-@pytest.mark.parametrize("title", ["Practice Manager", "Office Manager", "Medical Director", "Aesthetician", "Vice President of Operations", "Franchise Owner", "General Manager", "Marketing Associate", None, ""])
+@pytest.mark.parametrize("title", ["Practice Manager", "Office Manager", "Medical Director", "Aesthetician", "Vice President of Operations", "Franchise Owner", "General Manager", "Executive Assistant to the CEO", "Assistant to the Owner", "Owner's Assistant", "Former Owner", "Retired Founder", "Board Advisor", "Ex-CEO", "Marketing Associate", None, ""])
 def test_not_decision_maker_titles(title):
     assert not is_decision_maker(title)
 

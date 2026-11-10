@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from datetime import date
 
+from gtm.db import fetch_all
+
 
 def assign_mailbox(db, lead_id: str, today: date | None = None) -> str:
     lead = db.table("leads").select("mailbox_id").eq("id", lead_id).execute().data[0]
@@ -17,7 +19,7 @@ def assign_mailbox(db, lead_id: str, today: date | None = None) -> str:
     ]
     if not usable:
         raise RuntimeError("no enabled, unpaused mailbox: add one with `gtm mailbox add`")
-    load = Counter(r["mailbox_id"] for r in db.table("leads").select("mailbox_id").not_.is_("mailbox_id", "null").execute().data)
+    load = Counter(r["mailbox_id"] for r in fetch_all(lambda: db.table("leads").select("mailbox_id").not_.is_("mailbox_id", "null").order("id")))
     pick = min(usable, key=lambda i: load[i])
     db.table("leads").update({"mailbox_id": pick}).eq("id", lead_id).execute()
     return pick

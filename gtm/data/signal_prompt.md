@@ -18,3 +18,5 @@ vector, chosen from the handoff: conversion_recovery = a visible inquiry-to-book
 Platforms: Zenoti, Boulevard, Vagaro and Aesthetic Record have native waitlist, deposit, reminder and membership functions. A platform selling a feature does not prove the clinic enabled it, and a visibly working native route blocks the overlapping vector. Name the platform you see, or "none".
 
 Every current_signal and relevant_handoff needs "url" (exactly one of the page URLs given) and "quote": an exact copy, up to 200 characters, of text from that page. Items without an exact quote are discarded.
+
+The signal's date must be visible in that page's text (for example "Posted October 28, 2026"). If the page shows no date for it, return null for current_signal.

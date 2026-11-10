@@ -97,3 +97,19 @@ def test_parse_message_prefers_plain_text_in_multipart_and_strips_html_otherwise
     assert parse_message(multi)["body"] == "plain"
     html_only = {"payload": {"mimeType": "text/html", "headers": [], "body": {"data": _b64("<p>Hello <b>there</b></p>")}}}
     assert parse_message(html_only)["body"] == "Hello there"
+
+
+def test_build_raw_message_sets_reply_headers_when_replying():
+    m = _decode(build_raw_message("a@b.com", "Re: s", "b", in_reply_to="<m1@mail.gmail.com>"))
+    assert m["In-Reply-To"] == "<m1@mail.gmail.com>" and m["References"] == "<m1@mail.gmail.com>"
+
+
+def test_build_raw_message_has_no_reply_headers_by_default():
+    m = _decode(build_raw_message("a@b.com", "s", "b"))
+    assert m["In-Reply-To"] is None and m["References"] is None
+
+
+def test_create_draft_passes_the_reply_header_through():
+    svc = FakeGmail()
+    create_draft(svc, "a@b.com", "Re: s", "b", thread_id="t", in_reply_to="<m1@x>")
+    assert _decode(svc.calls[0][1]["body"]["message"]["raw"])["In-Reply-To"] == "<m1@x>"

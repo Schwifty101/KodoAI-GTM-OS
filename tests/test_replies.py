@@ -147,3 +147,32 @@ def test_run_replies_reads_threads_ignores_our_own_messages_and_applies_the_resu
     out = run_replies(db, lambda addr: object(), lambda s, p: {"kind": "other"}, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [bounce])
     assert out == {"opt_out": 1, "auto_reply": 1, "bounce": 1}
     assert state(db, leads[0])[0] == "unsubscribed" and state(db, leads[1])[0] == "sent" and state(db, leads[2])[0] == "bounced"
+
+
+@pytest.mark.parametrize("text", [
+    "Just back from being on vacation, please take me off your list.",
+    "I was out of the office last week. Stop emailing me.",
+    "I am currently away but I do not want these emails, please unsubscribe me.",
+])
+def test_an_opt_out_that_mentions_being_away_is_still_an_opt_out(text):
+    assert classify_reply(msg(text), llm=lambda s, p: pytest.fail("rules decide this")) == "opt_out"
+
+
+@pytest.mark.db
+def test_run_replies_considers_every_inbound_message_and_opt_out_wins_over_a_later_auto_reply(world):
+    db, leads, mb = world
+    own = msg("Is easier booking something you're working on?", frm="Soban <pytest-rep@example.com>")
+    ooo = msg("I am out of the office until Monday.", Auto_Submitted="auto-replied")
+    threads = {"thread-0": [own, msg("please remove me"), ooo], "thread-1": [own], "thread-2": [own]}
+    out = run_replies(db, lambda addr: object(), lambda s, p: {"kind": "other"}, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [])
+    assert out == {"opt_out": 1} and state(db, leads[0])[0] == "unsubscribed"
+
+
+@pytest.mark.db
+def test_run_replies_reads_the_threads_of_every_sent_touch_not_just_the_latest(world):
+    db, leads, mb = world
+    db.table("touches").update({"status": "sent", "gmail_thread_id": "thread-new", "sent_at": "2026-11-13T15:00:00+00:00"}).eq("lead_id", leads[0]["id"]).eq("touch_no", 2).execute()
+    own = msg("Hi", frm="Soban <pytest-rep@example.com>")
+    threads = {"thread-0": [own, msg("stop emailing me")], "thread-new": [own], "thread-1": [own], "thread-2": [own]}
+    out = run_replies(db, lambda addr: object(), lambda s, p: {"kind": "other"}, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [])
+    assert out == {"opt_out": 1} and state(db, leads[0])[0] == "unsubscribed"

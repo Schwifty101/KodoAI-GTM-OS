@@ -36,16 +36,19 @@ def gmail_service(mailbox: str):
     return build("gmail", "v1", credentials=creds)
 
 
-def build_raw_message(to: str, subject: str, body: str) -> str:
+def build_raw_message(to: str, subject: str, body: str, in_reply_to: str | None = None) -> str:
     m = EmailMessage()
     m["To"] = to
     m["Subject"] = subject
+    if in_reply_to:
+        m["In-Reply-To"] = in_reply_to  # with threadId and a matching subject, this makes Touch 2 and 3 thread in the prospect's client
+        m["References"] = in_reply_to
     m.set_content(body)
     return base64.urlsafe_b64encode(m.as_bytes()).decode()
 
 
-def create_draft(svc, to: str, subject: str, body: str, thread_id: str | None = None) -> str:
-    message = {"raw": build_raw_message(to, subject, body)}
+def create_draft(svc, to: str, subject: str, body: str, thread_id: str | None = None, in_reply_to: str | None = None) -> str:
+    message = {"raw": build_raw_message(to, subject, body, in_reply_to)}
     if thread_id:
         message["threadId"] = thread_id  # Touch 2 and 3 reply in the Touch 1 thread
     return svc.users().drafts().create(userId="me", body={"message": message}).execute()["id"]

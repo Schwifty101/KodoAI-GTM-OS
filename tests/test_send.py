@@ -6,7 +6,7 @@ import pytest
 from gtm.config import Settings
 from gtm.db import get_db
 from gtm.scrape import new_batch, place_to_lead
-from gtm.send import allowance, send_due, should_pause
+from gtm.send import allowance, send_due, send_with_reply_check, should_pause
 
 TODAY = date(2026, 11, 10)
 SETTINGS = Settings.from_env({"RAMP_START": "2", "RAMP_STEP": "1", "DAILY_CAP": "40", "PAUSE_BOUNCE_RATE": "0.03", "PAUSE_MIN_SENDS": "20"})
@@ -64,6 +64,7 @@ def world():
     mb = db.table("mailboxes").insert({"address": "pytest-send@example.com", "daily_cap": 40, "enabled_on": TODAY.isoformat()}).execute().data[0]
     yield db, bid, mb
     db.table("suppression").delete().like("reason", "pytest%").execute()
+    db.table("suppression").delete().in_("reason", ["opt-out reply", "bounce"]).execute()  # written by apply_reply in the reply-check test
     db.table("leads").delete().like("place_id", "TEST_%").execute()
     db.table("mailboxes").delete().like("address", "pytest-send%").execute()
     db.table("batches").delete().eq("id", bid).execute()
@@ -197,3 +198,17 @@ def test_a_gmail_error_leaves_the_draft_unsent_and_the_run_going(world):
     out = send_due(db, lambda addr: gm, TODAY, SETTINGS)
     assert out["errors"] == 1 and out["sent"] == 1
     assert sorted(touch(db, l["id"])["status"] for l in leads) == ["drafted", "sent"]
+
+
+@pytest.mark.db
+def test_send_with_reply_check_reads_replies_first_so_a_stopped_lead_gets_no_follow_up(world):
+    """Anti-goal: emailing after an opt-out. The lead is still `sent` in the database until replies are read."""
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, status="sent", touch_no=2)
+    db.table("touches").insert({"lead_id": l["id"], "touch_no": 1, "status": "sent", "gmail_thread_id": "thread-1", "sent_at": "2026-11-10T12:00:00+00:00"}).execute()
+    gm = Gmail()
+    inbox = {"thread-1": [{"from": "Dana <dana@glow0.com>", "subject": "Re: s", "headers": {}, "body": "Please stop emailing me."}]}
+    out = send_with_reply_check(db, lambda addr: gm, lambda s, p: {"kind": "other"}, TODAY, SETTINGS,
+                                thread_messages=lambda svc, tid: inbox[tid], recent_bounces=lambda svc: [])
+    assert gm.sent == [] and out["replies"] == {"opt_out": 1}
+    assert touch(db, l["id"], 2)["status"] == "cancelled" and lead(db, l["id"])["status"] == "unsubscribed"

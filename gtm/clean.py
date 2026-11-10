@@ -6,6 +6,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from gtm.db import fetch_all
 from gtm.status import Status
 
 US_STATES = {
@@ -68,8 +69,8 @@ def run_clean(db, batch_id: str) -> dict[str, int]:
         return {}
     seen = {
         r["domain"]
-        for r in db.table("leads").select("domain").neq("status", Status.SCRAPED.value).neq("status", Status.REJECTED.value)
-        .not_.is_("domain", "null").execute().data
+        for r in fetch_all(lambda: db.table("leads").select("domain").neq("status", Status.SCRAPED.value).neq("status", Status.REJECTED.value)
+                           .not_.is_("domain", "null").order("id"))
     }
     brands = Counter(brand_key(r["name"]) for r in rows)
     by_reason: dict[str | None, list[str]] = {}

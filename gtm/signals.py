@@ -53,6 +53,16 @@ def validate_signal(sig: dict, today: date, max_age_days: int) -> bool:
     return 0 <= age <= max_age_days
 
 
+def _date_on_page(d: date, text: str) -> bool:
+    """The model's date must be visible in the page text in a common format; an undated page cannot ground a 'current' signal."""
+    t = re.sub(r"\s+", " ", text.lower())
+    full, abbr = d.strftime("%B").lower(), d.strftime("%b").lower()
+    forms = {d.isoformat(), f"{d.month}/{d.day}/{d.year}", f"{d.month:02d}/{d.day:02d}/{d.year}"}
+    for m in {full, abbr, abbr + "."}:
+        forms |= {f"{m} {d.day}, {d.year}", f"{m} {d.day} {d.year}", f"{d.day} {m} {d.year}", f"{d.day:02d} {m} {d.year}"}
+    return any(f in t for f in forms)
+
+
 def _grounded(item: dict | None, pages: list[dict]) -> bool:
     if not item or not item.get("url") or not item.get("quote"):
         return False
@@ -64,6 +74,10 @@ def judge_to_signal(raw: dict, pages: list[dict], today: date, max_age_days: int
     signal = raw.get("current_signal")
     if not (_grounded(signal, pages) and validate_signal(signal, today, max_age_days)):
         signal = None
+    else:
+        page = next(p for p in pages if p["url"] == signal["url"])
+        if not _date_on_page(date.fromisoformat(signal["date"]), page["text"]):
+            signal = None  # a date the model supplied but the page does not show
     handoff = raw.get("relevant_handoff") if _grounded(raw.get("relevant_handoff"), pages) else None
     vector = raw.get("vector") if raw.get("vector") in VECTORS and handoff else None
     record = {

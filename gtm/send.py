@@ -6,7 +6,9 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 
 from gtm.config import Settings, get_settings
+from gtm.db import fetch_all
 from gtm.gmail import send_draft
+from gtm.replies import run_replies
 from gtm.select import _blocklists, blocked_reason
 from gtm.status import Status
 
@@ -38,7 +40,7 @@ def send_due(db, gmail_for, today: date, settings: Settings | None = None) -> di
     for mb in db.table("mailboxes").select("*").execute().data:
         if mb["paused"]:
             continue
-        leads = {l["id"]: l for l in db.table("leads").select("*").eq("mailbox_id", mb["id"]).execute().data}
+        leads = {l["id"]: l for l in fetch_all(lambda: db.table("leads").select("*").eq("mailbox_id", mb["id"]).order("id"))}
         touches = []
         ids = list(leads)
         for i in range(0, len(ids), 100):
@@ -86,3 +88,9 @@ def send_due(db, gmail_for, today: date, settings: Settings | None = None) -> di
             room -= 1
             out["sent"] += 1
     return dict(out)
+
+
+def send_with_reply_check(db, gmail_for, llm, today: date, settings: Settings | None = None, **fetchers) -> dict:
+    """Read replies and bounces first, so a lead who said stop on Day 2 is `unsubscribed` (and its Touch 2 cancelled) before Day 3 sends."""
+    replies = run_replies(db, gmail_for, llm, **fetchers)
+    return {"replies": replies, "send": send_due(db, gmail_for, today, settings)}

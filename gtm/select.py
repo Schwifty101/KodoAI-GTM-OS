@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from gtm.db import fetch_all
 from gtm.signals import VECTORS
 from gtm.status import Status
 
@@ -53,9 +54,9 @@ def _reason(llm, lead: dict, lane: str) -> str:
 
 def _blocklists(db) -> tuple[set[str], set[str]]:
     sup = set()
-    for r in db.table("suppression").select("email,domain").execute().data:
+    for r in fetch_all(lambda: db.table("suppression").select("email,domain").order("id")):
         sup |= {v.lower() for v in (r["email"], r["domain"]) if v}
-    sent = [t["lead_id"] for t in db.table("touches").select("lead_id").eq("status", "sent").execute().data]
+    sent = [t["lead_id"] for t in fetch_all(lambda: db.table("touches").select("lead_id").eq("status", "sent").order("id"))]
     contacted = set()
     for i in range(0, len(sent), 100):
         for r in db.table("leads").select("owner_email,domain").in_("id", sent[i : i + 100]).execute().data:

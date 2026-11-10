@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+from gtm.db import fetch_all
 from gtm.gmail import recent_bounces, thread_messages
 from gtm.status import Status
 
@@ -33,10 +34,12 @@ def classify_reply(msg: dict, llm=None) -> str:
         return "bounce"
     text = new_text(msg.get("body", ""))
     if (h.get("auto-submitted", "no").lower() != "no" or h.get("precedence", "").lower() in {"auto_reply", "bulk", "junk"}
-            or "x-autoreply" in h or AUTO_SUBJECT.search(msg.get("subject", "")) or AUTO_BODY.search(text)):
-        return "auto_reply"
+            or "x-autoreply" in h or AUTO_SUBJECT.search(msg.get("subject", ""))):
+        return "auto_reply"  # machine-marked: headers and subject are reliable
     if OPT_OUT.search(text):
-        return "opt_out"
+        return "opt_out"  # before the body check: "back from vacation, please remove me" is a person asking to stop
+    if AUTO_BODY.search(text):
+        return "auto_reply"
     if llm:
         try:
             kind = llm(SYSTEM, text[:2000]).get("kind")
@@ -44,6 +47,9 @@ def classify_reply(msg: dict, llm=None) -> str:
         except Exception:
             return "other"
     return "other"
+
+
+PRIORITY = {"bounce": 0, "opt_out": 1, "positive": 2, "negative": 2, "other": 2, "auto_reply": 3}
 
 
 def _address(frm: str) -> str:
@@ -74,17 +80,17 @@ def run_replies(db, gmail_for, llm, thread_messages=thread_messages, recent_boun
     counts: Counter = Counter()
     for mb in db.table("mailboxes").select("*").execute().data:
         svc = gmail_for(mb["address"])
-        active = {l["id"]: l for l in db.table("leads").select("id,owner_email").eq("mailbox_id", mb["id"]).eq("status", Status.SENT.value).execute().data}
+        active = {l["id"]: l for l in fetch_all(lambda: db.table("leads").select("id,owner_email").eq("mailbox_id", mb["id"]).eq("status", Status.SENT.value).order("id"))}
         for lead_id in list(active):
-            last = db.table("touches").select("gmail_thread_id").eq("lead_id", lead_id).eq("status", "sent").order("touch_no", desc=True).limit(1).execute().data
-            if not last or not last[0]["gmail_thread_id"]:
+            sent = db.table("touches").select("gmail_thread_id").eq("lead_id", lead_id).eq("status", "sent").order("touch_no").execute().data
+            threads = list(dict.fromkeys(t["gmail_thread_id"] for t in sent if t["gmail_thread_id"]))  # every sent touch's thread, not just the latest
+            inbound = [m for tid in threads for m in thread_messages(svc, tid) if mb["address"].lower() not in m["from"].lower()]
+            if not inbound:
                 continue
-            replies = [m for m in thread_messages(svc, last[0]["gmail_thread_id"]) if mb["address"].lower() not in m["from"].lower()]
-            if not replies:
-                continue
-            kind = classify_reply(replies[-1], llm)
+            ranked = sorted(((classify_reply(m, llm), m) for m in inbound), key=lambda km: PRIORITY[km[0]])  # stable: bounce, opt-out, then a real reply, then auto-reply
+            kind, m = ranked[0]
             counts[kind] += 1
-            apply_reply(db, lead_id, kind, _address(replies[-1]["from"]))
+            apply_reply(db, lead_id, kind, _address(m["from"]))
             if kind != "auto_reply":
                 active.pop(lead_id)
         for b in recent_bounces(svc):

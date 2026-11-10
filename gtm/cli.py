@@ -19,7 +19,7 @@ from gtm.draft import run_draft, run_followups
 from gtm.gmail import gmail_service
 from gtm.replies import run_replies
 from gtm.select import run_select
-from gtm.send import allowance, send_due
+from gtm.send import allowance, send_with_reply_check
 from gtm.signals import fetch_evidence, run_signals
 from gtm.scrape import DEFAULT_QUERIES, new_batch, scrape_city
 
@@ -65,7 +65,9 @@ def cmd_draft(a: argparse.Namespace) -> None:
 
 
 def cmd_followups(a: argparse.Namespace) -> None:
-    print(f"drafted {run_followups(get_db(), gmail_service, date.today())} follow-ups in Gmail Drafts (nothing sent)")
+    db = get_db()
+    run_replies(db, gmail_service, complete_json)  # a lead who already said stop gets no follow-up draft
+    print(f"drafted {run_followups(db, gmail_service, date.today())} follow-ups in Gmail Drafts (nothing sent)")
 
 
 def cmd_send(a: argparse.Namespace) -> None:
@@ -75,7 +77,7 @@ def cmd_send(a: argparse.Namespace) -> None:
             room = allowance(mb, date.today(), s.ramp_start, s.ramp_step, min(s.daily_cap, mb["daily_cap"]))
             print(f"{mb['address']}: paused={mb['paused']} allowance today={room}")
         sys.exit("Dry run only. Sending is a separate, explicit action: add --confirm to send due drafts.")
-    print(send_due(db, gmail_service, date.today(), s))
+    print(send_with_reply_check(db, gmail_service, complete_json, date.today(), s))  # replies first, then send
 
 
 def cmd_replies(a: argparse.Namespace) -> None:

@@ -7,7 +7,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from gtm.config import Settings, get_settings
-from gtm.gmail import create_draft
+from gtm.db import fetch_all
+from gtm.gmail import create_draft, thread_messages
 from gtm.mailboxes import assign_mailbox, mailbox_address
 from gtm.select import _blocklists, blocked_reason
 from gtm.status import Status
@@ -133,8 +134,8 @@ def _with_footer(body: str) -> str:
     return f"{body}\n\n{f}" if f else body
 
 
-def _store(db, gmail_for, lead: dict, mailbox_id: str, touch_no: int, subject: str, body: str, objective: str, today: date, thread_id=None) -> None:
-    draft_id = create_draft(gmail_for(mailbox_address(db, mailbox_id)), lead["owner_email"], subject, body, thread_id)
+def _store(db, gmail_for, lead: dict, mailbox_id: str, touch_no: int, subject: str, body: str, objective: str, today: date, thread_id=None, in_reply_to=None) -> None:
+    draft_id = create_draft(gmail_for(mailbox_address(db, mailbox_id)), lead["owner_email"], subject, body, thread_id, in_reply_to)
     db.table("touches").insert({"lead_id": lead["id"], "touch_no": touch_no, "status": "drafted", "gmail_draft_id": draft_id, "gmail_thread_id": thread_id,
                                 "subject": subject, "body": body, "objective": objective, "scheduled_for": today.isoformat()}).execute()
 
@@ -161,11 +162,11 @@ def run_draft(db, llm, gmail_for, batch_id: str, today: date) -> int:
     return done
 
 
-def run_followups(db, gmail_for, today: date) -> int:
+def run_followups(db, gmail_for, today: date, thread_messages=thread_messages) -> int:
     """Draft Touch 2 (Day 3) and Touch 3 (Day 7) in the Touch 1 thread. A reply, bounce or opt-out leaves the lead out of `sent`, so it stops here."""
     suppressed, _ = _blocklists(db)  # only opt-outs matter mid-sequence: we have of course already contacted these leads
     done = 0
-    for lead in db.table("leads").select("*").eq("status", Status.SENT.value).execute().data:
+    for lead in fetch_all(lambda: db.table("leads").select("*").eq("status", Status.SENT.value).order("id")):
         touches = {t["touch_no"]: t for t in db.table("touches").select("*").eq("lead_id", lead["id"]).execute().data}
         t1 = touches.get(1)
         if not t1 or t1["status"] != "sent" or not t1.get("sent_at"):
@@ -177,6 +178,8 @@ def run_followups(db, gmail_for, today: date) -> int:
             continue
         subject = "Re: " + re.sub(r"^Re:\s*", "", t1["subject"])
         body = build_followup(n, lead["owner_name"].split()[0], lead["name"], t1["objective"])
-        _store(db, gmail_for, lead, lead["mailbox_id"], n, subject, _with_footer(body), t1["objective"], today, t1["gmail_thread_id"])
+        svc = gmail_for(mailbox_address(db, lead["mailbox_id"]))
+        message_id = next((m["headers"]["message-id"] for m in thread_messages(svc, t1["gmail_thread_id"]) if m["headers"].get("message-id")), None)
+        _store(db, gmail_for, lead, lead["mailbox_id"], n, subject, _with_footer(body), t1["objective"], today, t1["gmail_thread_id"], message_id)
         done += 1
     return done
