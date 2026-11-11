@@ -11,11 +11,15 @@ from gtm.db import get_db
 from gtm.clean import run_clean
 from gtm.config import get_settings
 from gtm.enrich import hunter_domain_finder, run_enrich, site_owner_finder
+from gtm.harvest import HarvestClient, harvest_finder
 from gtm.hunter import HunterPool
 from gtm.import_history import parse_line, run_import
 from gtm.llm import complete_json
+from gtm.prospeo import ProspeoClient, prospeo_finder
 from gtm.owner_search import search_owner_finder
+from gtm.researcher import gemini_step, research_owner_finder
 from gtm.search import serper_search
+from gtm.sitescrape import http_fetch
 from gtm.draft import run_draft, run_followups
 from gtm.gmail import gmail_service
 from gtm.replies import run_replies
@@ -44,10 +48,13 @@ def cmd_enrich(a: argparse.Namespace) -> None:
     available = {
         "site": site_owner_finder(pool),  # free scrape for a name, then Hunter Email Finder
         "search": search_owner_finder(pool, serper_search, complete_json),  # "owner of <domain>" search, then Hunter Email Finder
+        "research": research_owner_finder(pool, serper_search, http_fetch, gemini_step, budget=a.research_budget),  # LLM web-research loop for a named owner, code-validated, then Hunter Email Finder
+        "prospeo": prospeo_finder(ProspeoClient(get_settings().prospeo_api_key, batch_id=a.batch)),  # verified email for a named owner; pays only on a find
+        "harvest": harvest_finder(HarvestClient(get_settings().harvest_api_key, a.harvest_budget, batch_id=a.batch), serper_search),  # LinkedIn lookup of a named owner
         "hunter": hunter_domain_finder(pool),  # Hunter Domain Search
     }
     finders = [available[n] for n in a.finders.split(",")]
-    print(run_enrich(get_db(), finders, a.batch, a.limit))
+    print(run_enrich(get_db(), finders, a.batch, a.limit, a.retry_no_buyer))
 
 
 def cmd_signals(a: argparse.Namespace) -> None:
@@ -121,7 +128,10 @@ def main() -> None:
     e = sub.add_parser("enrich")
     e.add_argument("--batch", required=True)
     e.add_argument("--limit", type=int, help="max leads this run (each can cost Hunter credits)")
-    e.add_argument("--finders", default="site,search,hunter", help="comma list, tried in order, cheapest first")
+    e.add_argument("--finders", default="site,search,research,prospeo", help="comma list, tried in order, cheapest first. hunter (Domain Search: 33 credits for 1 lead in the Houston run) and harvest (no emails found) are opt-in")
+    e.add_argument("--harvest-budget", type=float, default=1.0, help="USD cap on HarvestAPI spend this run")
+    e.add_argument("--research-budget", type=int, default=150, help="max Serper searches the research finder may spend this run")
+    e.add_argument("--retry-no-buyer", action="store_true", help="also re-run leads already marked no_buyer (spends credits again)")
     e.set_defaults(fn=cmd_enrich)
     g = sub.add_parser("signals")
     g.add_argument("--batch", required=True)

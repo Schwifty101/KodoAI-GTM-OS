@@ -20,5 +20,17 @@ def test_pause_thresholds_have_defaults():
     assert (s.pause_bounce_rate, s.pause_min_sends) == (0.03, 20)
 
 
+def test_harvest_key_is_read_from_harvest_api_key():
+    assert Settings.from_env({"HARVEST_API_KEY": "h"}).harvest_api_key == "h"
+
+
+def test_vertex_key_is_read_from_the_agent_platform_var():
+    assert Settings.from_env({"GEMINI_AGENT_PLATFORM_API_KEY": "v"}).vertex_api_key == "v"
+
+
+def test_prospeo_key_is_read_from_prospeo_api_key():
+    assert Settings.from_env({"PROSPEO_API_KEY": "p"}).prospeo_api_key == "p"
+
+
 def test_serper_key_is_read_from_serp_api_key():
     assert Settings.from_env({"SERP_API_KEY": "s"}).serper_api_key == "s"

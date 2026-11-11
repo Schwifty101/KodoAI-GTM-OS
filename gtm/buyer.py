@@ -39,9 +39,12 @@ def seniority(title: str) -> int:
     return 2
 
 
+MIN_SCORE = 80  # Hunter confidence (owner rule, 2026-11-10): `valid` alone is not enough
+
+
 def pick_buyer(candidates: list[dict]) -> dict | None:
     ok = [
         c for c in candidates
-        if c.get("email") and not is_role_email(c["email"]) and c.get("verification_status") == "valid" and is_decision_maker(c.get("position"))
+        if c.get("email") and not is_role_email(c["email"]) and c.get("verification_status") == "valid" and (c.get("score") or 0) >= MIN_SCORE and is_decision_maker(c.get("position"))
     ]
     return min(ok, key=lambda c: seniority(c["position"])) if ok else None

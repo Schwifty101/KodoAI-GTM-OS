@@ -40,7 +40,7 @@ class FakePool:
         self.asked.append((domain, first, last))
         if not self.found:
             return None
-        return {"email": "michelle@renovemedicalspa.com", "first_name": first, "last_name": last, "position": None, "verification_status": "valid", "source": "hunter"}
+        return {"email": "michelle@renovemedicalspa.com", "first_name": first, "last_name": last, "position": None, "verification_status": "valid", "score": 90, "source": "hunter"}
 
 
 def test_finder_searches_owner_of_domain_then_asks_hunter_for_the_email():
@@ -56,7 +56,13 @@ def test_finder_searches_owner_of_domain_then_asks_hunter_for_the_email():
     assert queries == ["owner of renovemedicalspa.com"]
     assert pool.asked == [("renovemedicalspa.com", "Michelle", "Parsons")]
     assert out == [{"email": "michelle@renovemedicalspa.com", "first_name": "Michelle", "last_name": "Parsons", "position": "Owner/Physician",
-                    "verification_status": "valid", "source": "search+hunter", "evidence_url": RENOVE[1]["link"]}]
+                    "verification_status": "valid", "score": 90, "source": "search+hunter", "evidence_url": RENOVE[1]["link"]}]
+
+
+def test_finder_keeps_the_validated_name_when_hunter_finds_no_email():
+    out = search_owner_finder(FakePool(found=False), lambda q: RENOVE, lambda s, p: {"name": "Michelle Parsons", "title": "Owner/Physician", "url": RENOVE[1]["link"]})(BUSINESS)
+    assert out == [{"email": None, "first_name": "Michelle", "last_name": "Parsons", "position": "Owner/Physician", "source": "search",
+                    "evidence_url": RENOVE[1]["link"]}]
 
 
 def test_finder_costs_no_hunter_credit_when_no_valid_owner_is_found():

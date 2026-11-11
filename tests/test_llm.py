@@ -32,20 +32,20 @@ def test_throttle_does_not_wait_under_the_limit():
     assert c.slept == []
 
 
-def test_groq_answer_is_used_when_valid():
-    out = complete_json("sys", "prompt", groq=lambda s, p: '{"a": 1}', gemini=lambda s, p: pytest.fail("fallback not needed"))
+def test_primary_answer_is_used_when_valid():
+    out = complete_json("sys", "prompt", primary=lambda s, p: '{"a": 1}', fallback=lambda s, p: pytest.fail("fallback not needed"))
     assert out == {"a": 1}
 
 
-def test_falls_back_to_gemini_when_groq_fails():
+def test_falls_back_when_primary_fails():
     def boom(s, p):
         raise RuntimeError("429")
 
-    assert complete_json("sys", "prompt", groq=boom, gemini=lambda s, p: '{"b": 2}') == {"b": 2}
+    assert complete_json("sys", "prompt", primary=boom, fallback=lambda s, p: '{"b": 2}') == {"b": 2}
 
 
-def test_falls_back_when_groq_returns_invalid_json():
-    assert complete_json("sys", "prompt", groq=lambda s, p: "not json", gemini=lambda s, p: '{"c": 3}') == {"c": 3}
+def test_falls_back_when_primary_returns_invalid_json():
+    assert complete_json("sys", "prompt", primary=lambda s, p: "not json", fallback=lambda s, p: '{"c": 3}') == {"c": 3}
 
 
 def test_raises_when_both_fail():
@@ -53,4 +53,4 @@ def test_raises_when_both_fail():
         raise RuntimeError("down")
 
     with pytest.raises(RuntimeError):
-        complete_json("sys", "prompt", groq=boom, gemini=boom)
+        complete_json("sys", "prompt", primary=boom, fallback=boom)

@@ -5,7 +5,7 @@ from gtm.hunter import HunterPool, OutOfCredits
 SPENT = (429, {"errors": [{"id": "too_many_requests", "code": 429, "details": "You've reached the limit for the number of searches per billing period included in your plan."}]})
 FAST = (429, {"errors": [{"id": "too_many_requests", "code": 429, "details": "Too many requests per second."}]})
 BAD_KEY = (401, {"errors": [{"id": "authentication_failed", "code": 401}]})
-EMAIL = {"value": "dana@glowspa.com", "first_name": "Dana", "last_name": "Whitfield", "position": "Owner", "type": "personal", "verification": {"status": "valid"}}
+EMAIL = {"value": "dana@glowspa.com", "first_name": "Dana", "last_name": "Whitfield", "position": "Owner", "type": "personal", "confidence": 94, "verification": {"status": "valid"}}
 
 
 def pool(keys, script):
@@ -22,7 +22,7 @@ def test_domain_search_maps_candidates_and_charges_one_credit():
     p, calls, logs = pool(["k1"], [(200, {"data": {"emails": [EMAIL]}})])
     assert p.domain_search("glowspa.com") == [
         {"email": "dana@glowspa.com", "first_name": "Dana", "last_name": "Whitfield", "position": "Owner",
-         "verification_status": "valid", "source": "hunter"}
+         "verification_status": "valid", "score": 94, "source": "hunter"}
     ]
     assert [u for u, _ in logs] == [1]
 
@@ -58,10 +58,10 @@ def test_plain_rate_limit_retries_same_key():
 
 
 def test_email_finder_returns_candidate_when_found_and_charges_one_credit():
-    data = {"data": {"email": "dana@glowspa.com", "first_name": "Dana", "last_name": "Whitfield", "position": None, "verification": {"status": "valid"}}}
+    data = {"data": {"email": "dana@glowspa.com", "first_name": "Dana", "last_name": "Whitfield", "position": None, "score": 91, "verification": {"status": "valid"}}}
     p, _, logs = pool(["k1"], [(200, data)])
     c = p.email_finder("glowspa.com", "Dana", "Whitfield")
-    assert c["email"] == "dana@glowspa.com" and c["verification_status"] == "valid" and c["source"] == "hunter"
+    assert c["email"] == "dana@glowspa.com" and c["verification_status"] == "valid" and c["score"] == 91 and c["source"] == "hunter"
     assert [u for u, _ in logs] == [1]
 
 

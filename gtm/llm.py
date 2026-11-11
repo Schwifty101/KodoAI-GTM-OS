@@ -1,5 +1,5 @@
-"""LLM calls for judging and phrasing. Groq primary (fast, 8K tokens/min free), Gemini fallback (slow, flaky on the free tier).
-Measured in docs/spikes/llm.md."""
+"""LLM calls for judging and phrasing. Gemini on Vertex AI primary (paid from the Google Cloud credit, no 8K tokens/min wall),
+Groq fallback (free, 8K tokens/min). The free AI Studio Gemini tier was flaky and its prepaid credit is spent. Measured in docs/spikes/llm.md."""
 
 from __future__ import annotations
 
@@ -51,12 +51,13 @@ def _groq(system: str, prompt: str) -> str:
     return j["choices"][0]["message"]["content"]
 
 
-def _gemini(system: str, prompt: str) -> str:
+def _vertex(system: str, prompt: str) -> str:
+    """Gemini on Vertex AI (paid, billed to the Google Cloud credit). The Agent Platform key works on this endpoint without ADC."""
     for attempt in range(3):
         r = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-            headers={"x-goog-api-key": get_settings().gemini_api_key},
-            json={"systemInstruction": {"parts": [{"text": system}]}, "contents": [{"parts": [{"text": prompt}]}],
+            f"https://aiplatform.googleapis.com/v1/publishers/google/models/{GEMINI_MODEL}:generateContent",
+            headers={"x-goog-api-key": get_settings().vertex_api_key},
+            json={"systemInstruction": {"parts": [{"text": system}]}, "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                   "generationConfig": {"responseMimeType": "application/json"}},
             timeout=90,
         )
@@ -64,12 +65,14 @@ def _gemini(system: str, prompt: str) -> str:
             time.sleep(2 ** (attempt + 1))
             continue
         r.raise_for_status()
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    raise RuntimeError("gemini unavailable")
+        j = r.json()
+        log_cost("gemini", (j.get("usageMetadata") or {}).get("totalTokenCount", 0), None, note="tokens")
+        return j["candidates"][0]["content"]["parts"][0]["text"]
+    raise RuntimeError("vertex unavailable")
 
 
-def complete_json(system: str, prompt: str, *, groq=_groq, gemini=_gemini) -> dict:
+def complete_json(system: str, prompt: str, *, primary=_vertex, fallback=_groq) -> dict:
     try:
-        return json.loads(groq(system, prompt))
+        return json.loads(primary(system, prompt))
     except Exception:
-        return json.loads(gemini(system, prompt))
+        return json.loads(fallback(system, prompt))

@@ -13,6 +13,8 @@ Method: read each provider's docs for a free account/credits endpoint, call it o
 | RocketReach | docs returned HTTP 403 to my fetch | **Not checked** |
 | ContactOut | auth header `token`; the usage-stats section was cut off in what I could read | **Not checked** |
 
+**Update 2026-11-11:** Prospeo and the other finders were later tested on saved names; results in `owner_routes.md`. Prospeo is now a default finder. The recommendation below is superseded.
+
 ## Recommendation
 
 There is no evidence yet to buy a paid fallback. Two keys have free credits worth testing: **Prospeo (88) and Tomba (25 searches)**. Task 10 should run both on the same 45 Houston domains used in the Hunter spike, because Hunter's weak point is owner names and titles (55% of emails had no title), and measure which one adds verified decision-makers. Buy a paid plan for a fallback only if one of them clearly lifts yield, and only after the Task 7 funnel is written. The four unchecked providers (Apollo scope, Lusha, Snov, RocketReach, ContactOut) need a look in their dashboards by Soban, or a docs page I can actually read, before they are considered.

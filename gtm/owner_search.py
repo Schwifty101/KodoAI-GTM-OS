@@ -60,8 +60,9 @@ def search_owner_finder(pool, search, llm):
         if not owner:
             return []
         c = pool.email_finder(lead["domain"], owner["first_name"], owner["last_name"])
-        if not c:
-            return []
+        if not c:  # keep the validated name: later finders (and the lead row) can still use it
+            return [{"email": None, "first_name": owner["first_name"], "last_name": owner["last_name"], "position": owner["position"],
+                     "source": "search", "evidence_url": owner["url"]}]
         return [{**c, "position": owner["position"], "source": "search+hunter", "evidence_url": owner["url"]}]
 
     return find

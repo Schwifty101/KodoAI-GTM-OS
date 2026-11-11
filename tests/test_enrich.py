@@ -27,7 +27,7 @@ def test_not_decision_maker_titles(title):
 
 
 def cand(**kw):
-    return {"email": "dana@spa.com", "first_name": "Dana", "last_name": "W", "position": "Owner", "verification_status": "valid", "source": "hunter", **kw}
+    return {"email": "dana@spa.com", "first_name": "Dana", "last_name": "W", "position": "Owner", "verification_status": "valid", "score": 90, "source": "hunter", **kw}
 
 
 def test_pick_buyer_takes_verified_decision_maker():
@@ -41,10 +41,16 @@ def test_pick_buyer_takes_verified_decision_maker():
     [cand(position=None)],
     [cand(position="Practice Manager")],
     [cand(email=None)],
+    [cand(score=79)],
+    [cand(score=None)],
     [],
 ])
 def test_pick_buyer_rejects_role_unverified_untitled_or_non_decision_maker(bad):
     assert pick_buyer(bad) is None
+
+
+def test_pick_buyer_accepts_score_exactly_80():
+    assert pick_buyer([cand(score=80)])
 
 
 def test_pick_buyer_prefers_most_senior():
@@ -123,3 +129,58 @@ def test_limit_caps_how_many_leads_are_processed(cleaned):
     db, bid = cleaned
     run_enrich(db, [lambda lead: []], bid, limit=1)
     assert sorted(row(db, i)["status"] for i in range(3)) == ["cleaned", "cleaned", "no_buyer"]
+
+
+@pytest.mark.db
+def test_failed_lead_keeps_the_owner_it_found_but_stays_no_buyer(cleaned):
+    db, bid = cleaned
+    named = {"email": "dana@spa0.com", "first_name": "Dana", "last_name": "W", "position": "Owner", "verification_status": "accept_all", "score": 99, "source": "search+hunter"}
+    run_enrich(db, [lambda lead: [named] if lead["domain"] == "spa0.com" else []], bid)
+    r = row(db, 0)
+    assert (r["status"], r["owner_name"], r["owner_title"], r["owner_email"], r["email_verified"]) == ("no_buyer", "Dana W", "Owner", "dana@spa0.com", False)
+    assert row(db, 1)["owner_name"] is None
+
+
+@pytest.mark.db
+def test_role_email_is_not_saved_but_the_name_is(cleaned):
+    db, bid = cleaned
+    named = {"email": "info@spa0.com", "first_name": "Dana", "last_name": "W", "position": "Owner", "verification_status": "valid", "score": 99, "source": "hunter"}
+    run_enrich(db, [lambda lead: [named] if lead["domain"] == "spa0.com" else []], bid)
+    assert (row(db, 0)["owner_name"], row(db, 0)["owner_email"]) == ("Dana W", None)
+
+
+@pytest.mark.db
+def test_retry_no_buyer_reruns_failed_leads_and_later_finders_see_saved_and_earlier_names(cleaned):
+    db, bid = cleaned
+    run_enrich(db, [lambda lead: [{"email": None, "first_name": "Dana", "last_name": "W", "position": "Owner", "source": "site"}]], bid)
+    assert row(db, 0)["status"] == "no_buyer"
+    got = []
+
+    def later(lead):
+        got.append([k["first_name"] for k in lead["known"]])
+        return [cand(email="dana@" + lead["domain"])]
+
+    assert run_enrich(db, [later], bid) == {}  # not retried by default
+    assert run_enrich(db, [later], bid, retry_no_buyer=True) == {"enriched": 3}
+    assert got == [["Dana"]] * 3  # the owner saved on the lead is handed to the finder
+
+
+def test_site_finder_keeps_the_name_when_hunter_finds_no_email():
+    from gtm.enrich import site_owner_finder
+
+    class NoEmail:
+        def email_finder(self, domain, first, last):
+            return None
+
+    html = "<h3>Dana Whitfield</h3><p>Founder & CEO</p>"
+    out = site_owner_finder(NoEmail(), fetch=lambda url: html)({"domain": "glow.com"})
+    assert out == [{"email": None, "first_name": "Dana", "last_name": "Whitfield", "position": "Founder & CEO", "source": "site"}]
+
+
+@pytest.mark.db
+def test_retry_that_finds_nothing_keeps_the_email_saved_earlier(cleaned):
+    db, bid = cleaned
+    named = {"email": "dana@spa0.com", "first_name": "Dana", "last_name": "W", "position": "Owner", "verification_status": "accept_all", "score": 73, "source": "search+hunter"}
+    run_enrich(db, [lambda lead: [named] if lead["domain"] == "spa0.com" else []], bid)
+    run_enrich(db, [lambda lead: []], bid, retry_no_buyer=True)
+    assert (row(db, 0)["owner_name"], row(db, 0)["owner_email"], row(db, 0)["status"]) == ("Dana W", "dana@spa0.com", "no_buyer")

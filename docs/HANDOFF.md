@@ -1,19 +1,21 @@
-# HANDOFF: KodoAI GTM OS (written 2026-11-10, branch `gtm-os-build`, HEAD d876340 when written)
+# HANDOFF: KodoAI GTM OS (updated 2026-11-11, branch `gtm-os-build`; uncommitted work at update time: enrich finders, Gemini LLM, clean rules)
 
 Read this first, then `CLAUDE.md`. Everything here was read from the repo or established in the building session; anything not checked is marked **unverified**.
 
 ## 1. What this is and where things stand
 
-A personal "GTM OS" for med spa cold email, for one operator: Soban (KodoAI founder, soban@kodoai.xyz). Pipeline: scrape US med spas from Google Maps (Apify) > clean (plain rules) > enrich to a named decision-maker with a verified email (site scrape, "owner of <domain>" Serper search + Groq, Hunter) > judge buying signals from the lead's own website (Groq) > auto-select > operator approves in the UI > draft in Gmail (Touch 1 under mechanical checks, Touch 2/3 templates) > explicit send with caps > read replies/bounces > per-batch metrics. Local Next.js UI. Supabase Postgres is the only database. The old Pakistan scraper is deleted (in git history before commit 8518f81). Spec: `docs/superpowers/specs/2026-11-09-kodoai-gtm-os-design.md`; plan: `docs/superpowers/plans/2026-11-09-kodoai-gtm-os.md` (19 tasks, all complete).
+A personal "GTM OS" for med spa cold email, for one operator: Soban (KodoAI founder, soban@kodoai.xyz). Pipeline: scrape US med spas from Google Maps (Apify) > clean (plain rules) > enrich to a named decision-maker with a verified email (finders `site`, `search`, `research`, `prospeo`; Hunter Email Finder verifies; see section 5a) > judge buying signals from the lead's own website (Gemini primary, Groq fallback) > auto-select > operator approves in the UI > draft in Gmail (Touch 1 under mechanical checks, Touch 2/3 templates) > explicit send with caps > read replies/bounces > per-batch metrics. Local Next.js UI. Supabase Postgres is the only database. The old Pakistan scraper is deleted (in git history before commit 8518f81). Spec: `docs/superpowers/specs/2026-11-09-kodoai-gtm-os-design.md`; plan: `docs/superpowers/plans/2026-11-09-kodoai-gtm-os.md` (19 tasks, all complete).
 
 | Box | Items |
 |---|---|
 | **Built** | All 19 plan tasks: scrape, clean, enrich, signals, select, draft, follow-ups, send, replies, mailboxes, Notion history import, web UI (Leads, Review, Outreach, Dashboard, Login), `batch_metrics` view, 6 migrations, final Opus code review with fixes |
-| **Verified live** | Supabase project `alvxsbnfthvaiquhytig`, all 6 migrations applied. RLS restricts every table to operator soban@kodoai.xyz (proved with a throwaway non-operator user: reads 0 rows, cannot write). Gmail OAuth (Desktop client, Internal; scopes `gmail.compose` + `gmail.readonly`) and a test draft created in Drafts. Apify actor `compass~crawler-google-places` (price measured). Hunter free keys (credit behaviour measured). Groq `openai/gpt-oss-120b` reliable. Serper works (key replaced and re-tested 2026-11-10; session fact). Operator mailbox row registered (cap 40, enabled 2026-11-10). Suppression holds 434 imported rows |
-| **Not yet verified live** | Gmail `send_draft`; reading threads and bounces (`thread_messages`, `recent_bounces`); Touch 2/3 threading with In-Reply-To headers. No real end-to-end batch has run. Prospeo (88 free credits) and Tomba (25 searches) finder comparison not done. Nothing else open here: the suite collects 294 tests (2026-11-10, all passing on the last full run) |
-| **Blocked / waiting** | Nothing technically blocked. Waiting on owner: re-pull Notion Batch03; Hunter plan decision; disabling Supabase signups; first real small batch; no paid Apify top-up without asking (free credit ends 2026-11-24) |
+| **Verified live** | Supabase project `alvxsbnfthvaiquhytig`, all 6 migrations applied. RLS restricts every table to operator soban@kodoai.xyz (proved with a throwaway non-operator user: reads 0 rows, cannot write). Gmail OAuth (Desktop client, Internal; scopes `gmail.compose` + `gmail.readonly`) and a test draft created in Drafts. Apify actor `compass~crawler-google-places` (price measured). Hunter free keys (credit behaviour measured). Groq `openai/gpt-oss-120b` reliable. Serper works (key replaced and re-tested 2026-11-10; session fact). Vertex Gemini `gemini-3.5-flash` is the primary LLM and ran the Houston batch (2026-11-11). Operator mailbox row registered (cap 40, enabled 2026-11-10). Suppression holds 434 imported rows |
+| **Not yet verified live** | Gmail `send_draft`; reading threads and bounces (`thread_messages`, `recent_bounces`); Touch 2/3 threading with In-Reply-To headers. No real end-to-end batch has run. Prospeo and other finders were measured on saved names (section 7, `docs/spikes/owner_routes.md`). The suite is 348 tests, ~4.5 min, hits the real Supabase project (count as given by the owner 2026-11-11; not re-run for this doc) |
+| **Blocked / waiting** | Nothing technically blocked. Waiting on owner: Hunter plan decision; first real send; no paid Apify top-up without asking (free credit ends 2026-11-24). Done: Notion Batch03 re-pulled 2026-11-10 (32 rows, nothing new); Supabase signups disabled by owner 2026-11-10 |
 
-Funnel reality (Houston, small samples): clean keeps ~63%; Hunter-only gives ~9% verified decision-makers; website-only evidence gave 0 of 6 dated signals, so most leads will be **relevance-led with thin personalisation**. Target 200 ready leads a week is not reachable on current free credits or a single mailbox (see section 7).
+Funnel reality (Houston, small samples): clean keeps ~63-87% (87% on the 2026-11-11 batch, 52 of 60); names are found for ~62% of cleaned leads but most fail at name > verified email, so enriched is ~17% (9 of 52, 2026-11-11 batch, after the `ovme.com` chain was dropped); website-only evidence gave 0 of 6 dated signals, so most leads will be **relevance-led with thin personalisation**. Target 100-200 emailable leads a week needs on the order of 1,000+ scraped places a week at ~15-20% yield (unverified projection) and Hunter/Prospeo credits are the real limit (section 7).
+
+**End to end as it stands (2026-11-11):** scrape (Apify) > clean (rules) > enrich (`site,search,research,prospeo`, first verified buyer wins) > signals (Gemini primary) > select > operator approves in the UI > draft (Gmail) > `send --confirm` > replies. Send stays a separate explicit step. Owner-finding detail and measurements: section 5a and `docs/spikes/owner_routes.md`.
 
 ## 2. First 10 minutes
 
@@ -30,7 +32,7 @@ cd web && node --env-file=.env.local --env-file=../.env --import tsx scripts/rls
 uv run python -m gtm.cli --help      # every pass
 ```
 
-Env variable NAMES (values never in docs): `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` (script-side only), `APIFY_API_KEY` (+`_2`..`_9`), `HUNTER_API_KEY` (+`_2`..`_9`), `GROQ_API_KEY`, `GEMINI_API_KEY`, `SERP_API_KEY` (+ `SERP_PROVIDER=serper`), `GOOGLE_OAUTH_CLIENT_FILE`, `DAILY_CAP`, `RAMP_START`, `RAMP_STEP`, `PAUSE_BOUNCE_RATE`, `PAUSE_MIN_SENDS`, `SIGNAL_MAX_AGE_DAYS`, `POSTAL_ADDRESS`, `AD_DISCLOSURE`, `OPT_OUT_LINE`. Only `gtm/config.py` reads the environment. Settings defaults in code: cap 40, ramp 10/+5, pause 3% over 20 sends, signal age 0 (= refuse to run). The real `.env` overrides them (RAMP_START=20, RAMP_STEP=5, DAILY_CAP=40, PAUSE_BOUNCE_RATE=0.05, PAUSE_MIN_SENDS=40, SIGNAL_MAX_AGE_DAYS=90, per the brief and `docs/spikes/sending_history.md`; values not re-read here).
+Env variable NAMES (values never in docs): `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY` (script-side only), `APIFY_API_KEY` (+`_2`..`_9`), `HUNTER_API_KEY` (+`_2`..`_9`), `GROQ_API_KEY`, `GEMINI_AGENT_PLATFORM_API_KEY`, `PROSPEO_API_KEY`, `HARVEST_API_KEY`, `SERP_API_KEY` (+ `SERP_PROVIDER=serper`); the old `GEMINI_API_KEY` setting is gone (an AI Studio key `GEMINI_STUDIO_API_KEY` may sit in `.env`; unused, its prepaid credit is depleted), `GOOGLE_OAUTH_CLIENT_FILE`, `DAILY_CAP`, `RAMP_START`, `RAMP_STEP`, `PAUSE_BOUNCE_RATE`, `PAUSE_MIN_SENDS`, `SIGNAL_MAX_AGE_DAYS`, `POSTAL_ADDRESS`, `AD_DISCLOSURE`, `OPT_OUT_LINE`. Only `gtm/config.py` reads the environment. Settings defaults in code: cap 40, ramp 10/+5, pause 3% over 20 sends, signal age 0 (= refuse to run). The real `.env` overrides them (RAMP_START=20, RAMP_STEP=5, DAILY_CAP=40, PAUSE_BOUNCE_RATE=0.05, PAUSE_MIN_SENDS=40, SIGNAL_MAX_AGE_DAYS=90, per the brief and `docs/spikes/sending_history.md`; values not re-read here).
 
 ## 3. Architecture and file map
 
@@ -44,14 +46,17 @@ All Python is run as `uv run python -m gtm.cli <pass>` from the repo root. Lead 
 | `gtm/costs.py` | `log_cost(provider, units, usd, batch_id, lead_id, note)` into `cost_log` |
 | `gtm/apify.py` | Actor run with hard `maxTotalChargeUsd` (min 0.50), picks key with most remaining budget |
 | `gtm/scrape.py` | `new_batch`, `scrape_input`, `place_to_lead`, `scrape_city` (insert-new-only; default queries "med spa","aesthetics clinic","botox" with website filter) |
-| `gtm/clean.py` | `clean_decision` + `run_clean`: closed, no_website (incl. booking/social platform domains), not_us, category, day_spa, chain (chains.txt or brand repeated >=3 in batch), duplicate_domain (most reviews wins) |
-| `gtm/buyer.py` | `is_role_email`, `is_decision_maker` (MedSpa section 3), `pick_buyer` (verified `valid` only, role addresses never) |
+| `gtm/clean.py` | `clean_decision` + `run_clean`: closed, no_website (booking/social platform domains, plus tenant suffixes like `*.as.me`, `*.acuityscheduling.com`, `*.squareup.com`), not_us, `not_a_clinic` (academy/school/training/university/college in name or categories; a real med spa named "Academy" is a known miss), category, day_spa, chain (chains.txt or brand repeated >=3 in batch), duplicate_domain (most reviews wins). `chains.txt` now has `ovme` (uncommitted edit seen 2026-11-11); it matches lead names, not domains |
+| `gtm/buyer.py` | `is_role_email`, `is_decision_maker` (MedSpa section 3), `pick_buyer` (verification `valid` AND score >= 80, role addresses never) |
 | `gtm/hunter.py` | `HunterPool`: Domain Search, Email Finder, key rotation, `OutOfCredits` |
 | `gtm/sitescrape.py` | Free owner-name scrape of About/Team/Contact pages + JSON-LD; `http_fetch` |
 | `gtm/search.py` | `serper_search` |
 | `gtm/owner_search.py` | "owner of <domain>" search, Groq reads results, `validate_owner` code guard, then Hunter Email Finder |
-| `gtm/enrich.py` | Finders (`site`, `search`, `hunter`) and `run_enrich`; failures become `no_buyer` (kept, not re-bought); out of credits leaves leads `cleaned` |
-| `gtm/llm.py` | `complete_json`: Groq primary (token-per-minute `Throttle`), Gemini fallback |
+| `gtm/enrich.py` | `site` and `hunter` finders, `run_enrich`: tries finders in order, stops at first verified buyer. A failed lead stays `no_buyer` but keeps its best named decision-maker (`owner_name/title/email`, `email_verified=false`); retries reuse it. Out of credits leaves leads `cleaned` |
+| `gtm/researcher.py` | `research` finder: Gemini function-calling loop (web_search via Serper, fetch_page), then `validate` code guard, then Hunter Email Finder |
+| `gtm/prospeo.py` | `prospeo` finder: Enrich Person by name + company website, verified emails only |
+| `gtm/harvest.py` | `harvest` finder (opt-in): HarvestAPI LinkedIn profile lookup, USD budget cap |
+| `gtm/llm.py` | `complete_json`: Vertex Gemini `gemini-3.5-flash` primary (retries 429/503), Groq `gpt-oss-120b` fallback (token-per-minute `Throttle`) |
 | `gtm/signals.py` | `fetch_evidence` (13 site paths, booking platform detection), `validate_signal`, `judge_to_signal`, `run_signals` |
 | `gtm/select.py` | `select_decision`, `blocked_reason`, `_blocklists`, `run_select` (model writes only the one-line reason, with a code fallback) |
 | `gtm/mailboxes.py` | `assign_mailbox` (sticky, least-loaded, optional restriction) |
@@ -78,7 +83,7 @@ All Python is run as `uv run python -m gtm.cli <pass>` from the repo root. Lead 
 | `web/lib/{supabase,actions,fetchAll,types,useRequireSession}.ts` | Browser client (publishable key + operator session), the write actions, paging, types, session guard |
 | `web/scripts/verify.mts`, `rls_intruder.mts` | Live verification scripts (use the secret key from `../.env`; never bundled) |
 | `scripts/*.py` | One-off spikes and measurement scripts (spike_apify*, spike_hunter*, spike_llm, measure_*, capture_owner_names). Not part of the app |
-| `tests/` | `test_clean, config, costs, draft, enrich, gmail, hunter, import_history, llm, metrics, packaging, paging, replies, scrape, search, search_owner, select, send, signals, sitescrape` + `support.py` (about 181 test functions, more with parametrization) |
+| `tests/` | `test_clean, config, costs, draft, enrich, gmail, harvest, hunter, import_history, llm, metrics, packaging, paging, prospeo, replies, researcher, scrape, search, search_owner, select, send, signals, sitescrape` + `support.py` (348 tests per the owner, 2026-11-11) |
 | `MedSpa/` | Owner's outreach rules (section 11) |
 | `docs/spikes/` | Measurements (section 7) |
 | `docs/handoffs/` | **STALE**: three handoffs from the deleted Pakistan scraper era (Houston/Hunter keys/ICP). Not about this OS; historical only |
@@ -103,22 +108,30 @@ All via `uv run python -m gtm.cli ...`. "Batch" = batch UUID printed by `scrape`
 |---|---|---|
 | `scrape` | `--city --state` (req), `--query` (repeatable), `--max-places 40` (per query), `--max-usd 0.50` | **Spends Apify credit** (~$0.005/place incl. website filter; hard cap per run). Creates a batch, inserts new leads as `scraped`, never touches known place IDs |
 | `clean` | `--batch` | Free. Rule-based |
-| `enrich` | `--batch`, `--limit N`, `--finders site,search,hunter` | Spends **Hunter credits** (Email Finder/Domain Search), **Serper queries**, **Groq tokens**. Use `--limit` first. Stops on out-of-credits |
-| `signals` | `--batch`, `--max-age-days` | Groq tokens; refuses if recency window unset (`SIGNAL_MAX_AGE_DAYS`) |
-| `select` | `--batch` | Groq (one short sentence per selected lead). Free of paid APIs otherwise |
+| `enrich` | `--batch`, `--limit N`, `--finders` (default `site,search,research,prospeo`), `--harvest-budget` USD (1.0), `--research-budget` searches per run (150), `--retry-no-buyer` | Spends **Hunter credits**, **Prospeo credits**, **Serper queries**, **Gemini tokens**. Use `--limit` first. Stops on out-of-credits. `--retry-no-buyer` re-runs `no_buyer` leads and spends credits again. See 5a |
+| `signals` | `--batch`, `--max-age-days` | Gemini tokens (Groq fallback); refuses if recency window unset (`SIGNAL_MAX_AGE_DAYS`) |
+| `select` | `--batch` | LLM (Gemini primary; one short sentence per selected lead). Free of paid APIs otherwise |
 | (UI) Review page | approve/reject | Sets `approved`; nothing else |
-| `draft` | `--batch`, `--mailbox ADDR` (repeatable) | Creates **Gmail drafts** for `selected` AND `approved` leads. Nothing sent. Groq tokens |
+| `draft` | `--batch`, `--mailbox ADDR` (repeatable) | Creates **Gmail drafts** for `selected` AND `approved` leads. Nothing sent. LLM tokens |
 | `followups` | none | Reads replies first, then drafts due Touch 2/3 in Gmail. Nothing sent |
 | `send` | `--confirm` | Without `--confirm`: dry run printing each mailbox's allowance. With it: reads replies/bounces, then **sends due drafts** within allowance, pausing on bounce spike |
 | `replies` | none | Reads Gmail (read-only), classifies, sets statuses, writes opt-outs to `suppression` |
 | `mailbox add` / `mailbox unpause` | `--address` (req), `--cap`, `--enabled-on YYYY-MM-DD` | DB only. A new mailbox needs its own warm-up and DNS check first |
 | `import-history FILE` | lines `email\|website\|status\|reply type\|DNC` | DB only; idempotent; Notion columns Email, Website, Status, Reply Type, Do Not Contact |
 
+### 5a. Enrich in detail (as of 2026-11-11)
+
+- **Buyer rule:** named decision-maker (founder/owner/CEO/president/COO/executive director; MedSpa section 3) plus an email with verification `valid` AND score >= 80. Owner ruling 2026-11-10: personal or business email both fine if verified; `accept_all` stays out. A role address never qualifies.
+- **Finders, in order, stop at first verified buyer:** `site` (free site scrape for a name, then Hunter Email Finder), `search` ("owner of <domain>" Serper search, LLM reads results, code guard, then Email Finder), `research` (Gemini loop with web_search + fetch_page; max 6 turns, 8 searches, 10 fetches per lead; runs only for leads with no named owner; then Email Finder), `prospeo` (Enrich Person for each named owner, `only_verified_email`; 1 credit only on a find; calls spaced 2 s, 429 retried; VERIFIED counts as score 100 because Prospeo gives no score).
+- **Opt-in via `--finders`:** `hunter` (Domain Search; Houston run: 33 credits for 1 enriched lead) and `harvest` (HarvestAPI LinkedIn; no emails found in ~22 lookups, ~$0.004/profile). Email Finder inside site/search spent 19 credits for 4 enriched.
+- **`research` code guard:** the name must appear verbatim in fetched text or a search snippet, the text must be about THIS business, a decision-maker title or "founded by" must be near the name, first AND last name required, directory/list pages rejected, Medical Director / Managing Member / Partner alone rejected. Wrong-attribution lesson: it once put the owner of a different clinic on Miliv Med Spa; the owner confirmed the correct names for that and one other lead by hand.
+- **Saved names:** a failed lead keeps its best named decision-maker (status stays `no_buyer`, `email_verified=false`), and retries or later finders reuse it. A retry never erases a saved email (bug fixed 2026-11-10).
+
 **Recommended order for the first small batch** (owner approves each paid/send step):
-1. Re-pull Notion Batch03 (all five columns) and `import-history`. Check suppression count grew sensibly.
+1. Re-pull Notion Batch03 (all five columns) and `import-history` before every new batch (last done 2026-11-10: 32 rows, nothing new). Check suppression count grew sensibly.
 2. `scrape --city <one> --state <ST> --max-places 20` (about 3 queries x 20 places, roughly $0.30 to $0.50, under free credit). Note the batch id.
 3. `clean --batch ID`. Inspect counts.
-4. `enrich --batch ID --limit 20` (watch Hunter credits; free keys only).
+4. `enrich --batch ID --limit 20` (watch Hunter and Prospeo credits; free keys only).
 5. `signals --batch ID`, then `select --batch ID`.
 6. UI Review page: approve a handful (5 to 10) after reading evidence.
 7. `draft --batch ID --mailbox soban@kodoai.xyz`; **read every draft in Gmail Drafts** (the Gmail draft is what sends; edit there).
@@ -132,7 +145,7 @@ All via `uv run python -m gtm.cli ...`. "Batch" = batch UUID printed by `scrape`
 - Target 200 ready-to-email leads a week. More mailboxes will be added later (multi-mailbox from day one).
 - Opt-outs are detected from replies and honoured automatically.
 - Footer fields `POSTAL_ADDRESS`, `AD_DISCLOSURE`, `OPT_OUT_LINE` are deliberately EMPTY, knowing CAN-SPAM requires all three (FTC guide read 2026-11-09; penalties up to $53,088 per email; not legal advice). The builder must not invent them or block sending on empty.
-- Do not buy a Hunter plan yet; test free credits and owner-name approach first. No paid Apify top-up without asking (free credit until 2026-11-24).
+- Hunter plan decision still pending (2026-11-11); do not buy until the owner decides. Email rule ruling 2026-11-10: verification `valid` AND score >= 80, personal or business email both fine, `accept_all` excluded. No paid Apify top-up without asking (free credit until 2026-11-24).
 - Send is always a separate explicit step (`send --confirm`).
 - Gate answers (2026-11-10): ramp/cap defaults accepted, later recalibrated from sending history (section 7).
 
@@ -157,7 +170,7 @@ Ledger source: `.superpowers/sdd/2026-11-09-kodoai-gtm-os/progress.md` (git-igno
 | T9 (correction) | Measured cleaning survival is ~63%, not the 80% first written in funnel.md; fixed there | n/a |
 | T10 | Finders take the lead row (domain+name+city), not a bare domain (business-match guard needs the name) | Tests changed |
 | T10 | Built `gtm/llm.py` early with Groq `Throttle` (8K tokens/min); T11 reuses it | None (reused) |
-| T10 | Default finder order `site,search,hunter` (cheapest first; union unmeasured) | None stated; reorder after Prospeo/Tomba comparison |
+| T10 (superseded 2026-11-11) | Default finder order was `site,search,hunter`; now `site,search,research,prospeo`, `hunter` and `harvest` opt-in (measured, section 7) | Credits wasted on Domain Search if re-added |
 | T10 | Added `gtm/search.py` (Serper) and `gtm/owner_search.py` after Soban suggested "owner of <domain>" search | None stated |
 | T11 | v1 evidence is the lead's own website only (Apify review text is an add-on not scraped); 0/6 dated signals, so mostly relevance-led | Thin personalisation until a social/search source is added |
 | T11 | `signal_prompt.md` is a condensed copy of MedSpa Touch-1 sections 4-5 (full 26 KB won't fit Groq's 8K tokens/min); a test pins the three vector names | Drift if the MedSpa file changes |
@@ -207,14 +220,21 @@ Ledger source: `.superpowers/sdd/2026-11-09-kodoai-gtm-os/progress.md` (git-igno
 | Owner-name lever | Site scrape 5/45 names (11%); Serper+Groq 24/45 (53%) names; verified emails 4/45 (9%) after Email Finder (7 emails, 3 accept-all) | `owner_lever.md` |
 | Plan sizing | Hunter-only at 200/week needs ~2,200 domains, ~930 credits/week (~4,000/month): Growth ($149/mo); Starter ($49/mo, 2,000 credits) covers ~100/week. Apify ~$21/week at that volume. Pricing read 2026-11-10 | `funnel.md`, `hunter.md` |
 | Sending capacity | 200 leads/week x 3 touches ~ 600 emails/week ~ 85-120/day, about 3 mailboxes at 40/day | `funnel.md` |
+| LLM (current) | Primary: Vertex Gemini `gemini-3.5-flash` (endpoint aiplatform.googleapis.com, billed to the owner's Google Cloud credit). Fallback: Groq `gpt-oss-120b`. `gemini-3.8-flash` also works (similar quality, slower in one run), not used. AI Studio key prepaid credit depleted, unused. Groq Developer tier was unavailable when tried. The two rows below are the older free-tier spike and predate this change | session facts 2026-11-11; `llm.md` is stale on primary/fallback |
 | Groq | `openai/gpt-oss-120b` 20/20 valid JSON, ~1 s; limits 30 RPM, 1K RPD, 8K TPM, 200K TPD (free-tier status of these numbers unconfirmed); ~50-60 evidence-heavy leads/day | `llm.md` |
-| Gemini | `gemini-3.5-flash` only 10/20 valid (429/503), median 32 s; grounding 429. Fallback only | `llm.md` |
+| Gemini (free AI Studio tier, old) | `gemini-3.5-flash` only 10/20 valid (429/503), median 32 s; grounding 429. Superseded by the Vertex key above | `llm.md` |
 | Signals | Website-only: 0 of 6 dated current signals; 5 of 6 relevance-led with handoff, all `conversion_recovery` | `signals_dry_run.md` |
 | Gmail limits | Workspace paid 2,000/day/user, trial 500/day; plan type of kodoai.xyz unknown (owner to confirm) | `gmail.md` |
-| Other enrichers | Prospeo free, 88 credits, renews 2026-11-24; Tomba free, 25 searches, ends 2026-11-28; Apollo key lacks scope (plan unknown); Lusha/Snov/RocketReach/ContactOut not checked | `enrichers.md` |
+| Houston batch e11d97b6 (2026-11-11) | 60 scraped (3 queries x 20, $0.30), 52 cleaned (87%). Names for ~62% of cleaned. Enriched: 5 first run, 8 after saved-name retry + Prospeo, 10 after `research`, 9 after the `ovme.com` chain was rejected by a re-check of the batch against the current clean rules (of 52). Then `signals` (8 relevance_led, 1 no_handoff) and `select` (8 selected, awaiting operator approval in the UI; nothing drafted or sent). Owner-confirmed 2026-11-11: Jamie Marcelle (joinskindeep.com) and Isam Balat (myplazawellness.com) are the right owners but Hunter and Prospeo found no email for them (names kept, status no_buyer); the researcher's Amy Woehrmann for Miliv Med Spa was wrong (she owns Glow Medical Aesthetics) and was cleared. Six Hunter emails were `accept_all` with scores 72-79 (fail both rules); one chain CEO (ovme.com) was `valid` but Domain Search confidence < 80 | session measurement; no spike file for the funnel itself |
+| `research` live run | ~100 Serper searches, 169 Gemini calls (~372K tokens), 3 Hunter credits, 10 new names, 2 new verified emails | `owner_routes.md` |
+| Owner routes and other finders | Per-route counts, costs and verdicts (NPI, profiles, Apify contacts add-on, Prospeo, Tomba, Lusha, Harvest, others) | `owner_routes.md` |
+| Cost | ~$0.0087 per cleaned lead for scrape; Hunter and Prospeo credits are the real limit. Prospeo free credits: 83 left, renew 2026-11-24 | session facts 2026-11-11 |
+| Other enrichers (2026-11-10 status check) | Tomba free, 25 searches/5 per day, ends 2026-11-28; Apollo key lacks scope. Later results in `owner_routes.md` | `enrichers.md` |
 | Sending history | Batch01-03: 218 Touch 1, 12 bounces (5.5%), 4 negative, 2 out of office, 0 positive; busiest day 20; nothing logged after 2026-10-12 | `sending_history.md` |
 | Derived settings | RAMP_START=20, RAMP_STEP=5, DAILY_CAP=40, PAUSE_BOUNCE_RATE=0.05 over >=40 sends (7-day window), SIGNAL_MAX_AGE_DAYS=90. Judgment calls, not provider rules | `sending_history.md` |
 | Mailbox | soban@kodoai.xyz warmed with MailReach (18 conversations, ~40-54 warm emails/day, flat); domain ~3 months old (session fact, not in files). Earlier spec text said 15-30/day and 99% inbox | spec section 3 |
+
+Measurement record for the 2026-11-11 owner-finding experiments: `docs/spikes/owner_routes.md`.
 
 ## 8. Safety rules and anti-goals
 
@@ -232,16 +252,17 @@ Ledger source: `.superpowers/sdd/2026-11-09-kodoai-gtm-os/progress.md` (git-igno
 
 | # | Item | Who |
 |---|---|---|
-| 1 | Re-pull Notion Batch03 (Med Spa Cold Email Tracker, ~100 unique sends target) in the five-column format and run `import-history` BEFORE the first OS batch | Owner supplies lines; assistant runs import and checks the count |
-| 2 | First real small batch: one city, small `--max-places`, small caps, a handful of approved leads, read every draft in Gmail before any send, first `send --confirm` small. This also live-verifies `send_draft`, thread reading, bounce reading and Touch 2/3 In-Reply-To threading | Assistant drives; owner approves each paid/send step |
-| 3 | Disable Supabase signups in the dashboard (still open at project level; RLS protects data meanwhile) | Owner |
-| 4 | Test Prospeo (88 credits) and Tomba (25 searches) finders on the owner names; decide Hunter plan (do not buy until then). Re-order finders only after a measured union | Assistant measures; owner decides |
-| 5 | Optional: Serper-based owner finding at scale (works; key replaced; ~2,500 queries; earlier key ran out and Serper out of credits stops the whole enrich run) | Owner decides budget |
+| 1 | Re-pull Notion Batch03 in the five-column format and run `import-history` before EACH new batch (done 2026-11-10: 32 rows, nothing new) | Owner supplies lines; assistant runs import |
+| 2 | First real send, still not done: small batch, approve a handful, read every draft in Gmail, then `send --confirm` small. Live-verifies `send_draft`, thread and bounce reading, Touch 2/3 threading | Assistant drives; owner approves each paid/send step |
+| 3 | Hunter plan decision (pending). Prospeo free credits renew 2026-11-24 (83 left); Apify free credit ends 2026-11-24 | Owner decides |
+| 4 | Chains: `ovme` added to `chains.txt` (matches by name); check other multi-location groups with the same pattern when they appear | Assistant |
+| 5 | Name > email is the bottleneck (accept_all, score < 80): decide whether to accept `accept_all` with a lower bar or buy more verification credits | Owner decides |
 | 6 | Confirm Workspace plan (paid vs trial) for kodoai.xyz send limits | Owner |
 | 7 | Add mailboxes (each needs warm-up and DNS check) for 200/week | Owner |
-| 8 | Richer signal sources (Instagram/Facebook posts, Google Business updates, job boards, news; needs search budget or Apify social scrapers; not measured) | Owner decides; assistant measures |
+| 8 | Richer signal sources (Instagram/Facebook posts, Google Business updates, job boards, news; not measured) | Owner decides; assistant measures |
 | 9 | Deferred Minor review findings (below) | Assistant, when relevant |
-| 10 | Fix stale docs: `.env.example` lacks `SERP_API_KEY`/`SERP_PROVIDER`; `docs/handoffs/` are stale; CLAUDE.md pass list omits `followups`, `mailbox`, `import-history` | Assistant |
+| 10 | Stale docs: `docs/handoffs/`; `docs/spikes/llm.md` and `docs/spikes/funnel.md` predate the Gemini switch and finder changes | Assistant |
+| Done | Supabase signups disabled (owner, 2026-11-10); `.env.example` updated (Serper, Gemini, Prospeo, Harvest names); CLAUDE.md pass list updated | |
 
 **Minor (deferred), copied from the ledger:** clean.py `seen` excludes operator-rejected domains; same owner_email across different domains in one run; bounce substring match (ajo@ vs jo@); quote-cut regex can cut an opt-out that starts "On..."; HTML-only replies collapse to one line so quoted history is not stripped; bare "Stop." with no object goes to the model; `sent_at` uses local date with UTC time and Outreach page uses UTC date; Touch 3 can follow Touch 2 by a day after deferral; leads with no reachable pages are never re-judged; `reason_to_respond` shown unlabeled; groq/serper costs have no batch_id so those dashboard columns are 0; Serper out of credits stops the whole enrich run; `test_sending_lives_only_in_send_py` greps one file only.
 
@@ -252,14 +273,15 @@ Ledger source: `.superpowers/sdd/2026-11-09-kodoai-gtm-os/progress.md` (git-igno
 - PostgREST bulk inserts need identical keys on every row. The API caps reads at 1000 rows: always use `gtm.db.fetch_all`.
 - macOS `sed -i ''`. The harness once blocked an oddly quoted multi-line shell command as a possible `rm`; keep shell commands simple.
 - `.gitignore` contains a catch-all `.*` and `*.csv`: new dotfiles are ignored unless tracked (`.env.example` is tracked). An earlier stale `data/` rule hid `gtm/data/`; `tests/test_packaging.py` guards that.
-- Gemini free tier is flaky; Groq 8K tokens/min is the real throttle; do not feed the full MedSpa Touch-1 prompt (26 KB) to the model.
-- Check `.env` for stale leftovers from the old project (POSTGRES_*, REDIS_*, PROXY_*, META_*, BROWSER_WORKERS, CACHE_TTL_*, etc.): `config.py` ignores them. Many provider keys (Apollo, Snov, Lusha, ContactOut, RocketReach, Tomba, Prospeo) are in `.env` but unused by code.
+- Groq's 8K tokens/min is its real throttle (now the fallback only); the free AI Studio Gemini tier was flaky; do not feed the full MedSpa Touch-1 prompt (26 KB) to the model.
+- Check `.env` for stale leftovers from the old project (POSTGRES_*, REDIS_*, PROXY_*, META_*, BROWSER_WORKERS, CACHE_TTL_*, etc.): `config.py` ignores them. Many provider keys (Apollo, Snov, Lusha, ContactOut, RocketReach, Tomba) are in `.env` but unused by code; Prospeo and Harvest are now used.
 - Draft requires `selected` AND `approved=true` (set on the Review page); selecting alone drafts nothing.
 - Follow-ups are held (not cancelled) if another lead at the same company was already emailed.
 - Notion history is a snapshot; the OS cannot see anything sent from Notion until re-imported. Batch03 is still running there.
 - `uv run` must be executed from the repo root here (pyproject is at root). The root `CLAUDE.md` is the short OS version; the old Pakistan-scraper CLAUDE.md is gone.
 - Postal address, ad-disclosure and opt-out line are blank on purpose; do not "fix" them.
-- Test count in the ledger is stale; run the suite for the current number.
+- The suite is 348 tests and ~4.5 min (owner, 2026-11-11); it hits the real Supabase project. Do not run it casually.
+- A wrong owner name is the main enrich risk: never trust a model-reported name without the code guard, and check a name's company before accepting (LinkedIn name-only matches can be a different person).
 
 ## 11. Where the owner's outreach rules live
 

@@ -24,8 +24,10 @@ class Settings:
     apify_keys: list[str] = field(default_factory=list)
     hunter_keys: list[str] = field(default_factory=list)
     groq_api_key: str = ""
-    gemini_api_key: str = ""
+    vertex_api_key: str = ""  # env GEMINI_AGENT_PLATFORM_API_KEY (Vertex AI)
     serper_api_key: str = ""  # env SERP_API_KEY (SERP_PROVIDER=serper)
+    harvest_api_key: str = ""
+    prospeo_api_key: str = ""
     google_oauth_client_file: str = ""
     # Sending. Defaults are placeholders until the Task 7 gate sets them.
     daily_cap: int = 40
@@ -56,8 +58,10 @@ class Settings:
             apify_keys=_keys(env, "APIFY_API_KEY"),
             hunter_keys=_keys(env, "HUNTER_API_KEY"),
             groq_api_key=s("GROQ_API_KEY"),
-            gemini_api_key=s("GEMINI_API_KEY"),
+            vertex_api_key=s("GEMINI_AGENT_PLATFORM_API_KEY"),
             serper_api_key=s("SERP_API_KEY"),
+            harvest_api_key=s("HARVEST_API_KEY"),
+            prospeo_api_key=s("PROSPEO_API_KEY"),
             google_oauth_client_file=s("GOOGLE_OAUTH_CLIENT_FILE"),
             daily_cap=n("DAILY_CAP", d.daily_cap),
             ramp_start=n("RAMP_START", d.ramp_start),

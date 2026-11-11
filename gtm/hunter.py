@@ -52,7 +52,7 @@ class HunterPool:
             self.log(1, f"domain-search:{domain}")
         return [
             {"email": e["value"], "first_name": e.get("first_name"), "last_name": e.get("last_name"), "position": e.get("position"),
-             "verification_status": (e.get("verification") or {}).get("status"), "source": "hunter"}
+             "verification_status": (e.get("verification") or {}).get("status"), "score": e.get("confidence"), "source": "hunter"}
             for e in emails
         ]
 
@@ -62,4 +62,5 @@ class HunterPool:
             return None
         self.log(1, f"email-finder:{domain}")
         return {"email": d["email"], "first_name": d.get("first_name") or first, "last_name": d.get("last_name") or last,
-                "position": d.get("position"), "verification_status": (d.get("verification") or {}).get("status"), "source": "hunter"}
+                "position": d.get("position"), "verification_status": (d.get("verification") or {}).get("status"), "score": d.get("score"),
+                "source": "hunter"}

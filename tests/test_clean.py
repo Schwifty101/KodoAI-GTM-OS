@@ -25,6 +25,26 @@ def test_no_own_website_is_rejected(website, domain):
     assert clean_decision(lead(website=website, domain=domain)) == "no_website"
 
 
+@pytest.mark.parametrize("domain", ["angelicaestheticsscheduling.as.me", "glow.acuityscheduling.com", "glow.squareup.com", "glow.setmore.com",
+                                    "calendly.com", "glow.carrd.co", "glow.fresha.com", "styleseat.com", "glow.mindbodyonline.com"])
+def test_booking_and_site_builder_tenants_are_rejected(domain):
+    assert clean_decision(lead(domain=domain)) == "no_website"
+
+
+def test_as_me_only_matches_as_a_domain_suffix():
+    assert clean_decision(lead(domain="atlas.medical.com")) is None
+
+
+@pytest.mark.parametrize("kw", [{"name": "Beyond Beauty Academy"}, {"categories": ["Medical spa", "Beauty school"]},
+                                {"categories": ["Medical spa", "Training centre"]}, {"name": "Aesthetics Training Institute"}])
+def test_training_school_is_rejected_as_not_a_clinic(kw):
+    assert clean_decision(lead(**kw)) == "not_a_clinic"
+
+
+def test_glow_medical_spa_still_passes():
+    assert clean_decision(lead(name="Glow Medical Spa")) is None
+
+
 def test_non_us_state_is_rejected_and_abbreviations_are_us():
     assert clean_decision(lead(state="Ontario")) == "not_us"
     assert clean_decision(lead(state="TX")) is None and clean_decision(lead(state="Texas")) is None

@@ -6,7 +6,7 @@ KodoAI GTM OS for med spa outreach. Spec: `docs/superpowers/specs/2026-11-09-kod
 
 ## Commands
 - `uv run pytest -q` runs the suite. Tests marked `db` hit the real Supabase project and clean up after themselves.
-- `uv run python -m gtm.cli <pass>` runs a pass: scrape, clean, enrich, signals, select, draft, followups, send, replies. Also `mailbox add|unpause` and `import-history FILE` (Notion history into suppression). `send` is a dry run unless `--confirm`, and reads replies first.
+- `uv run python -m gtm.cli <pass>` runs a pass: scrape, clean, enrich, signals, select, draft, followups, send, replies. Also `mailbox add|unpause` and `import-history FILE` (Notion history into suppression). `send` is a dry run unless `--confirm`, and reads replies first. `enrich` flags: `--limit`, `--finders` (default `site,search,research,prospeo`; `hunter` and `harvest` opt-in), `--harvest-budget`, `--research-budget`, `--retry-no-buyer` (spends credits again).
 - `cd web && npm run dev` runs the UI locally (login: email link to the operator address). The UI has no send button in v1: sending is `uv run python -m gtm.cli send --confirm` (spec section 7: passes run as commands). Edit drafts in Gmail; the Gmail draft is what goes out.
 - `cd web && node --env-file=.env.local --env-file=../.env --import tsx scripts/verify.mts` checks the UI's write actions against the real database under RLS.
 
@@ -15,7 +15,8 @@ KodoAI GTM OS for med spa outreach. Spec: `docs/superpowers/specs/2026-11-09-kod
 - Statuses: scraped, cleaned/rejected, enriched/no_buyer, signalled, selected, drafted, sent, replied, booked; side states bounced, suppressed, unsubscribed.
 - US only. No day spas. Lead identity is Google place ID, unique globally.
 - A signal needs a source URL and a date. Never invent one.
-- Enriched means a named decision-maker (founder, owner, CEO or equivalent) with a verified email. Role addresses never qualify.
+- Enriched means a named decision-maker (founder, owner, CEO or equivalent) with a verified email. Role addresses never qualify. The email must have verification `valid` and score >= 80 (`accept_all` fails). Failed leads stay `no_buyer` but keep a saved name for retries.
+- LLM: Vertex Gemini primary, Groq fallback (`gtm/llm.py`). Owner-finding measurements: `docs/spikes/owner_routes.md`.
 - Check `suppression` and "already contacted" before every draft and send. A reply or bounce stops that lead's remaining touches. Cadence is Day 0/3/7, no Touch 4.
 - Footer values (`POSTAL_ADDRESS`, `AD_DISCLOSURE`, `OPT_OUT_LINE`) are empty by default: append if set, never invent, never block sending on empty.
 - Every paid call writes a `cost_log` row. Never print or commit keys. The Supabase secret key is script-side only, never in the browser.
