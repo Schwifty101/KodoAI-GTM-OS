@@ -3,7 +3,7 @@
 set -euo pipefail
 id gtm >/dev/null 2>&1 || useradd --system --home-dir /opt/gtm --shell /usr/sbin/nologin gtm
 # /opt/gtm stays root-owned: root runs deploy/fetch_secrets.sh from it, so gtm must not be able to replace it.
-mkdir -p /opt/gtm/.venv /opt/gtm/.cache /opt/gtm/.secrets && chown gtm /opt/gtm/.venv /opt/gtm/.cache /opt/gtm/.secrets
+mkdir -p /opt/gtm/.venv /opt/gtm/.cache /opt/gtm/.python /opt/gtm/.secrets && chown gtm /opt/gtm/.venv /opt/gtm/.cache /opt/gtm/.python /opt/gtm/.secrets
 if [ ! -f /swapfile ]; then  # e2-micro has 1 GB RAM
   fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null
   echo '/swapfile none swap sw 0 0' >> /etc/fstab
