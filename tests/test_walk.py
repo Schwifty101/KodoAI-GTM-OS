@@ -17,6 +17,7 @@ def _clean_up(d):
     d.table("leads").delete().like("place_id", "TEST_%").execute()
     d.table("coverage").delete().eq("metro", "TEST").execute()
     for b in set(ids):
+        d.table("cost_log").delete().eq("batch_id", b).execute()  # no FK: scrape_city logs real spend rows
         d.table("batches").delete().eq("id", b).execute()
 
 
@@ -94,6 +95,57 @@ def test_walk_budget_block_releases_the_tile_and_creates_no_empty_batch(db, monk
         walk(db, [4])
     assert tile(db)["status"] == "pending"
     assert len(db.table("batches").select("id").execute().data) == before
+
+
+def _leads(db, batch):
+    return db.table("leads").select("status").eq("batch_id", batch).execute().data
+
+
+def _batch(db):
+    return tile(db)["scrape_batch_id"] or db.table("batches").select("id").eq("state", "TX").like("name", "t_ TX %").execute().data[0]["id"]
+
+
+@pytest.mark.db
+def test_budget_block_after_query_one_cleans_leads_and_releases(db, monkeypatch):
+    calls = []
+
+    def req(*a, **k):
+        calls.append(1)
+        if len(calls) == 2:
+            raise BudgetExceeded("cap")
+
+    monkeypatch.setattr(coverage.budget, "require", req)
+    with pytest.raises(BudgetExceeded):
+        walk(db, [10, 3])
+    assert tile(db)["status"] == "pending"
+    sts = {r["status"] for r in _leads(db, _batch(db))}
+    assert sts and "scraped" not in sts
+
+
+@pytest.mark.db
+def test_exception_on_query_two_fails_tile_and_cleans_leads(db):
+    n = []
+
+    def run(inp):
+        n.append(1)
+        if len(n) == 2:
+            raise RuntimeError("boom")
+        return [{"placeId": f"TEST_{j}", "title": "x", "state": "Texas"} for j in range(10)], 0.01
+
+    run_walk(db, run, 1, queries=Q, max_places=10, escalate_at=0.9)
+    assert tile(db)["status"] == "failed"
+    sts = {r["status"] for r in _leads(db, _batch(db))}
+    assert sts and "scraped" not in sts
+
+
+@pytest.mark.db
+def test_budget_block_claims_one_tile_and_leaves_none_running(db):
+    def run(inp):
+        raise BudgetExceeded("cap")
+
+    with pytest.raises(BudgetExceeded):
+        run_walk(db, run, 3, queries=Q, max_places=10, escalate_at=0.9)
+    assert [r["status"] for r in db.table("coverage").select("status").eq("metro", "TEST").execute().data] == ["pending"] * 3
 
 
 @pytest.mark.db

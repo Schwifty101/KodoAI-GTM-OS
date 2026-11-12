@@ -56,11 +56,15 @@ def run_walk(db, run_actor, tiles: int, queries: list[str] | None = None, max_pl
     escalate_at = setting("walk_escalate_at") if escalate_at is None else escalate_at
     out = {"tiles": 0, "queries": 0, "new": 0, "known": 0, "saturated": 0}
     reset_stale(db)
-    for t in claim_tiles(db, tiles):
+    for _ in range(tiles):
+        got = claim_tiles(db, 1)  # one at a time: a raise never strands later tiles as running
+        if not got:
+            break
+        t = got[0]
+        batch, n, found, new, known, ran = None, 0, 0, 0, 0, 0
         try:
             budget.require("apify", MIN_CAP)  # before new_batch: a blocked tile leaves no empty batch
             batch = new_batch(db, t["tile"], t["state"], [queries[0]])
-            n = found = new = known = ran = 0
 
             def counted(inp):
                 nonlocal n
@@ -82,9 +86,13 @@ def run_walk(db, run_actor, tiles: int, queries: list[str] | None = None, max_pl
             db.table("coverage").update({"status": "done", "places_found": found, "new_leads": new, "saturated": full, "queries_run": ran,
                                          "scrape_batch_id": batch, "scraped_at": _now()}).eq("id", t["id"]).execute()
         except budget.BudgetExceeded:
+            if ran:
+                run_clean(db, batch)  # leads from the queries that ran must not stay `scraped`
             release_tile(db, t["id"])
             raise
         except Exception as e:
+            if ran:
+                run_clean(db, batch)
             db.table("coverage").update({"status": "failed", "error": str(e)[:500]}).eq("id", t["id"]).execute()
             continue
         out["tiles"] += 1

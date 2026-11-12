@@ -22,7 +22,7 @@ def clean(no_real_jobs, monkeypatch):
         pytest.skip("a real walk job exists today: tick tests would see it")
     cfg = dict(DEFAULTS, walk_schedule_enabled=True, walk_hour_utc=13)
     monkeypatch.setattr(schedule, "setting", lambda key, db=None: cfg[key])
-    monkeypatch.setattr(schedule, "enqueue", lambda db, kind, payload=None, **kw: real_enqueue(db, kind, {**(payload or {}), **T}, **kw))
+    monkeypatch.setattr(schedule, "enqueue", lambda db, kind, payload=None, **kw: real_enqueue(db, kind, {**(payload or {}), **T}, run_after=datetime.now(timezone.utc) + timedelta(days=3650)))  # no worker can claim it
     wipe = lambda: db.table("jobs").delete().eq("payload->>test", "1").execute()
     wipe()
     yield cfg
