@@ -1,0 +1,82 @@
+import pytest
+
+from gtm.llm import Throttle, complete_json
+
+
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+        self.slept = []
+
+    def now(self):
+        return self.t
+
+    def sleep(self, s):
+        self.slept.append(s)
+        self.t += s
+
+
+def test_throttle_waits_for_the_token_window_to_free():
+    c = Clock()
+    th = Throttle(limit=7000, window=60, clock=c.now, sleep=c.sleep)
+    th.wait(6000)
+    th.wait(2000)  # 8000 inside one minute: must wait until the first 6000 ages out
+    assert c.slept and sum(c.slept) >= 60
+
+
+def test_throttle_does_not_wait_under_the_limit():
+    c = Clock()
+    th = Throttle(limit=7000, window=60, clock=c.now, sleep=c.sleep)
+    th.wait(3000)
+    th.wait(3000)
+    assert c.slept == []
+
+
+def test_primary_answer_is_used_when_valid():
+    out = complete_json("sys", "prompt", primary=lambda s, p: '{"a": 1}', fallback=lambda s, p: pytest.fail("fallback not needed"))
+    assert out == {"a": 1}
+
+
+def test_falls_back_when_primary_fails():
+    def boom(s, p):
+        raise RuntimeError("429")
+
+    assert complete_json("sys", "prompt", primary=boom, fallback=lambda s, p: '{"b": 2}') == {"b": 2}
+
+
+def test_falls_back_when_primary_returns_invalid_json():
+    assert complete_json("sys", "prompt", primary=lambda s, p: "not json", fallback=lambda s, p: '{"c": 3}') == {"c": 3}
+
+
+def test_raises_when_both_fail():
+    def boom(s, p):
+        raise RuntimeError("down")
+
+    with pytest.raises(RuntimeError):
+        complete_json("sys", "prompt", primary=boom, fallback=boom)
+
+
+def test_log_gemini_usage_prices_input_and_output_separately(monkeypatch):
+    import gtm.llm as llm
+    rows = []
+    monkeypatch.setattr(llm, "log_cost", lambda *a, **k: rows.append((a, k)))
+    monkeypatch.setattr(llm, "setting", lambda key, db=None: {"gemini_input_usd_per_m": 1.5, "gemini_output_usd_per_m": 9.0}[key])
+    llm.log_gemini_usage({"promptTokenCount": 1_000_000, "candidatesTokenCount": 1_000_000, "totalTokenCount": 2_000_000})
+    assert rows == [(("gemini", 2_000_000, 10.5), {"note": "tokens"})]
+
+
+def test_thinking_tokens_count_as_output(monkeypatch):
+    import gtm.llm as llm
+    rows = []
+    monkeypatch.setattr(llm, "log_cost", lambda *a, **k: rows.append(a))
+    monkeypatch.setattr(llm, "setting", lambda key, db=None: {"gemini_input_usd_per_m": 1.5, "gemini_output_usd_per_m": 9.0}[key])
+    llm.log_gemini_usage({"promptTokenCount": 0, "candidatesTokenCount": 500_000, "thoughtsTokenCount": 500_000, "totalTokenCount": 1_000_000})
+    assert rows[0][2] == 9.0
+
+
+def test_vertex_not_called_when_gemini_not_allowed(monkeypatch):
+    import gtm.budget as budget
+    import gtm.llm as llm
+    monkeypatch.setattr(budget, "gemini_allowed", lambda *a, **k: False)
+    monkeypatch.setattr(llm.httpx, "post", lambda *a, **k: pytest.fail("Vertex must not be called"))
+    assert complete_json("sys", "prompt", fallback=lambda s, p: '{"g": 1}') == {"g": 1}

@@ -20,9 +20,6 @@ out/
 .env.local
 *.pem
 
-# Scraper data — never commit raw fetches or exports
-data/
-backend/data/
 *.csv
 !backend/tests/fixtures/*.csv
 
@@ -33,4 +30,7 @@ Thumbs.db
 .vscode/
 
 # Spike output — raw payloads are large and regenerable
-backend/data/
+
+/graphify-out
+
+.*
