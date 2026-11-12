@@ -68,7 +68,8 @@ def test_anything_unclear_or_failing_is_other():
     assert classify_reply(msg("hmm"), llm=boom) == "other"
 
 
-@pytest.mark.parametrize("text", ["Not interested, thanks.", "No thank you", "we're all set", "We are covered.", "No.", "no", "I am not interested", "We already have a provider", "Not interested.\n\nSent from my iPhone", "I'm not interested"])
+@pytest.mark.parametrize("text", ["Not interested, thanks.", "No thank you", "we're all set", "We are covered.", "No.", "no", "I am not interested", "We already have a provider", "Not interested.\n\nSent from my iPhone", "I'm not interested", "we are not interested", "No thank you!",
+                                  "Hi, no thanks", "Hello Soban, not interested, thanks", "Not interested, sorry", "We're all set", "We're good, thanks"])
 def test_local_negative(text):
     assert local_kind(text) == "negative"
 
@@ -88,7 +89,14 @@ def test_local_positive(text):
                                   "Not interested in Botox marketing, we need help with front desk calls", "we've been looking for something like this, not interested in contracts though",
                                   "We are covered for now, but happy to chat in the spring", "Not interested at this time", "Not interested at the moment", "Not interested this year",
                                   "Not interested, try us in 6 months", "No thanks for now", "we're good for now", "Not a fit yet, we open our second location in spring",
-                                  "I know", "note", "innovation", "Thank you for reaching out but we are not interested in this at all so please stop"])
+                                  "I know", "note", "innovation",
+                                  "Not interested in a call. Email works", "Not interested in the call, email works", "we're covered at this location, not the other one",
+                                  "Not for us at the other location", "No thanks. Try the Austin location", "not interested - talk to Dana",
+                                  "We are all set on that. Reach Maria at the other clinic", "Not for us, try Glow Med Spa down the street",
+                                  "No thanks, we have two other locations you could email", "Not interested in that, ask about lasers",
+                                  "Not interested in that service, what else do you do", "Not interested unless it's free", "Not interested until Q3", "No thanks, busy season",
+                                  "We're good for the time being", "Not interested right now", "Not looking to switch our software", "Not interested in AI", "Not interested in Botox",
+                                  "We are good, thanks! Actually yes tell me more", "Thank you for reaching out but we are not interested in this at all so please stop"])
 def test_local_unsure_falls_through(text):
     assert local_kind(text) is None
 
@@ -101,6 +109,17 @@ def test_clear_replies_never_call_the_model(text, kind):
 def test_dont_call_me_is_an_opt_out_and_dont_hesitate_is_not():
     assert classify_reply(msg("Don't call me"), llm=lambda s, p: pytest.fail("rules decide this")) == "opt_out"
     assert classify_reply(msg("Please don't hesitate to call"), llm=llm_says("other")) == "other"
+
+
+def test_a_bare_decline_skips_the_model_but_a_decline_with_more_in_it_does_not():
+    calls = []
+
+    def llm(system, prompt):
+        calls.append(prompt)
+        return {"kind": "other"}
+
+    assert classify_reply(msg("No thanks"), llm=llm) == "negative" and calls == []
+    assert classify_reply(msg("Not interested in a call. Email works"), llm=llm) == "other" and len(calls) == 1
 
 
 def test_unsure_replies_do_call_the_model():

@@ -18,16 +18,18 @@ BOUNCE_SUBJECT = re.compile(r"delivery status notification|undeliverable|mail de
 AUTO_SUBJECT = re.compile(r"^\s*(automatic reply|auto[- ]?reply|autoreply|out of office)\b", re.I)
 AUTO_BODY = re.compile(r"out of (the )?office|automatic reply|auto-?reply|i am currently (away|out)|on (annual )?leave until|on vacation", re.I)
 OPT_OUT = re.compile(r"unsubscribe|stop (emailing|contacting|sending|email)|take me off|remove me|please remove|do not (contact|email)|don'?t (contact|email|call)|opt[- ]?out|no more emails", re.I)
-# Local classifier: clear declines and clear interest skip the model; anything uncertain or deferred is left to it.
+# Local classifier: negative is an allow-list (a wrong "no" suppresses the lead for good): the whole reply must be a bare decline and nothing else.
+NEG_FULL = re.compile(r"(?:(?:hi|hello|hey)(?: [a-z]+)?[\s,.!-]+)?(?:(?:(?:we are|we're|i am|i'm|we) )?(?:not interested|not for us)|no thanks|no thank you|no"
+                      r"|(?:we're|we are) (?:all set|good|covered)|(?:we )?already have (?:a|an|someone|a provider|a system))(?:[\s,.!-]+(?:thanks|thank you|sorry|at all|really|please))*[\s,.!-]*", re.I)
+SIGNATURE = re.compile(r"\n\s*sent from my .*$", re.I | re.S)
+# A decline cue anywhere: only stops a positive cue from winning over a mixed reply.
 NEG_CUE = re.compile(r"\bnot interested\b|\bno thanks\b|\bno thank you\b|\bnot for us\b|\bnot a fit\b|\bwe(?:'re| are) (?:all set|good|covered)\b"
                      r"|\balready have (?:a|an|someone|a provider|a system)\b|\bnot looking\b(?! forward)|^\W*no\W*$", re.I)
 POS_CUE = re.compile(r"\btell me more\b|\bsounds (?:good|interesting)\b|\b(?:i|we)(?:'m|'re| am| are) interested\b|\blet'?s (?:talk|chat|connect|schedule|set up)\b"
                      r"|\bsend (?:me )?(?:more )?(?:info|information|details)\b|\bhow much\b|\bwhat(?:'?s| is) the (?:price|pricing|cost)\b|\b(?:book|schedule) a (?:call|demo)\b|\bcall me\b|^\W*yes(?: please)?\W*$", re.I)
-# Deferral, either side. Negative also needs a short reply and none of the contrast, referral or interest words: a wrong "no" suppresses the lead for good.
+# Deferral cues keep a positive from being decided locally.
 DEFER_CUE = re.compile(r"\b(?:not right now|maybe|not sure|next|\blater|circle back|reach out|check back|for now|at this time|at the moment|this year|in \d+ (?:days?|weeks?|months?)"
                        r"|spring|summer|fall|autumn|winter|january|february|march|april|may|june|july|august|september|october|november|december)\b", re.I)
-NEG_VETO = re.compile(r"\b(?:but|though|however|actually|although|yet|manager|partner|colleague|assistant|handles|forward|refer|my (?:friend|boss|wife|husband)|someone else|wrong (?:person|email)"
-                      r"|not the (?:right )?(?:person|owner|one)|love to|would like to|demo|pric(?:e|ing)|cost|one[- ]?pager|email me|call me|intrigued|curious|learn more|tell me more|send|need|help)\b|@", re.I)
 FREE_MAIL = {"gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com", "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com"}
 
 
@@ -39,11 +41,11 @@ def new_text(body: str) -> str:
 
 
 def local_kind(text: str) -> str | None:
-    """negative or positive only when the cue is clear; None sends it to the model."""
-    neg, pos = NEG_CUE.search(text), POS_CUE.search(text)
-    if DEFER_CUE.search(text) or bool(neg) == bool(pos) or (neg and ("?" in text or len(text.split()) > 12 or NEG_VETO.search(text))):
-        return None
-    return "negative" if neg else "positive"
+    """negative only for a bare decline, positive only for a clear cue with no decline or deferral; None sends it to the model."""
+    clean = SIGNATURE.sub("", text).strip()
+    if len(clean.split()) <= 6 and NEG_FULL.fullmatch(clean):
+        return "negative"
+    return "positive" if POS_CUE.search(clean) and not NEG_CUE.search(clean) and not DEFER_CUE.search(clean) else None
 
 
 def classify_reply(msg: dict, llm=None) -> str:
