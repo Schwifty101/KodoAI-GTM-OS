@@ -16,7 +16,7 @@ Single "start here". Checked against `git log`, code and docs on 2026-11-12. The
 | **Plan 1 (foundation): FINISHED and merged to `main` (PR #1)**, task reviews, whole-branch final review, fix wave `e23cb15` plus scoped re-review, minors waves `4add850` and `fb8bd7f` | Built. Settings store (`gtm/settings_store.py`), budget caps and paid-Gemini gate (`gtm/budget.py`), `jobs` table + worker (`gtm/jobs.py`, `gtm/worker.py`), Settings page, batch+lead on every `cost_log` row, `spend_summary` view; migrations 0007 and 0008 applied to the real project. Full suite **509 passed** (~5-6 min, hits the real Supabase project) |
 | Local reply classifier (`gtm/replies.py`, `a9be7dc..4d67ceb`) | Built, unit-tested; never run on real replies. See (c) |
 | UI: Leads, Review, Outreach, Dashboard, Login, Settings | Built; `verify.mts` checks write actions under RLS |
-| Worker against a real queue | Runs on the VM (smoke test: a `send` job drained and failed as designed; kill -9 and VM reset recovery). **No real pass has run unattended yet**: see (f) |
+| Worker against a real queue | Runs on the VM (smoke test: a `send` job drained and failed as designed; kill -9 and VM reset recovery). A real `clean` job ran on the VM 2026-11-12 (a no-op on the already-cleaned Houston batch, no restarts). A heavy pass (enrich, signals) has not run there, so RAM under load is **unverified** |
 | Pass `draft`, `followups`, `send`, `replies` | Built, **not run live**: no draft created, Gmail `send_draft`, thread and bounce reading in a real batch, Touch 2/3 threading unverified |
 | Cloud runner (GCP VM, Secret Manager) | **Plan 2 built 2026-11-12** (branch `plan2-cloud-runner`): VM `gtm-worker` (e2-micro, us-west1-b) runs the worker under systemd; migration 0009 applied. Runbook: `docs/runbooks/cloud-runner.md`. Verified: smoke test, kill -9 and VM reset recovery. **Not verified:** a real unattended pass and RAM peak under it (being finished 2026-11-12, see (f)), Gmail send from the VM (Plan 4) |
 | Plans 3-6 (scrape and batches; drafts and sending; sheet import; metrics/Home/Replies) | Not written, not built |
@@ -58,14 +58,14 @@ Plan 1 (branch `gtm-os-build`) was **merged to `main` by the owner as PR #1** (`
 | Plan 5 sheet import and manual queue | Color rule, Manual queue tab |
 | Plan 6 metrics, Home, Replies | History, Home, Replies pages |
 
-**Google Cloud free-trial decision: DECIDED 2026-11-12.** The owner upgraded the account to full pay-as-you-go before the trial end (2027-02-09), so nothing is marked for deletion. The budget alert is still to be created (see (f); alerts warn, they do not cap). `allow_paid_gemini` (off by default) stays the only Gemini spend guard. Costs: external IPv4 about $3.65/month; the VM itself is free tier (no end date, Google may change it with 30 days notice); see the runbook.
+**Google Cloud free-trial decision: DECIDED 2026-11-12.** The owner upgraded the account to full pay-as-you-go before the trial end (2027-02-09), so nothing is marked for deletion. Budget alert created 2026-11-12: "GTM OS monthly", $20 USD, alerts at 50, 90 and 100 percent (alerts warn, they do not cap). `allow_paid_gemini` (off by default) stays the only Gemini spend guard. Costs: external IPv4 about $3.65/month; the VM itself is free tier (no end date, Google may change it with 30 days notice); see the runbook.
 
 ### (f) Open items for the owner
 
 | # | Item |
 |---|---|
-| 1 | Create a Google Cloud budget alert (the full-account upgrade is done; merge menu and trial decision are done) |
-| 2 | First real unattended pass on the VM (runbook open items; suggested `clean` on the Houston batch, no paid API; record the RAM peak). Being finished 2026-11-12: completion **unverified** |
+| 1 | Done 2026-11-12: budget alert, full-account upgrade, merge menu, trial decision (row kept so item numbers stay stable) |
+| 2 | First real unattended pass on the VM (runbook open items; suggested `clean` on the Houston batch, no paid API; record the RAM peak). Done 2026-11-12 for `clean` (no-op, no restarts); a heavy pass and its RAM peak are still **unverified** |
 | 3 | Approve the 8 selected Houston leads on the Review page, then approve each paid/send step of the first real send |
 | 4 | Hunter plan (buy only when the OS can safely run a campaign) |
 | 5 | Re-pull Notion Batch03 and `import-history` before each batch |
@@ -110,10 +110,10 @@ Per-route owner-finding numbers: `docs/spikes/owner_routes.md`. Budget table (20
 
 - Heartbeat lease (migration 0009) replaced the 60-minute stale rule: a job with no heartbeat for 5 minutes is requeued, so the one-worker caveat is gone.
 - Restarting the worker (`deploy.sh`) while a job runs marks it `cancelled`, not requeued: deploy only when the queue is idle.
-- The VM runs Python 3.15.2 (uv), the Mac 3.14.
+- The VM runs Python 3.14.10 (pinned by `UV_PYTHON=3.14` in `deploy/deploy.sh`), like the Mac. Changing the VM's Python needs `/opt/gtm/.venv` emptied by hand first as `gtm` (root-owned parent, uv cannot remove it).
 - A wrongly suppressed lead (including a wrong `not-interested`) can only be fixed in the database.
 - The `weekly_target=200` row in `settings` equals the default (f7).
-- Gmail send (including from the VM), thread/bounce reading and a real unattended pass on the worker are unproven live (smoke test only).
+- Gmail send (including from the VM), thread/bounce reading and a heavy unattended pass (enrich, signals) on the worker are unproven live (only a no-op `clean` has run).
 - Deferred minors, accepted: `setting("typo")` raises a bare KeyError; unused `now` parameter in `credit_remaining_usd`; paid-mode check ignores the pending amount (can overshoot a cap by one call); `require` is check-then-act with no reservation; `llm.py` reads prices after the paid Gemini call (a failed read drops the cost row); `researcher.py` param `budget=150` shadows the module; the settings page keeps its own copy of the default values (`web/lib/settings.ts`); `verify.mts` leaves a queued `clean` TEST job and `q.length === 1` is brittle; worker: an exception in `finish` kills the loop, `enqueue` does not reject unknown kinds, no test for `cmd_enqueue` `--` stripping; `tests/test_worker.py` lacks `pytestmark db`; no boundary tests for budget.
 
 ### (k) Working agreements with the owner
@@ -122,7 +122,7 @@ Concise answers; no assumptions; verify before claiming; one question at a time 
 
 ### (l) First steps for the next session, in order
 
-1. Check (f): did the first unattended pass on the VM and the budget alert get done? Read `docs/runbooks/cloud-runner.md` open items. If the Plan 2 PR is open, merge it.
+1. If the Plan 2 PR is still open, merge it. Then read `docs/runbooks/cloud-runner.md` open items.
 2. First real small send of the 8 selected Houston leads: still NOT done. Needs owner approval of each paid or send step: Review-page approval, `draft`, reading every draft in Gmail, `send` dry run, then `send --confirm` small.
 3. Then Plan 3 (scrape and batches).
 
@@ -136,8 +136,8 @@ A personal "GTM OS" for med spa cold email, for one operator: Soban (KodoAI foun
 |---|---|
 | **Built** | (+ Plan 1 foundation and the local reply classifier, see section 0) All 19 plan tasks: scrape, clean, enrich, signals, select, draft, follow-ups, send, replies, mailboxes, Notion history import, web UI (Leads, Review, Outreach, Dashboard, Login), `batch_metrics` view, 6 migrations, final Opus code review with fixes |
 | **Verified live** | Supabase project `alvxsbnfthvaiquhytig`, migrations 0001-0009 applied (0007-0009 added 2026-11-12). RLS restricts every table to operator soban@kodoai.xyz (proved with a throwaway non-operator user: reads 0 rows, cannot write). Gmail OAuth (Desktop client, Internal; scopes `gmail.compose` + `gmail.readonly`) and a test draft created in Drafts. Apify actor `compass~crawler-google-places` (price measured). Hunter free keys (credit behaviour measured). Groq `openai/gpt-oss-120b` reliable. Serper works (key replaced and re-tested 2026-11-10; session fact). Vertex Gemini `gemini-3.5-flash` is the primary LLM and ran the Houston batch (2026-11-11). Operator mailbox row registered (cap 40, enabled 2026-11-10). Suppression holds 434 imported rows |
-| **Not yet verified live** | Gmail `send_draft`; reading threads and bounces (`thread_messages`, `recent_bounces`); Touch 2/3 threading with In-Reply-To headers; a real unattended pass on the worker (VM smoke test only); Vertex fallback behavior when the credit ends. No real end-to-end batch has run. Prospeo and other finders were measured on saved names (section 7, `docs/spikes/owner_routes.md`). The suite is 509 tests, ~5-6 min, hits the real Supabase project (coordinator's count 2026-11-12; not re-run for this doc) |
-| **Blocked / waiting** | Nothing technically blocked. Waiting on owner: Hunter plan decision; first real send; budget alert; no paid Apify top-up without asking (free credit ends 2026-11-24). Done: Notion Batch03 re-pulled 2026-11-10 (32 rows, nothing new); Supabase signups disabled by owner 2026-11-10 |
+| **Not yet verified live** | Gmail `send_draft`; reading threads and bounces (`thread_messages`, `recent_bounces`); Touch 2/3 threading with In-Reply-To headers; a heavy unattended pass on the worker (only a no-op `clean` has run on the VM); Vertex fallback behavior when the credit ends. No real end-to-end batch has run. Prospeo and other finders were measured on saved names (section 7, `docs/spikes/owner_routes.md`). The suite is 509 tests, ~5-6 min, hits the real Supabase project (coordinator's count 2026-11-12; not re-run for this doc) |
+| **Blocked / waiting** | Nothing technically blocked. Waiting on owner: Hunter plan decision; first real send; no paid Apify top-up without asking (free credit ends 2026-11-24). Done: Notion Batch03 re-pulled 2026-11-10 (32 rows, nothing new); Supabase signups disabled by owner 2026-11-10 |
 
 Funnel reality (Houston, small samples): clean keeps ~63-87% (87% on the 2026-11-11 batch, 52 of 60); names are found for ~62% of cleaned leads but most fail at name > verified email, so enriched is ~17% (9 of 52, 2026-11-11 batch, after the `ovme.com` chain was dropped); website-only evidence gave 0 of 6 dated signals, so most leads will be **relevance-led with thin personalisation**. Target 100-200 emailable leads a week needs on the order of 1,000+ scraped places a week at ~15-20% yield (unverified projection) and Hunter/Prospeo credits are the real limit (section 7).
 

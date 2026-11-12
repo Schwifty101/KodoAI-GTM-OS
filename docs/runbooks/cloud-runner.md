@@ -14,7 +14,7 @@ Facts verified 2026-11-12 unless marked unverified. The worker runs on a GCP VM;
 | Secrets | 15 in Secret Manager, named as the env vars (SUPABASE_URL, SUPABASE_SECRET_KEY, GROQ_API_KEY, GEMINI_AGENT_PLATFORM_API_KEY, SERP_API_KEY, PROSPEO_API_KEY, APIFY_API_KEY, APIFY_API_KEY_2, SUPABASE_PUBLISHABLE_KEY, HARVEST_API_KEY, HUNTER_API_KEY .. _4), plus `gmail-token` |
 | Loader | `deploy/fetch_secrets.py` (one Python process: metadata server + Secret Manager REST) writes `/run/gtm/env` at each start. The first loader called gcloud once per secret and exceeded the 90 s start timeout on the e2-micro (found in the kill drill) |
 | Layout | `/opt/gtm` root-owned; user `gtm` owns only `.venv .cache .python .secrets` |
-| Python | uv installed 3.15.2 on the VM; the Mac runs 3.14 |
+| Python | 3.14.10 on the VM (pinned by `UV_PYTHON=3.14` in `deploy/deploy.sh`), same minor as the Mac |
 | gcloud (Mac) | 593.0.0 via Homebrew, logged in as the owner account |
 
 Migration 0009 (`jobs.heartbeat_at`) is applied. A running job beats; a job with no heartbeat for 5 minutes is requeued. This replaces the 60-minute stale rule, so more than one worker is now safe.
@@ -28,7 +28,7 @@ Migration 0009 (`jobs.heartbeat_at`) is applied. A running job beats; a job with
 | Secret Manager, 15 secrets | about $0.6/month (**unverified** price) |
 | Gemini | Pay-as-you-go now. `allow_paid_gemini` (Settings, off by default) is the only spend guard |
 
-A budget alert is recommended. Alerts warn; they do not cap spend.
+Budget alert "GTM OS monthly" (billing account 01F2D5-227412-E5D58D, filtered to this project): $20 USD, alerts at 50, 90 and 100 percent, created 2026-11-12 with `gcloud billing budgets create`. Alerts warn; they do not cap spend.
 
 ## Deploy (Mac, repo root)
 
@@ -86,8 +86,7 @@ Then delete the `gtm-worker` service account if unused. Queued jobs stay in the 
 
 ## Open items
 
-- Not verified: a real unattended pass. Task 4 step 7 awaits owner approval; suggested first job is `clean` on the Houston batch (no paid API).
+- Verified 2026-11-12: a real `clean` job on the Houston batch ran to `done` on the VM (output `{}`: nothing left to clean). Not verified: a heavy pass (enrich, signals) and the RAM peak under load on 1 GB.
 - Not verified: RAM peak on 1 GB under a real pass.
 - Not verified: Gmail send from the VM (Plan 4).
-- Create the budget alert (owner).
-- Python 3.15.2 on the VM vs 3.14 on the Mac: tests run on the Mac only.
+- If the VM's Python ever changes: empty `/opt/gtm/.venv` as `gtm` over ssh first, then redeploy (uv cannot remove it; `/opt/gtm` is root-owned).
