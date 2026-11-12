@@ -1,3 +1,5 @@
+> **STALE (banner 2026-11-12).** Written for the deleted Pakistan lead-scraper project, not this GTM OS. Historical only; the current state is `docs/HANDOFF.md`.
+
 # Handoff: all four Hunter keys, no accept-all emails, appended to the Texas master list
 
 **Date written:** 29 October 2026.

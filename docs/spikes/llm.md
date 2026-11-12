@@ -1,3 +1,5 @@
+> **SUPERSEDED / STALE (banner added 2026-11-12).** Written before the move to Vertex Gemini as primary and before the finder changes. Current LLM facts: `docs/HANDOFF.md` section 7 (LLM rows). Owner-finding measurements: `docs/spikes/owner_routes.md`. Kept as history; do not rely on its conclusions.
+
 # Spike C: Groq and Gemini free tiers (2026-11-10)
 
 Script: `scripts/spike_llm.py`. Task: 20 small JSON-mode judging calls per provider (vector + signal_led + reason on a 1-2 sentence med spa snippet), run back to back.

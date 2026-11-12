@@ -17,7 +17,7 @@ KodoAI GTM OS for med spa outreach. Spec: `docs/superpowers/specs/2026-11-09-kod
 - A signal needs a source URL and a date. Never invent one.
 - Enriched means a named decision-maker (founder, owner, CEO or equivalent) with a verified email. Role addresses never qualify. The email must have verification `valid` and score >= 80 (`accept_all` fails). Failed leads stay `no_buyer` but keep a saved name for retries.
 - LLM: Vertex Gemini primary, Groq fallback (`gtm/llm.py`). Owner-finding measurements: `docs/spikes/owner_routes.md`.
-- Check `suppression` and "already contacted" before every draft and send. A reply or bounce stops that lead's remaining touches. Cadence is Day 0/3/7, no Touch 4.
+- Check `suppression` and "already contacted" before every draft and send. A reply or bounce stops that lead's remaining touches. A bare decline reply ("not interested") is suppressed with reason `not-interested`; a wrongly suppressed lead is fixed in the database. Cadence is Day 0/3/7, no Touch 4.
 - Footer values (`POSTAL_ADDRESS`, `AD_DISCLOSURE`, `OPT_OUT_LINE`) are empty by default: append if set, never invent, never block sending on empty.
 - Every paid call writes a `cost_log` row. Never print or commit keys. The Supabase secret key is script-side only, never in the browser.
 - Send is always a separate explicit action from draft.

@@ -1,3 +1,5 @@
+> **STALE (banner 2026-11-12).** Written for the deleted Pakistan lead-scraper project, not this GTM OS. Historical only; the current state is `docs/HANDOFF.md`.
+
 # Handoff: ICP qualification before email spend (Phase 9, part 2)
 
 **Written for:** the next Claude Code session on this repo, starting cold.

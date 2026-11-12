@@ -1,3 +1,5 @@
+> **SUPERSEDED / STALE (banner added 2026-11-12).** Written before the move to Vertex Gemini as primary and before the finder changes. Current LLM facts: `docs/HANDOFF.md` section 7 (LLM rows). Owner-finding measurements: `docs/spikes/owner_routes.md`. Kept as history; do not rely on its conclusions.
+
 # Task 7 gate: funnel estimate and decisions (2026-11-10)
 
 Target: **200 ready-to-email leads a week** (named decision-maker, verified email, US). All rates are from one metro (Houston) and small samples; treat them as a first estimate, not a forecast.

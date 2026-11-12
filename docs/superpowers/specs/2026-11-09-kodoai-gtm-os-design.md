@@ -1,5 +1,7 @@
 # KodoAI GTM OS for Med Spas: Design
 
+> See also: the operating-layer design `docs/superpowers/specs/2026-11-12-gtm-os-operating-layer-design.md` and roadmap `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` (the pipeline here is built; those describe what comes next). Current state: `docs/HANDOFF.md`.
+
 Date: 2026-11-09. Owner: Soban (soban@kodoai.xyz). Status: draft for approval.
 
 ## 1. Intent
