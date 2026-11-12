@@ -19,3 +19,13 @@ def serper_search(query: str, num: int = 5) -> list[dict]:
     r.raise_for_status()
     log_cost("serper", 1, None, note="search")
     return [{"title": o.get("title", ""), "link": o.get("link", ""), "snippet": o.get("snippet", "")} for o in r.json().get("organic", [])]
+
+
+def serper_scrape(url: str) -> str | None:
+    """Page text via Serper. Shape (third-party docs, official page not found, UNVERIFIED): POST https://scrape.serper.dev
+    {"url": url} -> {"text", "markdown"?, "metadata", "credits"}; about 1 credit per page (UNVERIFIED, check on the first live call)."""
+    budget.require("serper", 1)
+    r = httpx.post("https://scrape.serper.dev", headers={"X-API-KEY": get_settings().serper_api_key}, json={"url": url}, timeout=60)
+    r.raise_for_status()
+    log_cost("serper", r.json().get("credits", 1), None, note="fetch-fallback:serper")
+    return r.json().get("text") or None
