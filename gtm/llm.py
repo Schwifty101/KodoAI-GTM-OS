@@ -16,6 +16,7 @@ from gtm.settings_store import setting
 
 GROQ_MODEL = "openai/gpt-oss-120b"
 GEMINI_MODEL = "gemini-3.5-flash"
+REPLY_MODEL = "gemini-3.1-flash-lite"
 
 
 class Throttle:
@@ -53,19 +54,20 @@ def _groq(system: str, prompt: str) -> str:
     return j["choices"][0]["message"]["content"]
 
 
-def log_gemini_usage(meta: dict) -> None:
+def log_gemini_usage(meta: dict, model: str = GEMINI_MODEL) -> None:
     """Cost row for one Gemini reply: input and output (thinking included) priced separately."""
     out = (meta.get("candidatesTokenCount") or 0) + (meta.get("thoughtsTokenCount") or 0)
-    usd = ((meta.get("promptTokenCount") or 0) * setting("gemini_input_usd_per_m") + out * setting("gemini_output_usd_per_m")) / 1_000_000
-    log_cost("gemini", meta.get("totalTokenCount") or 0, usd, note="tokens")
+    prefix = "gemini_lite" if model == REPLY_MODEL else "gemini"
+    usd = ((meta.get("promptTokenCount") or 0) * setting(f"{prefix}_input_usd_per_m") + out * setting(f"{prefix}_output_usd_per_m")) / 1_000_000
+    log_cost("gemini", meta.get("totalTokenCount") or 0, usd, note=model if model == REPLY_MODEL else "tokens")
 
 
-def _vertex(system: str, prompt: str) -> str:
+def _vertex(system: str, prompt: str, model: str = GEMINI_MODEL) -> str:
     """Gemini on Vertex AI (paid, billed to the Google Cloud credit). The Agent Platform key works on this endpoint without ADC."""
     budget.require("gemini", 0)
     for attempt in range(3):
         r = httpx.post(
-            f"https://aiplatform.googleapis.com/v1/publishers/google/models/{GEMINI_MODEL}:generateContent",
+            f"https://aiplatform.googleapis.com/v1/publishers/google/models/{model}:generateContent",
             headers={"x-goog-api-key": get_settings().vertex_api_key},
             json={"systemInstruction": {"parts": [{"text": system}]}, "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                   "generationConfig": {"responseMimeType": "application/json"}},
@@ -76,7 +78,7 @@ def _vertex(system: str, prompt: str) -> str:
             continue
         r.raise_for_status()
         j = r.json()
-        log_gemini_usage(j.get("usageMetadata") or {})
+        log_gemini_usage(j.get("usageMetadata") or {}, model)
         return j["candidates"][0]["content"]["parts"][0]["text"]
     raise RuntimeError("vertex unavailable")
 
@@ -86,3 +88,7 @@ def complete_json(system: str, prompt: str, *, primary=_vertex, fallback=_groq) 
         return json.loads(primary(system, prompt))
     except Exception:
         return json.loads(fallback(system, prompt))
+
+
+def complete_reply_json(system: str, prompt: str) -> dict:
+    return complete_json(system, prompt, primary=lambda s, p: _vertex(s, p, REPLY_MODEL))

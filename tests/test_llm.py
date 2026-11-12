@@ -80,3 +80,26 @@ def test_vertex_not_called_when_gemini_not_allowed(monkeypatch):
     monkeypatch.setattr(budget, "gemini_allowed", lambda *a, **k: False)
     monkeypatch.setattr(llm.httpx, "post", lambda *a, **k: pytest.fail("Vertex must not be called"))
     assert complete_json("sys", "prompt", fallback=lambda s, p: '{"g": 1}') == {"g": 1}
+
+
+def test_reply_classifier_uses_flash_lite_and_prices_its_tokens(monkeypatch):
+    import gtm.llm as llm
+    from gtm.replies import classify_reply
+
+    requests, rows = [], []
+    class Response:
+        status_code = 200
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": '{"kind":"other"}'}]}}],
+                    "usageMetadata": {"promptTokenCount": 1_000_000, "candidatesTokenCount": 500_000,
+                                      "thoughtsTokenCount": 500_000, "totalTokenCount": 2_000_000}}
+    monkeypatch.setattr(llm.budget, "require", lambda *a: None)
+    monkeypatch.setattr(llm, "get_settings", lambda: type("Settings", (), {"vertex_api_key": "test"})())
+    monkeypatch.setattr(llm.httpx, "post", lambda url, **kwargs: (requests.append(url), Response())[1])
+    monkeypatch.setattr(llm, "setting", lambda key: {"gemini_lite_input_usd_per_m": .25, "gemini_lite_output_usd_per_m": 1.5}[key])
+    monkeypatch.setattr(llm, "log_cost", lambda *a, **k: rows.append((a, k)))
+    assert classify_reply({"body": "Can we revisit this next month?"}, llm.complete_reply_json) == "other"
+    assert "/gemini-3.1-flash-lite:generateContent" in requests[0]
+    assert rows == [(('gemini', 2_000_000, 1.75), {'note': 'gemini-3.1-flash-lite'})]

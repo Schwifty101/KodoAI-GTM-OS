@@ -10,6 +10,7 @@ DEFAULTS: dict[str, bool | int | float | str] = {
     "allow_paid_gemini": False, "paid_gemini_monthly_cap_usd": 0.0,
     "credit_end_date": "2027-02-09", "credit_balance_usd": 298.0, "credit_balance_as_of": "2026-11-12",
     "gemini_input_usd_per_m": 1.5, "gemini_output_usd_per_m": 9.0,  # third-party prices, unconfirmed
+    "gemini_lite_input_usd_per_m": 0.25, "gemini_lite_output_usd_per_m": 1.5,
     # proposed daily caps, owner adjusts
     "cap_apify_usd_day": 2.0, "cap_serper_queries_day": 700, "cap_gemini_usd_day": 5.0,
     "cap_hunter_credits_day": 100, "cap_prospeo_credits_day": 20, "cap_harvest_usd_day": 0.5,

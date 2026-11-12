@@ -17,7 +17,7 @@ from gtm.harvest import HarvestClient, harvest_finder
 from gtm.hunter import HunterPool
 from gtm.jobs import enqueue
 from gtm.import_history import parse_line, run_import
-from gtm.llm import complete_json
+from gtm.llm import complete_json, complete_reply_json
 from gtm.prospeo import ProspeoClient, prospeo_finder
 from gtm.owner_search import search_owner_finder
 from gtm.researcher import gemini_step, research_owner_finder
@@ -80,7 +80,7 @@ def cmd_draft(a: argparse.Namespace) -> None:
 
 def cmd_followups(a: argparse.Namespace) -> None:
     db = get_db()
-    run_replies(db, gmail_service, complete_json)  # a lead who already said stop gets no follow-up draft
+    run_replies(db, gmail_service, complete_reply_json)  # a lead who already said stop gets no follow-up draft
     print(f"drafted {run_followups(db, gmail_service, date.today())} follow-ups in Gmail Drafts (nothing sent)")
 
 
@@ -91,7 +91,7 @@ def cmd_send(a: argparse.Namespace) -> None:
             room = allowance(mb, date.today(), s.ramp_start, s.ramp_step, min(s.daily_cap, mb["daily_cap"]))
             print(f"{mb['address']}: paused={mb['paused']} allowance today={room}")
         sys.exit("Dry run only. Sending is a separate, explicit action: add --confirm to send due drafts.")
-    print(send_with_reply_check(db, gmail_service, complete_json, date.today(), s))  # replies first, then send
+    print(send_with_reply_check(db, gmail_service, complete_reply_json, date.today(), s))  # replies first, then send
 
 
 def cmd_import_history(a: argparse.Namespace) -> None:
@@ -100,7 +100,7 @@ def cmd_import_history(a: argparse.Namespace) -> None:
 
 
 def cmd_replies(a: argparse.Namespace) -> None:
-    print(run_replies(get_db(), gmail_service, complete_json))
+    print(run_replies(get_db(), gmail_service, complete_reply_json))
 
 
 def cmd_mailbox(a: argparse.Namespace) -> None:
