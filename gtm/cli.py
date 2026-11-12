@@ -45,6 +45,19 @@ def cmd_scrape(a: argparse.Namespace) -> None:
     print(f"batch {batch}: {new} new leads, {known} already known")
 
 
+def cmd_walk(a: argparse.Namespace) -> None:
+    from gtm.coverage import run_walk
+    from gtm.settings_store import setting
+
+    print(run_walk(get_db(), lambda inp: run_places(inp, MIN_CAP), a.tiles or setting("walk_tiles_per_run")))
+
+
+def cmd_seed_coverage(a: argparse.Namespace) -> None:
+    from gtm.coverage import load_metros, seed_coverage
+
+    print(f"{seed_coverage(get_db(), load_metros())} tiles inserted")
+
+
 def cmd_clean(a: argparse.Namespace) -> None:
     print(run_clean(get_db(), a.batch))
 
@@ -152,6 +165,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-places", type=int, default=40, help="per query")
     s.add_argument("--max-usd", type=float, default=MIN_CAP)
     s.set_defaults(fn=cmd_scrape)
+    w = sub.add_parser("walk", help="scrape and clean the next uncovered tiles")
+    w.add_argument("--tiles", type=int)
+    w.set_defaults(fn=cmd_walk)
+    sub.add_parser("seed-coverage").set_defaults(fn=cmd_seed_coverage)
     c = sub.add_parser("clean")
     c.add_argument("--batch", required=True)
     c.set_defaults(fn=cmd_clean)

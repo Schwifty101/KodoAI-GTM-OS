@@ -2,7 +2,12 @@ import csv
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from gtm import budget
+from gtm.apify import MIN_CAP
+from gtm.clean import run_clean
 from gtm.db import fetch_all
+from gtm.scrape import new_batch, scrape_city
+from gtm.settings_store import setting
 
 METROS = Path(__file__).parent / "data" / "metros.csv"
 
@@ -41,3 +46,50 @@ def release_tile(db, tile_id: str) -> None:
 def reset_stale(db, hours: int = 2) -> int:
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     return len(db.table("coverage").update({"status": "pending"}).eq("status", "running").lt("started_at", cutoff).execute().data)
+
+
+def run_walk(db, run_actor, tiles: int, queries: list[str] | None = None, max_places: int | None = None, escalate_at: float | None = None) -> dict:
+    """Scrape and clean the next uncovered tiles. A query is followed by the next one only while it filled its cap
+    (items returned >= escalate_at * max_places, counted before dedupe); the last query also filling it flags the tile saturated."""
+    queries = queries or [q.strip() for q in setting("walk_queries").split(",") if q.strip()]
+    max_places = max_places or setting("walk_max_places")
+    escalate_at = setting("walk_escalate_at") if escalate_at is None else escalate_at
+    out = {"tiles": 0, "queries": 0, "new": 0, "known": 0, "saturated": 0}
+    reset_stale(db)
+    for t in claim_tiles(db, tiles):
+        try:
+            budget.require("apify", MIN_CAP)  # before new_batch: a blocked tile leaves no empty batch
+            batch = new_batch(db, t["tile"], t["state"], [queries[0]])
+            n = found = new = known = ran = 0
+
+            def counted(inp):
+                nonlocal n
+                items, usd = run_actor(inp)
+                n = len(items)
+                return items, usd
+
+            full = True
+            for q in queries:
+                if ran:
+                    budget.require("apify", MIN_CAP)
+                a, b = scrape_city(db, counted, t["tile"], t["state"], [q], batch, max_places)
+                ran, found, new, known = ran + 1, found + n, new + a, known + b
+                full = n >= escalate_at * max_places
+                if not full:
+                    break
+            db.table("batches").update({"query": ", ".join(queries[:ran])}).eq("id", batch).execute()
+            run_clean(db, batch)
+            db.table("coverage").update({"status": "done", "places_found": found, "new_leads": new, "saturated": full, "queries_run": ran,
+                                         "scrape_batch_id": batch, "scraped_at": _now()}).eq("id", t["id"]).execute()
+        except budget.BudgetExceeded:
+            release_tile(db, t["id"])
+            raise
+        except Exception as e:
+            db.table("coverage").update({"status": "failed", "error": str(e)[:500]}).eq("id", t["id"]).execute()
+            continue
+        out["tiles"] += 1
+        out["queries"] += ran
+        out["new"] += new
+        out["known"] += known
+        out["saturated"] += full
+    return out

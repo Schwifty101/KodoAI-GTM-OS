@@ -9,7 +9,7 @@ from gtm.budget import BudgetExceeded
 from gtm.db import get_db
 from gtm.jobs import claim, finish, heartbeat, requeue_stale
 
-ALLOWED = {"scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies"}  # send is not job-runnable until Plan 4
+ALLOWED = {"scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "walk"}  # send is not job-runnable until Plan 4
 BEAT_SECONDS = 30.0
 
 
