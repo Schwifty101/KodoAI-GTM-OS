@@ -24,7 +24,15 @@ def finish(db, job_id: str, status: str, result: dict | None = None, error: str 
     db.table("jobs").update({"status": status, "result": result, "error": error, "finished_at": _now().isoformat()}).eq("id", job_id).eq("status", "running").execute()
 
 
-def requeue_stale(db, older_than_minutes: int = 60) -> int:
+def heartbeat(db, job_id: str) -> None:
+    try:
+        db.table("jobs").update({"heartbeat_at": _now().isoformat()}).eq("id", job_id).eq("status", "running").execute()
+    except Exception:
+        pass  # a blip must not kill the job; a long outage lets requeue_stale take it
+
+
+def requeue_stale(db, older_than_minutes: int = 5) -> int:
     cutoff = (_now() - timedelta(minutes=older_than_minutes)).isoformat()
-    db.table("jobs").update({"status": "failed", "error": "stale after 3 attempts", "finished_at": _now().isoformat()}).eq("status", "running").lt("started_at", cutoff).gte("attempts", 3).execute()
-    return len(db.table("jobs").update({"status": "queued", "started_at": None}).eq("status", "running").lt("started_at", cutoff).lt("attempts", 3).execute().data)
+    stale = f"heartbeat_at.lt.{cutoff},and(heartbeat_at.is.null,started_at.lt.{cutoff})"
+    db.table("jobs").update({"status": "failed", "error": "stale after 3 attempts", "finished_at": _now().isoformat()}).eq("status", "running").or_(stale).gte("attempts", 3).execute()
+    return len(db.table("jobs").update({"status": "queued", "started_at": None, "heartbeat_at": None}).eq("status", "running").or_(stale).lt("attempts", 3).execute().data)

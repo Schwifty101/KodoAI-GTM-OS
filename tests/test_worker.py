@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from gtm.budget import BudgetExceeded
@@ -102,3 +104,28 @@ def test_run_one_keyboard_interrupt_cancels_the_job_and_reraises(monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         run_one(None, _boom(KeyboardInterrupt()))
     assert done == [("j1", "cancelled", "interrupted")]
+
+
+def test_beating_calls_heartbeat_while_the_block_runs(monkeypatch):
+    from gtm import worker
+
+    beats = []
+    monkeypatch.setattr(worker, "heartbeat", lambda d, i: beats.append(i))
+    with worker.beating(None, "j1", every=0.01):
+        time.sleep(0.1)
+    n = len(beats)
+    assert n >= 2
+    time.sleep(0.05)
+    assert len(beats) == n
+
+
+def test_run_one_beats_during_the_pass(monkeypatch):
+    from gtm import worker
+
+    beats = []
+    monkeypatch.setattr(worker, "BEAT_SECONDS", 0.01)
+    monkeypatch.setattr(worker, "claim", lambda d: {"id": "j1", "kind": "clean", "payload": {}})
+    monkeypatch.setattr(worker, "finish", lambda *a, **k: None)
+    monkeypatch.setattr(worker, "heartbeat", lambda d, i: beats.append(i))
+    run_one(None, lambda kind, argv: time.sleep(0.1) or "ok")
+    assert len(beats) >= 2
