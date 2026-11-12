@@ -65,7 +65,11 @@ All Python is run as `uv run python -m gtm.cli <pass>` from the repo root. Lead 
 | `gtm/send.py` | `allowance`, `should_pause`, `send_due`, `send_with_reply_check` (the ONLY place a draft becomes an email) |
 | `gtm/replies.py` | `classify_reply` (rules first; model only splits positive/negative/other), `apply_reply`, `run_replies` |
 | `gtm/import_history.py` | Notion history lines into `suppression` (idempotent) |
-| `gtm/cli.py` | argparse entry point, one subcommand per pass |
+| `gtm/cli.py` | argparse entry point (`build_parser()`), one subcommand per pass, plus `worker` and `enqueue` |
+| `gtm/settings_store.py` | `setting(key)` / `set_setting` over the `settings` table, `DEFAULTS`, 60 s cache |
+| `gtm/budget.py` | Daily provider caps and the paid-Gemini gate; `BudgetExceeded` (the worker maps it to `paused_budget`) |
+| `gtm/jobs.py` | `enqueue`, `claim` (atomic `claim_job` RPC), `finish`, `requeue_stale` over the `jobs` table |
+| `gtm/worker.py` | `gtm worker`: polls `jobs`, runs allowed passes (not `send`) through the CLI parser with stdout captured as the result |
 | `gtm/data/` | `draft_prompt.md` (Touch 1 system prompt), `signal_prompt.md` (condensed MedSpa Touch-1 sections 4-5; a test pins the vector names), `chains.txt` |
 | `supabase/migrations/0001_init.sql` | 6 tables, RLS on |
 | `0002` | `leads.categories text[]`, `leads.closed` |
@@ -104,6 +108,8 @@ Status flow: `scraped` > `cleaned` | `rejected` > `enriched` | `no_buyer` > `sig
 ## 5. How each pass is run
 
 All via `uv run python -m gtm.cli ...`. "Batch" = batch UUID printed by `scrape`.
+
+Jobs: `enqueue <kind> -- <pass flags>` queues a pass; `worker [--poll 15]` runs queued jobs (everything except `send`).
 
 | Command | Flags | Cost / effect |
 |---|---|---|

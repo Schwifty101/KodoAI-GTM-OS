@@ -13,6 +13,7 @@ from gtm.config import get_settings
 from gtm.enrich import hunter_domain_finder, run_enrich, site_owner_finder
 from gtm.harvest import HarvestClient, harvest_finder
 from gtm.hunter import HunterPool
+from gtm.jobs import enqueue
 from gtm.import_history import parse_line, run_import
 from gtm.llm import complete_json
 from gtm.prospeo import ProspeoClient, prospeo_finder
@@ -112,7 +113,18 @@ def cmd_mailbox_add(a: argparse.Namespace) -> None:
     print(f"mailbox {a.address} enabled from {a.enabled_on or date.today()}, cap {a.cap}/day")
 
 
-def main() -> None:
+def cmd_worker(a: argparse.Namespace) -> None:
+    from gtm.worker import main as worker_main
+
+    worker_main(a.poll)
+
+
+def cmd_enqueue(a: argparse.Namespace) -> None:
+    flags = a.flags[1:] if a.flags[:1] == ["--"] else a.flags
+    print("queued job", enqueue(get_db(), a.kind, {"argv": flags}))
+
+
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="gtm")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("scrape")
@@ -160,7 +172,18 @@ def main() -> None:
     x2 = sub.add_parser("send", help="send due drafts (dry run unless --confirm)")
     x2.add_argument("--confirm", action="store_true")
     x2.set_defaults(fn=cmd_send)
-    a = p.parse_args()
+    w = sub.add_parser("worker", help="run queued jobs (poll the jobs table)")
+    w.add_argument("--poll", type=int, default=15)
+    w.set_defaults(fn=cmd_worker)
+    q = sub.add_parser("enqueue", help="queue a pass as a job: enqueue <kind> -- <pass flags>")
+    q.add_argument("kind")
+    q.add_argument("flags", nargs=argparse.REMAINDER)
+    q.set_defaults(fn=cmd_enqueue)
+    return p
+
+
+def main(argv: list[str] | None = None) -> None:
+    a = build_parser().parse_args(argv)
     a.fn(a)
 
 
