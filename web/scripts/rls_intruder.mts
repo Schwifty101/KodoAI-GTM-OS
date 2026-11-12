@@ -23,6 +23,11 @@ const sup = await intruder.from("suppression").select("id");
 check("signed-in non-operator reads 0 suppression rows", (sup.data ?? []).length === 0);
 const view = await intruder.from("batch_metrics").select("batch_id");
 check("signed-in non-operator reads 0 rows from the metrics view", (view.data ?? []).length === 0);
+await admin.from("settings").upsert({ key: "weekly_target", value: 200 });
+await admin.from("jobs").insert({ kind: "clean", payload: { test: true } });
+for (const t of ["settings", "jobs", "spend_summary"]) check(`non-operator reads 0 rows from ${t}`, ((await intruder.from(t).select("*")).data ?? []).length === 0);
+check("non-operator cannot insert into settings", !!(await intruder.from("settings").insert({ key: "zz_intruder", value: 1 })).error);
+check("non-operator cannot insert into jobs", !!(await intruder.from("jobs").insert({ kind: "clean", payload: { test: true } })).error);
 const ins = await intruder.from("suppression").insert({ domain: "evil.example", reason: "pytest-rls" });
 check("non-operator cannot insert into suppression", !!ins.error);
 await intruder.from("leads").update({ status: "booked" }).eq("place_id", "TEST_rls1");
@@ -32,6 +37,7 @@ const supStill = await admin.from("suppression").select("id").eq("domain", "rls-
 check("non-operator update changed nothing", still.data?.status === "selected");
 check("non-operator delete removed nothing", (supStill.data ?? []).length === 1);
 
+await admin.from("jobs").delete().eq("payload->>test", "true");
 await admin.from("leads").delete().like("place_id", "TEST_rls%");
 await admin.from("suppression").delete().eq("reason", "pytest-rls");
 await admin.from("batches").delete().eq("id", batch!.id);

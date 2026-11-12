@@ -14,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Link href="/review">Review</Link>
           <Link href="/outreach">Outreach</Link>
           <Link href="/dashboard">Dashboard</Link>
+          <Link href="/settings">Settings</Link>
         </nav>
         <main>{children}</main>
       </body>

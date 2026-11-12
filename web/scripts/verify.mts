@@ -2,7 +2,9 @@
 // Run: node --env-file=.env.local --env-file=../.env --import tsx scripts/verify.mts   (reads the secret key from ../.env; never bundled into the app)
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import { approveLeads, clearPause, markBooked, rejectLeads, setOutcome, unapproveLeads } from "../lib/actions";
+import { approveLeads, cancelJob, clearPause, enqueueJob, markBooked, rejectLeads, retryJob, saveSetting, setOutcome, unapproveLeads } from "../lib/actions";
+import { SETTING_FIELDS } from "../lib/settings";
+import { readFileSync } from "node:fs";
 
 const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!);
 const fails: string[] = [];
@@ -48,6 +50,35 @@ check("markBooked sets booked from replied", (await row(1)).status === "booked")
 await markBooked(b);
 check("markBooked does nothing to a lead that has not replied", (await row(2)).status === "selected");
 await admin.from("mailboxes").delete().eq("id", mb!.id);
+
+// Task 6: settings and jobs actions
+const pyKeys = [...readFileSync("../gtm/settings_store.py", "utf8").split("DEFAULTS")[1].split("\nTTL")[0].matchAll(/"(\w+)":/g)].map((m) => m[1]).sort();
+check("SETTING_FIELDS keys equal the Python DEFAULTS keys", JSON.stringify(SETTING_FIELDS.map((f) => f.key).sort()) === JSON.stringify(pyKeys) && pyKeys.length === 16);
+const wt = async () => (await admin.from("settings").select("value").eq("key", "weekly_target")).data?.[0]?.value;
+const wt0 = await wt();
+await saveSetting("weekly_target", 150);
+check("saveSetting persists", (await wt()) === 150);
+const nSettings = async () => (await admin.from("settings").select("key", { count: "exact", head: true })).count;
+const n0 = await nSettings();
+const throws = async (f: () => Promise<void>) => { try { await f(); return false; } catch { return true; } };
+check("saveSetting rejects an unknown key", await throws(() => saveSetting("nope", 1)) && (await nSettings()) === n0);
+check("saveSetting rejects a wrong-typed value", await throws(() => saveSetting("weekly_target", "x")) && (await wt()) === 150);
+if (wt0 === undefined) await admin.from("settings").delete().eq("key", "weekly_target"); else await admin.from("settings").update({ value: wt0 }).eq("key", "weekly_target");
+
+const jstat = async (i: string) => (await admin.from("jobs").select("status").eq("id", i).single()).data!.status;
+await enqueueJob("clean", ["--batch", "TEST"]);
+const q = (await admin.from("jobs").select("id,status").eq("kind", "clean").contains("payload", { argv: ["--batch", "TEST"] })).data!;
+check("enqueueJob inserts one queued job", q.length === 1 && q[0].status === "queued");
+await cancelJob(q[0].id);
+check("cancelJob cancels a queued job", (await jstat(q[0].id)) === "cancelled");
+const seed = async (status: string) => (await admin.from("jobs").insert({ kind: "clean", payload: { test: true }, status }).select("id").single()).data!.id as string;
+const [jr, jf, jd] = [await seed("running"), await seed("failed"), await seed("done")];
+await cancelJob(jr);
+check("cancelJob leaves a running job alone", (await jstat(jr)) === "running");
+await retryJob(jf); await retryJob(jd);
+check("retryJob requeues a failed job", (await jstat(jf)) === "queued");
+check("retryJob ignores a done job", (await jstat(jd)) === "done");
+await admin.from("jobs").delete().or("payload->>test.eq.true,payload->argv.cs.[\"TEST\"]");
 
 await admin.from("leads").delete().like("place_id", "TEST_v%");
 await admin.from("batches").delete().eq("id", batch!.id);

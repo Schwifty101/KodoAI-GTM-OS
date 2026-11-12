@@ -79,6 +79,7 @@ All Python is run as `uv run python -m gtm.cli <pass>` from the repo root. Lead 
 | `web/app/review/page.tsx` | `selected` leads with reason + evidence; bulk approve/reject, per-lead override |
 | `web/app/outreach/page.tsx` | Drafts, sequence tracker, mailbox pause clear, reply outcome marking, mark booked. No send button, no draft editing |
 | `web/app/dashboard/page.tsx` | Per-batch funnel and spend from `batch_metrics` |
+| `web/app/settings/page.tsx` | Owner settings (budget, Google credit, Allow paid Gemini, API prices, daily caps), spend meter from `spend_summary`, last 50 jobs with enqueue, cancel (queued) and retry (failed or paused_budget). `web/lib/settings.ts` mirrors `DEFAULTS` in `gtm/settings_store.py` |
 | `web/components/Evidence.tsx` | Quote + summary + source link display |
 | `web/lib/{supabase,actions,fetchAll,types,useRequireSession}.ts` | Browser client (publishable key + operator session), the write actions, paging, types, session guard |
 | `web/scripts/verify.mts`, `rls_intruder.mts` | Live verification scripts (use the secret key from `../.env`; never bundled) |

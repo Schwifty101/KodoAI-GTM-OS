@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { SETTING_FIELDS, validSetting } from "./settings";
 
 // Every operator write goes through here so scripts/verify.ts can exercise the exact same calls under RLS.
 async function ok<T extends { error: { message: string } | null }>(p: PromiseLike<T>): Promise<void> {
@@ -31,3 +32,19 @@ export async function setOutcome(leadId: string, outcome: "positive" | "negative
 /** Booked is only ever set by hand, and only from `replied`. */
 export const markBooked = (leadId: string) =>
   ok(supabase.from("leads").update({ status: "booked" }).eq("id", leadId).eq("status", "replied"));
+
+/** Upsert one owner setting; the key and the value's type are checked against SETTING_FIELDS first. */
+export async function saveSetting(key: string, value: unknown) {
+  const f = SETTING_FIELDS.find((x) => x.key === key);
+  if (!f) throw new Error(`unknown setting ${key}`);
+  if (!validSetting(f, value)) throw new Error(`${key} needs a ${f.type}`);
+  await ok(supabase.from("settings").upsert({ key, value, updated_at: new Date().toISOString() }));
+}
+
+/** Queue a worker job: `argv` is the CLI pass arguments, e.g. ["--batch", "B1"]. */
+export const enqueueJob = (kind: string, argv: string[]) => ok(supabase.from("jobs").insert({ kind, payload: { argv } }));
+
+export const cancelJob = (id: string) => ok(supabase.from("jobs").update({ status: "cancelled" }).eq("id", id).eq("status", "queued"));
+
+export const retryJob = (id: string) =>
+  ok(supabase.from("jobs").update({ status: "queued", error: null, run_after: new Date().toISOString() }).eq("id", id).in("status", ["failed", "paused_budget"]));

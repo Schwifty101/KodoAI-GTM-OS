@@ -56,3 +56,10 @@ export type BatchMetrics = {
   apify_usd: number; hunter_credits: number; serper_queries: number; groq_tokens: number;
   apify_usd_per_lead: number | null; apify_usd_per_verified_email: number | null; hunter_credits_per_verified_email: number | null;
 };
+
+export type Setting = { key: string; value: unknown; updated_at: string };
+export type Job = {
+  id: string; kind: string; payload: { argv?: string[] } & Record<string, unknown>; status: string; run_after: string;
+  started_at: string | null; finished_at: string | null; attempts: number; result: unknown; error: string | null; created_at: string;
+};
+export type SpendRow = { provider: string; units_today: number; usd_today: number; units_month: number; usd_month: number };
