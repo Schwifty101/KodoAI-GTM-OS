@@ -184,3 +184,22 @@ def test_retry_that_finds_nothing_keeps_the_email_saved_earlier(cleaned):
     run_enrich(db, [lambda lead: [named] if lead["domain"] == "spa0.com" else []], bid)
     run_enrich(db, [lambda lead: []], bid, retry_no_buyer=True)
     assert (row(db, 0)["owner_name"], row(db, 0)["owner_email"], row(db, 0)["status"]) == ("Dana W", "dana@spa0.com", "no_buyer")
+
+
+@pytest.mark.db
+def test_cost_log_rows_inside_run_enrich_carry_batch_and_lead(cleaned):
+    from gtm.costs import log_cost
+
+    db, bid = cleaned
+
+    def finder(lead):
+        log_cost("serper", 1, None, note="pytest-attrib")
+        return []
+
+    try:
+        run_enrich(db, [finder], bid, limit=1)
+        got = db.table("cost_log").select("batch_id,lead_id").eq("note", "pytest-attrib").execute().data
+        assert len(got) == 1 and got[0]["batch_id"] == bid
+        assert got[0]["lead_id"] == db.table("leads").select("id").eq("status", "no_buyer").eq("batch_id", bid).execute().data[0]["id"]
+    finally:
+        db.table("cost_log").delete().eq("note", "pytest-attrib").execute()

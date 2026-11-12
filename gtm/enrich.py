@@ -5,6 +5,7 @@ from __future__ import annotations
 from gtm.buyer import is_decision_maker, is_role_email, pick_buyer, seniority  # noqa: F401  (re-exported: the plan's interface)
 from gtm.hunter import HunterPool, OutOfCredits
 from gtm.sitescrape import find_owner_candidates, http_fetch
+from gtm.costs import spend_context
 from gtm.status import Status
 
 
@@ -52,13 +53,14 @@ def run_enrich(db, finders: list, batch_id: str, limit: int | None = None, retry
             seen.append({"email": r.get("owner_email"), "first_name": first, "last_name": last, "position": r["owner_title"], "source": "saved"})  # keep a saved email too: a retry must not erase it
         try:
             buyer = None
-            for f in finders:
-                r["known"] = seen  # names found so far, for finders that look a named person up
-                found = f(r)
-                seen += found
-                buyer = pick_buyer(found)
-                if buyer:
-                    break
+            with spend_context(batch_id=batch_id, lead_id=r["id"]):
+                for f in finders:
+                    r["known"] = seen  # names found so far, for finders that look a named person up
+                    found = f(r)
+                    seen += found
+                    buyer = pick_buyer(found)
+                    if buyer:
+                        break
         except OutOfCredits:
             counts["out_of_credits"] = len(rows) - done  # stay `cleaned`: running out of credits is not "no buyer"
             break

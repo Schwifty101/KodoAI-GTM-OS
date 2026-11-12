@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from gtm.sitescrape import _lines, http_fetch
+from gtm.costs import spend_context
 from gtm.status import Status
 
 VECTORS = {"conversion_recovery", "capacity", "rebooking_retention"}
@@ -104,15 +105,16 @@ def run_signals(db, llm, evidence, batch_id: str, today: date, max_age_days: int
         counts[k] = counts.get(k, 0) + 1
 
     for lead in rows:
-        ev = evidence(lead)
-        if ev["pages"]:
-            try:
-                raw = llm(SYSTEM, _prompt(lead, ev, today, max_age_days))
-            except Exception:
-                bump("llm_error")  # stays `enriched`, retried next run
-                continue
-        else:
-            raw = {}
+        with spend_context(batch_id=batch_id, lead_id=lead["id"]):
+            ev = evidence(lead)
+            if ev["pages"]:
+                try:
+                    raw = llm(SYSTEM, _prompt(lead, ev, today, max_age_days))
+                except Exception:
+                    bump("llm_error")  # stays `enriched`, retried next run
+                    continue
+            else:
+                raw = {}
         record, vector, signal_led = judge_to_signal(raw, ev["pages"], today, max_age_days)
         db.table("leads").update({"status": Status.SIGNALLED.value, "signal": record, "vector": vector, "signal_led": signal_led}).eq("id", lead["id"]).execute()
         bump("signal_led" if signal_led else "relevance_led" if vector else "no_handoff")

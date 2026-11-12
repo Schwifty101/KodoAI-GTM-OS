@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from gtm.db import fetch_all
 from gtm.signals import VECTORS
+from gtm.costs import spend_context
 from gtm.status import Status
 
 REASON_SYSTEM = (
@@ -71,7 +72,9 @@ def run_select(db, llm, batch_id: str) -> int:
     for lead in rows:
         ok, code = select_decision(lead, suppressed, contacted)
         if ok:
-            patch = {"status": Status.SELECTED.value, "select_reason": _reason(llm, lead, code), "reject_reason": None}
+            with spend_context(batch_id=batch_id, lead_id=lead["id"]):
+                reason = _reason(llm, lead, code)
+            patch = {"status": Status.SELECTED.value, "select_reason": reason, "reject_reason": None}
             selected += 1
         elif code == "suppressed":
             patch = {"status": Status.SUPPRESSED.value, "reject_reason": code}

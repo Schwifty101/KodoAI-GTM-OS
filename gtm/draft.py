@@ -11,6 +11,7 @@ from gtm.db import fetch_all
 from gtm.gmail import create_draft, thread_messages
 from gtm.mailboxes import assign_mailbox, mailbox_address
 from gtm.select import _blocklists, blocked_reason
+from gtm.costs import spend_context
 from gtm.status import Status
 
 SYSTEM = (Path(__file__).parent / "data" / "draft_prompt.md").read_text()
@@ -150,7 +151,8 @@ def run_draft(db, llm, gmail_for, batch_id: str, today: date, only_mailboxes: se
             db.table("leads").update({"status": Status.SUPPRESSED.value, "reject_reason": blocked} if blocked == "suppressed" else {"reject_reason": blocked}).eq("id", lead["id"]).execute()
             continue
         try:
-            d = draft_touch1(llm, lead)
+            with spend_context(batch_id=batch_id, lead_id=lead["id"]):
+                d = draft_touch1(llm, lead)
         except Exception:
             continue  # stays `selected`, retried next run
         if not d:
@@ -176,10 +178,11 @@ def run_followups(db, gmail_for, today: date, thread_messages=thread_messages) -
             continue
         if blocked_reason(lead, suppressed, set()):
             continue
-        subject = "Re: " + re.sub(r"^Re:\s*", "", t1["subject"])
-        body = build_followup(n, lead["owner_name"].split()[0], lead["name"], t1["objective"])
-        svc = gmail_for(mailbox_address(db, lead["mailbox_id"]))
-        message_id = next((m["headers"]["message-id"] for m in thread_messages(svc, t1["gmail_thread_id"]) if m["headers"].get("message-id")), None)
-        _store(db, gmail_for, lead, lead["mailbox_id"], n, subject, _with_footer(body), t1["objective"], today, t1["gmail_thread_id"], message_id)
+        with spend_context(lead_id=lead["id"]):
+            subject = "Re: " + re.sub(r"^Re:\s*", "", t1["subject"])
+            body = build_followup(n, lead["owner_name"].split()[0], lead["name"], t1["objective"])
+            svc = gmail_for(mailbox_address(db, lead["mailbox_id"]))
+            message_id = next((m["headers"]["message-id"] for m in thread_messages(svc, t1["gmail_thread_id"]) if m["headers"].get("message-id")), None)
+            _store(db, gmail_for, lead, lead["mailbox_id"], n, subject, _with_footer(body), t1["objective"], today, t1["gmail_thread_id"], message_id)
         done += 1
     return done
