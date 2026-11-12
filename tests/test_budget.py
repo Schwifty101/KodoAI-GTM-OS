@@ -5,6 +5,7 @@ import pytest
 from gtm import budget
 from gtm.settings_store import DEFAULTS
 
+REAL_COST_ROWS = budget._cost_rows  # conftest patches the attribute per test
 NOW = datetime(2026, 11, 12, 15, 0, tzinfo=timezone.utc)
 
 
@@ -85,3 +86,24 @@ def test_gemini_require_blocked_after_credit(world):
 
 def test_unknown_provider_passes(world):
     budget.require("groq", 1000, now=NOW)
+
+
+def test_spent_since_pages_past_1000_rows(monkeypatch):
+    monkeypatch.setattr(budget, "_cost_rows", REAL_COST_ROWS)
+    data = [{"units": 1, "usd": 1.0, "created_at": "x"}] * 1500
+
+    class Q:
+        def __getattr__(self, _):
+            return lambda *a, **k: self
+        def range(self, lo, hi):
+            self.lo, self.hi = lo, hi
+            return self
+        def execute(self):
+            self.data = data[self.lo:min(self.hi + 1, 1000 + self.lo)]  # server caps a page at 1000
+            return self
+
+    class DB:
+        def table(self, _):
+            return Q()
+
+    assert budget.spent_since(DB(), "gemini", NOW) == 1500

@@ -1,7 +1,7 @@
 """Daily provider caps and the paid-Gemini gate. Day and month boundaries are UTC. Call budget.require() before every paid call."""
 from datetime import date, datetime, timezone
 
-from gtm.db import get_db
+from gtm.db import fetch_all, get_db
 from gtm.settings_store import setting
 
 
@@ -17,7 +17,8 @@ USD = {"apify", "gemini", "harvest"}
 
 
 def _cost_rows(db, provider: str, since: datetime) -> list[dict]:
-    return (db or get_db()).table("cost_log").select("units,usd,created_at").eq("provider", provider).gte("created_at", since.isoformat()).execute().data
+    d = db or get_db()
+    return fetch_all(lambda: d.table("cost_log").select("units,usd,created_at").eq("provider", provider).gte("created_at", since.isoformat()).order("id"))
 
 
 def _midnight(d: date) -> datetime:
