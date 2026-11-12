@@ -1,0 +1,170 @@
+metro_rank,metro,state,tile
+71,Lakeland,FL,Lakeland
+71,Lakeland,FL,Winter Haven
+71,Lakeland,FL,Haines City
+72,Ogden,UT,Ogden
+72,Ogden,UT,Layton
+72,Ogden,UT,Bountiful
+72,Ogden,UT,Farmington
+73,Springfield MA,MA,Springfield
+73,Springfield MA,MA,Longmeadow
+73,Springfield MA,MA,West Springfield
+73,Springfield MA,MA,Agawam
+74,Albany,NY,Albany
+74,Albany,NY,Saratoga Springs
+74,Albany,NY,Clifton Park
+74,Albany,NY,Colonie
+75,Akron,OH,Akron
+75,Akron,OH,Hudson
+75,Akron,OH,Cuyahoga Falls
+75,Akron,OH,Stow
+76,Madison,WI,Madison
+76,Madison,WI,Middleton
+76,Madison,WI,Fitchburg
+76,Madison,WI,Verona
+77,Palm Bay,FL,Melbourne
+77,Palm Bay,FL,Palm Bay
+77,Palm Bay,FL,Viera
+77,Palm Bay,FL,Satellite Beach
+78,Toledo,OH,Toledo
+78,Toledo,OH,Perrysburg
+78,Toledo,OH,Sylvania
+79,Syracuse,NY,Syracuse
+79,Syracuse,NY,Liverpool
+79,Syracuse,NY,Fayetteville
+79,Syracuse,NY,Manlius
+80,Harrisburg,PA,Harrisburg
+80,Harrisburg,PA,Camp Hill
+80,Harrisburg,PA,Mechanicsburg
+80,Harrisburg,PA,Hershey
+81,Wichita,KS,Wichita
+81,Wichita,KS,Derby
+81,Wichita,KS,Andover
+82,Greenville,SC,Greenville
+82,Greenville,SC,Simpsonville
+82,Greenville,SC,Greer
+82,Greenville,SC,Mauldin
+83,Durham,NC,Durham
+83,Durham,NC,Chapel Hill
+83,Durham,NC,Hillsborough
+84,Cape Coral,FL,Cape Coral
+84,Cape Coral,FL,Fort Myers
+84,Cape Coral,FL,Naples
+84,Cape Coral,FL,Bonita Springs
+84,Cape Coral,FL,Estero
+85,Port St. Lucie,FL,Port St. Lucie
+85,Port St. Lucie,FL,Stuart
+85,Port St. Lucie,FL,Vero Beach
+85,Port St. Lucie,FL,Jensen Beach
+86,Colorado Springs,CO,Colorado Springs
+86,Colorado Springs,CO,Monument
+86,Colorado Springs,CO,Fountain
+87,Jackson,MS,Jackson
+87,Jackson,MS,Ridgeland
+87,Jackson,MS,Flowood
+87,Jackson,MS,Madison
+88,Chattanooga,TN,Chattanooga
+88,Chattanooga,TN,Signal Mountain
+88,Chattanooga,TN,Hixson
+88,Chattanooga,TN,Ooltewah
+89,Reno,NV,Reno
+89,Reno,NV,Sparks
+89,Reno,NV,Incline Village
+90,Provo,UT,Provo
+90,Provo,UT,Orem
+90,Provo,UT,Lehi
+90,Provo,UT,American Fork
+91,Pensacola,FL,Pensacola
+91,Pensacola,FL,Gulf Breeze
+91,Pensacola,FL,Pace
+92,Lancaster,PA,Lancaster
+92,Lancaster,PA,Lititz
+92,Lancaster,PA,Manheim
+93,Augusta,GA,Augusta
+93,Augusta,GA,Evans
+93,Augusta,GA,Martinez
+93,Augusta,GA,North Augusta
+94,Portland ME,ME,Portland
+94,Portland ME,ME,Scarborough
+94,Portland ME,ME,Falmouth
+94,Portland ME,ME,South Portland
+95,Huntsville,AL,Huntsville
+95,Huntsville,AL,Madison
+95,Huntsville,AL,Hampton Cove
+96,Lexington,KY,Lexington
+96,Lexington,KY,Nicholasville
+96,Lexington,KY,Georgetown
+97,Spokane,WA,Spokane
+97,Spokane,WA,Spokane Valley
+97,Spokane,WA,Liberty Lake
+98,Fort Wayne,IN,Fort Wayne
+98,Fort Wayne,IN,New Haven
+98,Fort Wayne,IN,Aboite
+99,Santa Rosa,CA,Santa Rosa
+99,Santa Rosa,CA,Petaluma
+99,Santa Rosa,CA,Healdsburg
+99,Santa Rosa,CA,Sebastopol
+100,Corpus Christi,TX,Corpus Christi
+100,Corpus Christi,TX,Portland
+100,Corpus Christi,TX,Flour Bluff
+101,Mobile,AL,Mobile
+101,Mobile,AL,Daphne
+101,Mobile,AL,Fairhope
+102,Asheville,NC,Asheville
+102,Asheville,NC,Hendersonville
+102,Asheville,NC,Weaverville
+103,Killeen,TX,Killeen
+103,Killeen,TX,Temple
+103,Killeen,TX,Harker Heights
+104,Reading,PA,Reading
+104,Reading,PA,Wyomissing
+104,Reading,PA,Shillington
+105,Savannah,GA,Savannah
+105,Savannah,GA,Pooler
+105,Savannah,GA,Richmond Hill
+105,Savannah,GA,Tybee Island
+106,Ann Arbor,MI,Ann Arbor
+106,Ann Arbor,MI,Saline
+106,Ann Arbor,MI,Chelsea
+107,Davenport,IA,Davenport
+107,Davenport,IA,Bettendorf
+107,Davenport,IA,Moline
+107,Davenport,IA,Rock Island
+108,Naples,FL,Naples
+108,Naples,FL,Marco Island
+108,Naples,FL,Bonita Springs
+109,Myrtle Beach,SC,Myrtle Beach
+109,Myrtle Beach,SC,Surfside Beach
+109,Myrtle Beach,SC,Conway
+110,Shreveport,LA,Shreveport
+110,Shreveport,LA,Bossier City
+110,Shreveport,LA,Benton
+111,Winston-Salem,NC,Winston-Salem
+111,Winston-Salem,NC,Clemmons
+111,Winston-Salem,NC,Kernersville
+112,Brownsville,TX,Brownsville
+112,Brownsville,TX,Harlingen
+112,Brownsville,TX,South Padre Island
+113,Lubbock,TX,Lubbock
+113,Lubbock,TX,Wolfforth
+114,Eugene,OR,Eugene
+114,Eugene,OR,Springfield
+114,Eugene,OR,Coburg
+115,Fayetteville,AR,Fayetteville
+115,Fayetteville,AR,Bentonville
+115,Fayetteville,AR,Rogers
+115,Fayetteville,AR,Springdale
+116,Salem,OR,Salem
+116,Salem,OR,Keizer
+116,Salem,OR,Silverton
+117,Santa Barbara,CA,Santa Barbara
+117,Santa Barbara,CA,Goleta
+117,Santa Barbara,CA,Montecito
+117,Santa Barbara,CA,Carpinteria
+118,Fort Collins,CO,Fort Collins
+118,Fort Collins,CO,Loveland
+118,Fort Collins,CO,Windsor
+119,Charleston WV,WV,Charleston
+119,Charleston WV,WV,South Charleston
+120,Tallahassee,FL,Tallahassee
+120,Tallahassee,FL,Midway

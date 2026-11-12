@@ -22,6 +22,7 @@ out/
 
 *.csv
 !backend/tests/fixtures/*.csv
+!gtm/data/metros*.csv
 
 # OS / editor
 .DS_Store
