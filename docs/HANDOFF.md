@@ -18,7 +18,7 @@ Single "start here". Checked against `git log`, code and docs on 2026-11-12. The
 | UI: Leads, Review, Outreach, Dashboard, Login, Settings | Built; `verify.mts` checks write actions under RLS |
 | Worker against a real queue | **Never run live**: only fake-pass tests plus a DB-backed `claim_job` test |
 | Pass `draft`, `followups`, `send`, `replies` | Built, **not run live**: no draft created, Gmail `send_draft`, thread and bounce reading in a real batch, Touch 2/3 threading unverified |
-| Cloud runner (GCP VM, Secret Manager) | **Not built** (Plan 2); VM NOT created |
+| Cloud runner (GCP VM, Secret Manager) | **Plan 2 built 2026-11-12** (branch `plan2-cloud-runner`): VM `gtm-worker` (e2-micro, us-west1-b) runs the worker under systemd; migration 0009 applied. Runbook: `docs/runbooks/cloud-runner.md`. Verified: smoke test, kill -9 and VM reset recovery. **Not verified:** a real unattended pass (Task 4 step 7 awaits owner approval), RAM peak under a real pass, Gmail send from the VM (Plan 4) |
 | Plans 3-6 (scrape and batches; drafts and sending; sheet import; metrics/Home/Replies) | Not written, not built |
 | Email copy and angle strategy | **Parked**: `docs/NEXT-email-strategy.md` |
 
@@ -52,20 +52,20 @@ Branch `gtm-os-build`, 56 commits ahead of `main` (merge base `bf3dc5b`). Nothin
 |---|---|
 | `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` | Six plans; order 1, then 2 and 3, then 4, then 5 and 6 (5 can move earlier) |
 | `docs/superpowers/plans/2026-11-12-plan1-foundation.md` | **BUILT**, commits `0c53f4b..4d67ceb` |
-| Plan 2 cloud runner | Always-on GCP VM (us-west1) running the worker, Secret Manager, restart on failure, a job lease. **Must include the free-trial decision below** |
+| Plan 2 cloud runner | **BUILT** 2026-11-12: VM `gtm-worker`, Secret Manager, `Restart=always`, heartbeat lease. Free-trial decision made (below) |
 | Plan 3 scrape and batches | Coverage, batches of 100, retry-later job, time zones, Scrape & Coverage and Batches pages |
 | Plan 4 drafts and sending | Drafts in the database, bulk edit, send scheduler, Pending follow-ups, send via the Gmail API. Candidate (proposal, undecided): positive-reply assistant that drafts a reply for the owner to approve |
 | Plan 5 sheet import and manual queue | Color rule, Manual queue tab |
 | Plan 6 metrics, Home, Replies | History, Home, Replies pages |
 
-**Google Cloud free-trial decision (owner confirmed in the billing console that the account is a FREE TRIAL).** Console message: "You won't be auto-charged once your trial ends. However, your resources are marked for deletion and may be lost immediately. Activate your full account anytime during your trial to avoid losing your resources." Consequence: when the trial ends (**2027-02-09**) everything in the project (the planned VM, Secret Manager entries, Vertex Gemini access) is marked for deletion unless the owner activates the full pay-as-you-go account first. After activation, the paid-Gemini switch (`allow_paid_gemini`, off by default) is the only thing stopping Gemini spend. Plan 2 must carry this decision: activate the full account (with budget alerts), or host the worker elsewhere. **Decide before 2027-02-09.** Design doc section 16 says the same.
+**Google Cloud free-trial decision: DECIDED 2026-11-12.** The owner upgraded the account to full pay-as-you-go before the trial end (2027-02-09), so nothing is marked for deletion. A budget alert is recommended (alerts warn, they do not cap). `allow_paid_gemini` (off by default) stays the only Gemini spend guard. Costs: external IPv4 about $3.65/month; the VM itself is free tier (no end date, Google may change it with 30 days notice); see the runbook.
 
 ### (f) Open items for the owner
 
 | # | Item |
 |---|---|
 | 1 | Merge menu (d): choose 1, 2 or 3 |
-| 2 | Free-trial decision before 2027-02-09 (e) |
+| 2 | Create a Google Cloud budget alert (the full-account upgrade is done) |
 | 3 | Approve the 8 selected Houston leads on the Review page, then approve each paid/send step of the first real send |
 | 4 | Hunter plan (buy only when the OS can safely run a campaign) |
 | 5 | Re-pull Notion Batch03 and `import-history` before each batch |
@@ -77,7 +77,7 @@ Branch `gtm-os-build`, 56 commits ahead of `main` (merge base `bf3dc5b`). Nothin
 
 - UI: Home plus tabs; pages Home, Batches, Scrape & Coverage, Leads, Review, Drafts, Send, Replies, Manual queue, Metrics, Settings.
 - Batches of 100 verified, selected owners, filling over several days; a lead's batch is fixed once assigned.
-- Runner: worker on an always-on Google Cloud VM, us-west1 (**not created**; free-tier terms and latency to verify first). UI and schedule add jobs; keys and Gmail login go to Secret Manager.
+- Runner: worker on an always-on Google Cloud VM, us-west1 (created 2026-11-12; latency to Tokyo DB median 162 ms from the VM vs 230 ms from the Mac). UI and schedule add jobs; keys and Gmail login go to Secret Manager.
 - Sending: weekdays, recipient-local US time, random times in a window (assumed 9 to 4), start 20 a day and ramp +5 a day to 40 per mailbox (RAMP_STEP=5; the design-doc typo was fixed in `aa4d0f0`). Cadence Day 0/3/7. Auto-pause at >5% bounce over >=40 sends.
 - Follow-ups drafted automatically but each approved by the owner in a **Pending follow-ups** list on the Send page; replied/bounced leads skipped and listed as flagged.
 - Sheet import (Plan 5): any green cell in a row = sent (suppress), any red = dropped, uncolored = potential lead; plus a **Manual queue** tab for ContactOut lookups (about 5 a day).
@@ -108,11 +108,12 @@ Per-route owner-finding numbers: `docs/spikes/owner_routes.md`. Budget table (20
 
 ### (j) Known risks
 
-- **One worker only until Plan 2 adds a lease.** `requeue_stale` re-queues a `running` job older than 60 minutes; a second worker could re-run a live job.
+- Heartbeat lease (migration 0009) replaced the 60-minute stale rule: a job with no heartbeat for 5 minutes is requeued, so the one-worker caveat is gone.
+- Restarting the worker (`deploy.sh`) while a job runs marks it `cancelled`, not requeued: deploy only when the queue is idle.
+- The VM runs Python 3.15.2 (uv), the Mac 3.14.
 - A wrongly suppressed lead (including a wrong `not-interested`) can only be fixed in the database.
 - The `weekly_target=200` row in `settings` equals the default (f7).
-- Gmail send, thread/bounce reading and the worker on a real queue are unproven live.
-- Gemini access may be deleted with the trial (e).
+- Gmail send (including from the VM), thread/bounce reading and a real unattended pass on the worker are unproven live (smoke test only).
 - Deferred minors, accepted: `setting("typo")` raises a bare KeyError; unused `now` parameter in `credit_remaining_usd`; paid-mode check ignores the pending amount (can overshoot a cap by one call); `require` is check-then-act with no reservation; `llm.py` reads prices after the paid Gemini call (a failed read drops the cost row); `researcher.py` param `budget=150` shadows the module; the settings page keeps its own copy of the default values (`web/lib/settings.ts`); `verify.mts` leaves a queued `clean` TEST job and `q.length === 1` is brittle; worker: an exception in `finish` kills the loop, `enqueue` does not reject unknown kinds, no test for `cmd_enqueue` `--` stripping; `tests/test_worker.py` lacks `pytestmark db`; no boundary tests for budget.
 
 ### (k) Working agreements with the owner
@@ -123,7 +124,7 @@ Concise answers; no assumptions; verify before claiming; one question at a time 
 
 1. Answer the merge menu (d).
 2. The graphify graph is OUT OF DATE (last rebuilt before Plan 1): run `/graphify . --update` before launching any agents.
-3. Plan 2 via `superpowers:writing-plans`, after confirming the GCP free-tier details (always-free VM in us-west1, latency to the Tokyo database) and getting the owner's free-trial decision (e).
+3. Owner approval for Task 4 step 7: first real unattended job on the VM, suggested `clean` on the Houston batch (no paid API); watch RAM. Create the budget alert.
 4. First real small send of the 8 selected Houston leads: still NOT done. Needs owner approval of each paid or send step: Review-page approval, `draft`, reading every draft in Gmail, `send` dry run, then `send --confirm` small.
 5. Then Plan 3 (scrape and batches).
 
