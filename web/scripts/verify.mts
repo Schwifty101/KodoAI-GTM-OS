@@ -4,11 +4,20 @@ import { createClient } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { approveLeads, cancelJob, clearPause, enqueueJob, markBooked, rejectLeads, retryJob, saveSetting, setOutcome, unapproveLeads } from "../lib/actions";
 import { SETTING_FIELDS } from "../lib/settings";
+import { splitArgs } from "../lib/args";
 import { readFileSync } from "node:fs";
 
 const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!);
 const fails: string[] = [];
 const check = (name: string, cond: boolean) => { console.log(cond ? "ok  " : "FAIL", name); if (!cond) fails.push(name); };
+
+const sa = (i: string, want: string[]) => JSON.stringify(splitArgs(i)) === JSON.stringify(want);
+check("splitArgs plain", sa("--batch abc", ["--batch", "abc"]));
+check("splitArgs double quotes", sa('--query "med spa" --max-places 20', ["--query", "med spa", "--max-places", "20"]));
+check("splitArgs single quotes", sa("--query 'med spa' x", ["--query", "med spa", "x"]));
+check("splitArgs unclosed quote takes the rest", sa('--query "med spa x', ["--query", "med spa x"]));
+check("splitArgs extra spaces", sa("  a   b  ", ["a", "b"]));
+check("splitArgs empty", sa("", []) && sa("   ", []));
 
 const { data: batch } = await admin.from("batches").insert({ name: "TEST web verify" }).select("id").single();
 const mk = (i: number, status: string) => ({ place_id: `TEST_v${i}`, name: `Spa ${i}`, status, batch_id: batch!.id, domain: `v${i}.com` });

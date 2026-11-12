@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
 import type { Job, SpendRow } from "@/lib/types";
 import { cancelJob, enqueueJob, retryJob, saveSetting } from "@/lib/actions";
+import { splitArgs } from "@/lib/args";
 import { SETTING_FIELDS, type SettingField } from "@/lib/settings";
 
 // Defaults mirror gtm/settings_store.py so an unset key shows what the worker will use.
@@ -69,7 +70,7 @@ export default function Settings() {
     <>
       <h1>Settings</h1>
       {err && <p className="err">{err}</p>}
-      <p className="muted">Paid Gemini is {gemini ? <span className="pill bad">allowed</span> : <span className="pill ok">off</span>}: with it off, the pipeline stops rather than spend beyond the Google credit.</p>
+      <p className="muted">Paid Gemini is {gemini ? <span className="pill bad">allowed</span> : <span className="pill ok">off</span>}: with it off, the LLM passes (signals, select, draft, replies) use Groq, and only the owner-research step of enrich, which needs Gemini, stops and pauses the job.</p>
 
       {GROUPS.map((g) => (
         <div key={g}>
@@ -91,7 +92,7 @@ export default function Settings() {
             return (
               <tr key={p}>
                 <td>{p}</td>
-                <td>{fmt(today)} {cap > 0 && today >= cap && <span className="pill bad">at cap</span>}</td>
+                <td>{fmt(today)} {cap === 0 ? <span className="pill bad">blocked</span> : today >= cap && <span className="pill bad">at cap</span>}</td>
                 <td>{fmt(cap)}</td><td>{fmt(month)}</td>
               </tr>
             );
@@ -103,7 +104,7 @@ export default function Settings() {
       <div className="bar">
         <select value={kind} onChange={(e) => setKind(e.target.value)}>{JOB_KINDS.map((k) => <option key={k}>{k}</option>)}</select>
         <input placeholder="arguments, e.g. --batch B1" value={argv} onChange={(e) => setArgv(e.target.value)} />
-        <button className="primary" onClick={() => act(async () => { await enqueueJob(kind, argv.split(/\s+/).filter(Boolean)); setArgv(""); })}>Enqueue</button>
+        <button className="primary" onClick={() => act(async () => { await enqueueJob(kind, splitArgs(argv)); setArgv(""); })}>Enqueue</button>
       </div>
       <table>
         <thead><tr><th>Created</th><th>Job</th><th>Status</th><th>Error</th><th></th></tr></thead>
