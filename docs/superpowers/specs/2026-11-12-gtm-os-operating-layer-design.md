@@ -117,6 +117,19 @@ Measured facts for sizing (as of 2026-11-12, Houston batch): 87% of scraped plac
 
 **Budget (owner, 2026-11-12):** 25,000 to 30,000 PKR a month in total, covering the Hunter subscription, Apify, Harvest, Serper and every other API credit (about $90 to $105 at roughly 280 PKR per USD; rate not checked). The Google Cloud credit covers the server and Gemini for now. This is a hard constraint: the weekly lead volume the system aims for has to be re-derived against real prices in the plan, because 200 emailable leads a week may not fit. Settings holds the monthly budget and per-API daily caps derived from it; the runner refuses paid calls that would pass a cap.
 
+**Budget sizing for 200 verified owners a week (estimate of 2026-11-12, at 276 PKR per USD).** Volumes use the Houston batch (15% of scraped places become verified owners; 9 of 60, one small sample): about 1,330 places scraped, 1,160 cleaned, 440 needing the researcher a week.
+
+| Line | Per month | Basis |
+|---|---|---|
+| Apify scraping | about $35 | $0.005 a place measured, plus fallback fetches |
+| Serper | about $14 | about 14,000 queries at $1 per 1,000 (third-party price; pack of $50 per 50,000) |
+| Hunter | $49 (Starter, 2,000 credits; $34 a month if billed yearly) | about 1,860 credits a month, measured at 0.37 credits per cleaned lead; shared pool, finds 1 credit, verifies 0.5 |
+| Prospeo | about $6 to $49 | about 310 verified finds a month; plan prices are third-party reports and unconfirmed |
+| Gemini | about $20 to $85 | about 43 million tokens a month (the researcher is about 80% of it); depends entirely on the model: price lists conflict ($0.30 to $1.50 per million input) |
+| **Total** | **about $124 to $190, or 34,000 to 52,000 PKR** | |
+
+While the Google Cloud credit lasts (about three months from activation), Gemini costs nothing, so the total is about $104, or 28,700 PKR, which fits the 25 to 30k budget. After that, 200 a week does not fit the budget unless the Gemini line drops. The same budget buys about 70 to 130 verified owners a week once the credit ends. Levers: a cheaper model for the researcher, fewer researcher turns, researching only the best-ranked leads, Hunter billed yearly. Third-party prices and the 15% yield are unconfirmed; the plan must re-check them.
+
 ## 13. Left to the builder
 
 Database design for jobs, schedules, scheduled sends and time zones; how to keep jobs idempotent and avoid double sends; worker supervision and restarts; how the UI reflects job progress; the time-zone lookup source; the scheduling algorithm for random send times; the coverage model (city and tile lists, ordering); the Metrics queries; the Secret Manager wiring; migration of existing data into batches of 100.
@@ -124,7 +137,7 @@ Database design for jobs, schedules, scheduled sends and time zones; how to keep
 ## 14. Open items for the owner
 
 - **Hunter plan:** owner will buy it once everything is finalised and a campaign can safely start using the OS. Until then the free keys are used. Which plan fits the budget is decided in the plan.
-- **Verifying free-mail addresses** (Gmail, Yahoo and similar): still open and not for the owner to solve. Hunter's check cannot confirm a Gmail address the way it can a business one, so the builder tests how to do it (section 15, item 10) before the OS accepts any.
+- **Verifying free-mail addresses** (Gmail, Yahoo and similar): resolved by a test on 2026-11-12. Hunter's email verifier does check them. On 7 free-mail addresses from the owner's own sent history it returned `valid`, `deliverable`, score 88 to 92 for the 5 that were delivered, and `invalid` (score 0) and `accept_all` (score 74) for the 2 that bounced. Small sample; the same rule applies (`valid` and score at least 80, `accept_all` fails). Hunter's docs also list a `webmail` status (score fixed at 50) that did not appear in the test; such a result does not pass until measured.
 - **Workspace plan:** paid (owner, 2026-11-12), so the higher Gmail send limits apply; the OS cap stays far below them.
 - **Second mailbox:** added after Batch04 completes, or once there is enough data to lean on a strategy and go full send.
 - **Daily budget defaults:** derived from the monthly budget in section 12; the builder proposes them.
@@ -140,6 +153,6 @@ Database design for jobs, schedules, scheduled sends and time zones; how to keep
 7. **Ramp:** counts days that actually sent. After an auto-pause the ramp restarts from 20. Follow-ups count against the daily cap and go first. A lead only gets a slot inside its own local window; overflow rolls to the next weekday.
 8. **Browser and jobs:** the UI inserts jobs and schedule rows and edits drafts under the existing operator-only RLS (publishable key plus operator login). The bulk Gemini rewrite goes through the job queue, so the before/after view appears when the job finishes (seconds).
 9. **Batches:** "100" counts verified owners that are selected and ready (not merely scraped). A lead's batch is fixed once assigned. Scraped and cleaned leads belong to a scrape run (today's batches table); spend is recorded against the scrape run and the lead, and the per-batch view is a join. The Houston run is a partial open batch. Home's "yesterday" means leads scraped the previous calendar day in the operator's configured time zone (default: the browser's); the Batches page shows the batches of 100.
-10. **Free-mail check:** the builder's first task is a short spike on how to verify a Gmail-type address (test Hunter's verifier on known-good addresses). Default rule if it works: deliverable and score at least 80. If it does not, personal addresses stay out until another verifier is chosen.
+10. **Free-mail check:** Hunter's verifier handles Gmail-type addresses (tested, section 14). The rule is the same as for business addresses: `valid` and score at least 80. A `webmail` status does not pass until measured. Each verification costs 0.5 Hunter credit.
 11. **Manual queue order:** named owner, LinkedIn URL present, then review count and rating descending. A lead whose pasted email fails verification stays `no_buyer` and is not re-queued.
 12. **Approval flow:** the lead approval on the Review page stays as built. On the Send page the owner sees the drafts that would be scheduled, can untick any, and the Send button is the final approval. There is no third approval step for Touch 1. Follow-ups have their own approval list (section 9).
