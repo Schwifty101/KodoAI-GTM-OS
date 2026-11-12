@@ -1,6 +1,88 @@
-# HANDOFF: KodoAI GTM OS (updated 2026-11-11, branch `gtm-os-build`; uncommitted work at update time: enrich finders, Gemini LLM, clean rules)
+# HANDOFF: KodoAI GTM OS (updated 2026-11-12, branch `gtm-os-build`; section 0 is the current state, sections 1-11 were written 2026-11-11 and patched where stale)
 
 Read this first, then `CLAUDE.md`. Everything here was read from the repo or established in the building session; anything not checked is marked **unverified**.
+
+## 0. Where things stand (end of session 2026-11-12)
+
+Read this section first. Facts here were checked against git, the repo docs and the Plan 1 ledger on 2026-11-12; nothing was queried from the database for this section.
+
+### (a) Intent and phase
+
+A one-operator (Soban) GTM OS for med spa cold email: find US med spas, verify a named owner and a deliverable email, draft, review, send, and read the numbers per batch. The 19-task pipeline exists as CLI passes plus a browser UI. The current phase is building the **operating layer** (design `docs/superpowers/specs/2026-11-12-gtm-os-operating-layer-design.md`, approved by the owner 2026-11-12): pages, an unattended runner, scheduled sending, sheet import, full metrics, under a hard monthly budget. Delivery is six plans; **Plan 1 (foundation) is built, its whole-branch final review is unfinished**; Plans 2-6 are not written.
+
+### (b) Built and verified vs not
+
+| Area | Status |
+|---|---|
+| Passes scrape, clean, enrich, signals, select | Built; ran live on the Houston batch (2026-11-11) |
+| Finders `site`, `search`, `research`, `prospeo` (default); `hunter`, `harvest` (opt-in) | Built; measured live (`docs/spikes/owner_routes.md`) |
+| LLM: Vertex Gemini primary, Groq fallback | Built; Gemini ran the Houston batch |
+| Plan 1: settings store (`gtm/settings_store.py`), `jobs` table + worker (`gtm/jobs.py`, `gtm/worker.py`), budget caps and paid-Gemini gate (`gtm/budget.py`), batch+lead on every `cost_log` row, `spend_summary` view, migration 0007 | Built, applied to the real project, task-reviewed; 389 tests passed at Task 5 (ledger). Not yet run as a live unattended worker |
+| UI: Leads, Review, Outreach, Dashboard, Login | Built, verified under RLS (`verify.mts`) |
+| UI: Settings (budget, credit, Allow paid Gemini, caps, spend meter, jobs panel) | Built (Plan 1 Task 6); exercised by `verify.mts` only |
+| Pass `draft`, `followups`, `send`, `replies` | Built, **not run live**: no draft created, Gmail `send_draft`, thread and bounce reading, Touch 2/3 threading unverified |
+| Cloud runner (GCP VM, Secret Manager) | **Not built** (Plan 2); VM NOT created |
+| Scrape and Coverage, batches of 100, retry-later job, lead time zones (Plan 3) | Not built |
+| Drafts in DB, bulk Gemini edit, send scheduler, Pending follow-ups, send via Gmail API (Plan 4) | Not built |
+| Sheet import, color rule, Manual queue tab (Plan 5) | Not built |
+| Metrics history, Home, Replies pages (Plan 6) | Not built |
+| Email copy and angle strategy | **Parked**: `docs/NEXT-email-strategy.md` |
+
+### (c) Houston batch e11d97b6-41a0-4957-8d3d-6b1728f74d90 (as of 2026-11-12; numbers from this file's section 7 and design section 12, not re-queried)
+
+60 scraped ($0.30), 52 cleaned (87%), 9 enriched, 8 signalled and **selected, awaiting owner approval on the Review page**; nothing drafted or sent. Names found for ~62% of cleaned; verified owners ~15-17%. Owner-confirmed corrections: the researcher's name for Miliv Med Spa was wrong (cleared); Jamie Marcelle (joinskindeep.com) and Isam Balat (myplazawellness.com) are the right owners but no email passed the rule (kept as `no_buyer` with saved names). The first real send of the 8 selected leads has NOT happened.
+
+### (d) Plans and status
+
+| Doc | Status |
+|---|---|
+| `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` | Six plans: 1 Foundation, 2 Cloud runner, 3 Scrape and batches, 4 Drafts and sending, 5 Sheet import and manual queue, 6 Metrics/Home/Replies. Order 1, then 2 and 3, then 4, then 5 and 6 (5 can move earlier) |
+| `docs/superpowers/plans/2026-11-12-plan1-foundation.md` | **BUILT**: commits `0c53f4b..a6d5461` (9 commits), six tasks all task-reviewed, three fix rounds (Task 3 `261f635` budget paging; Task 6 `bda3291` rls_intruder no longer overwrites live weekly_target; Task 5 `a6d5461` DB tests skip when real jobs are queued) |
+| Whole-branch final review (most capable model) | **Not recorded as finished at handoff** (no result in the ledger; it may have been still running) |
+
+Files (git-ignored, on disk): diff package `.superpowers/sdd/2026-11-12-plan1-foundation/review-09ed4e7..a6d5461.diff`; ledger with every ruling and deferred minor `.superpowers/sdd/2026-11-12-plan1-foundation/progress.md`. Rulings: R1 parallel implementers in one tree with path-scoped commits and a DB-test lock; R2 `tests/conftest.py` autouse patches `gtm.budget._cost_rows` and `setting` so unit tests never hit the DB; R3 stay on `gtm-os-build`, no worktree; R4 migration 0007 applied to the real project via MCP (new tables only); R5 sonnet for implementers/reviewers, opus for the final review; R6 Wave C dispatched while Task 3 review was in flight.
+
+Deferred minors, compact (full text in the ledger): `setting("typo")` raises bare KeyError; budget `now` unused, paid-mode check ignores the pending amount (can overshoot a cap by one call), no boundary tests, require is check-then-act; `researcher.py:81` param `budget` shadows the module; `llm.py:~248` reads prices after the paid call (failed read drops the cost row; triage in final review); spend meter shows no "at cap" for cap 0; verify.mts leaves a queued `clean` TEST job and `q.length === 1` is brittle; worker: KeyboardInterrupt leaves job running until `requeue_stale` (60 min), exception in `finish` kills the loop, `attempts` never read (suggest fail at >= 3), `enqueue` does not reject unknown kinds, no test for `cmd_enqueue` `--` stripping; `tests/test_worker.py` lacks `pytestmark db`; import-order cosmetics.
+
+**How the next session finishes Plan 1:** (1) check the ledger tail for a recorded final-review result; if none, dispatch the final reviewer again (opus) with the `superpowers:subagent-driven-development` "Final Review" procedure on the diff package; (2) ONE fix dispatch for its Critical/Important findings; (3) one scoped re-review; (4) `superpowers:finishing-a-development-branch`.
+
+### (e) Owner decisions, all 2026-11-12 (design sections 15 and 16; section 15 items are assistant calls the owner has not individually confirmed)
+
+- UI: Home plus tabs; pages Home, Batches, Scrape & Coverage, Leads, Review, Drafts, Send, Replies, Manual queue, Metrics, Settings.
+- Batches of 100 verified, selected owners, filling over several days; a lead's batch is fixed once assigned.
+- Runner: the worker on an always-on Google Cloud VM, region us-west1 (**not created yet**; free-tier terms and latency to verify first). UI and schedule add jobs; keys and Gmail login go to Secret Manager.
+- Sending: weekdays, recipient-local US time, random times in a window (assumed 9 to 4), start 20 a day and ramp to 40 per mailbox (spec text says +3 a day, `.env` has RAMP_STEP=5; builder to reconcile). Cadence Day 0/3/7. Auto-pause at >5% bounce over >=40 sends.
+- Follow-ups: drafted automatically but each approved by the owner in a **Pending follow-ups** list on the Send page; replied/bounced leads are skipped and listed as flagged; never sent without approval.
+- Sheet import (Plan 5): any green cell in a row = sent (suppress), any red = dropped, uncolored = potential lead; plus a **Manual queue** tab in the same sheet for ContactOut lookups (about 5 a day), emails read back and verified.
+- Retry-later job for named-but-no-email leads when credits reset.
+- Metrics history by day, week, month, quarter; budget meter.
+- **Budget: 25,000 to 30,000 PKR a month at 276 PKR per USD is a hard constraint** (Hunter, Apify, Harvest, Serper, all APIs). Weekly target 200 verified owners while the Google credit lasts, then sized to the budget; both are settings.
+- Google Cloud credit: $298 of $300 left on 2026-11-12, ends **2027-02-09**. **No paid Gemini spend without the owner confirming**: Settings switch "Allow paid Gemini", off by default; Groq fallback otherwise.
+- Hunter plan: buy only when the OS can safely run a campaign (free keys until then). Second mailbox: after Batch04 or when there is enough data. Workspace plan is paid (higher Gmail limits).
+- Email copy and angle strategy PARKED: `docs/NEXT-email-strategy.md`.
+- Sending change (design 15.1, assistant call): Plan 4 sends the stored draft text via the Gmail API. The CLAUDE.md/section 5 statement "edit drafts in Gmail; the Gmail draft is what goes out" is true today and becomes false when Plan 4 lands.
+
+### (f) Measured economics
+
+Per-route owner-finding numbers: `docs/spikes/owner_routes.md`. Budget table (200 owners a week: about $124-190 a month, or about $104 while Gemini is free; about 70-130 owners a week fit the budget once the credit ends): design doc section 12. Its third-party prices and the 15% yield are unconfirmed.
+
+### (g) Working agreements with the owner
+
+Concise answers; no assumptions; verify before claiming; one question at a time when brainstorming; confirm any cost before spending; never print keys. Dispatch parallel agents for independent work. Use ponytail together with superpowers for coding. Keep the graphify graph updated (`graphify-out/` is git-ignored; rebuild with `/graphify . --update`; query with `graphify query "<question>"`, `graphify explain`, `graphify path`). One pytest process at a time against the real Supabase project; agents serialize with `mkdir /tmp/gtm-pytest.lock` (test cleanups delete shared `TEST_` rows).
+
+### (h) First steps for the next session, in order
+
+1. Finish the Plan 1 final review (section (d)).
+2. Verify the free-tier GCP details (always-free VM in us-west1, latency to the Tokyo database), then write Plan 2 (cloud runner) with `superpowers:writing-plans`; then Plan 3 (scrape and batches).
+3. Open owner items:
+   - First real small send of the 8 selected Houston leads: drafts not created; owner approves on the Review page first.
+   - Hunter plan pending (see (e)).
+   - Re-pull Notion Batch03 and `import-history` before each batch.
+   - Prospeo (83 credits) and Apify free credit renew/end 2026-11-24.
+   - Owner to confirm in the Google billing console that the account is still free-trial (not upgraded), so nothing can be charged after 2027-02-09.
+   - Live `weekly_target=200` row in the `settings` table (equals the default, left by an old unguarded test upsert): delete if the owner never set it.
+   - Uncommitted `web/next-env.d.ts` and `web/tsconfig.tsbuildinfo` are regenerated by `next dev`: restore (`git checkout`) or ignore.
+   - Brainstorm visual-companion server: `.superpowers/brainstorm/36501-1794413655/state/` holds `server-stopped` and no server process was found at handoff, so it is likely already stopped; if not, run the brainstorming skill's `scripts/stop-server.sh` on that session dir.
 
 ## 1. What this is and where things stand
 
@@ -8,7 +90,7 @@ A personal "GTM OS" for med spa cold email, for one operator: Soban (KodoAI foun
 
 | Box | Items |
 |---|---|
-| **Built** | All 19 plan tasks: scrape, clean, enrich, signals, select, draft, follow-ups, send, replies, mailboxes, Notion history import, web UI (Leads, Review, Outreach, Dashboard, Login), `batch_metrics` view, 6 migrations, final Opus code review with fixes |
+| **Built** | (+ Plan 1 foundation, see section 0) All 19 plan tasks: scrape, clean, enrich, signals, select, draft, follow-ups, send, replies, mailboxes, Notion history import, web UI (Leads, Review, Outreach, Dashboard, Login), `batch_metrics` view, 6 migrations, final Opus code review with fixes |
 | **Verified live** | Supabase project `alvxsbnfthvaiquhytig`, all 6 migrations applied. RLS restricts every table to operator soban@kodoai.xyz (proved with a throwaway non-operator user: reads 0 rows, cannot write). Gmail OAuth (Desktop client, Internal; scopes `gmail.compose` + `gmail.readonly`) and a test draft created in Drafts. Apify actor `compass~crawler-google-places` (price measured). Hunter free keys (credit behaviour measured). Groq `openai/gpt-oss-120b` reliable. Serper works (key replaced and re-tested 2026-11-10; session fact). Vertex Gemini `gemini-3.5-flash` is the primary LLM and ran the Houston batch (2026-11-11). Operator mailbox row registered (cap 40, enabled 2026-11-10). Suppression holds 434 imported rows |
 | **Not yet verified live** | Gmail `send_draft`; reading threads and bounces (`thread_messages`, `recent_bounces`); Touch 2/3 threading with In-Reply-To headers. No real end-to-end batch has run. Prospeo and other finders were measured on saved names (section 7, `docs/spikes/owner_routes.md`). The suite is 348 tests, ~4.5 min, hits the real Supabase project (count as given by the owner 2026-11-11; not re-run for this doc) |
 | **Blocked / waiting** | Nothing technically blocked. Waiting on owner: Hunter plan decision; first real send; no paid Apify top-up without asking (free credit ends 2026-11-24). Done: Notion Batch03 re-pulled 2026-11-10 (32 rows, nothing new); Supabase signups disabled by owner 2026-11-10 |
@@ -270,6 +352,7 @@ Measurement record for the 2026-11-11 owner-finding experiments: `docs/spikes/ow
 | 9 | Deferred Minor review findings (below) | Assistant, when relevant |
 | 10 | Stale docs: `docs/handoffs/`; `docs/spikes/llm.md` and `docs/spikes/funnel.md` predate the Gemini switch and finder changes | Assistant |
 | 11 | **Parked:** finalise the email drafting instructions and the angle strategy once the Batch03 strategy is settled: see `docs/NEXT-email-strategy.md` | Owner + assistant |
+| 12 | Plan 1 final review, then Plans 2-6 (roadmap): see section 0 (d), (h) | Assistant |
 | Done | Supabase signups disabled (owner, 2026-11-10); `.env.example` updated (Serper, Gemini, Prospeo, Harvest names); CLAUDE.md pass list updated | |
 
 **Minor (deferred), copied from the ledger:** clean.py `seen` excludes operator-rejected domains; same owner_email across different domains in one run; bounce substring match (ajo@ vs jo@); quote-cut regex can cut an opt-out that starts "On..."; HTML-only replies collapse to one line so quoted history is not stripped; bare "Stop." with no object goes to the model; `sent_at` uses local date with UTC time and Outreach page uses UTC date; Touch 3 can follow Touch 2 by a day after deferral; leads with no reachable pages are never re-judged; `reason_to_respond` shown unlabeled; groq/serper costs have no batch_id so those dashboard columns are 0; Serper out of credits stops the whole enrich run; `test_sending_lives_only_in_send_py` greps one file only.

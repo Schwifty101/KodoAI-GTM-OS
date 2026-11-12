@@ -2,7 +2,7 @@
 
 Start here for the current state: docs/HANDOFF.md
 
-KodoAI GTM OS for med spa outreach. Spec: `docs/superpowers/specs/2026-11-09-kodoai-gtm-os-design.md`. Plan: `docs/superpowers/plans/2026-11-09-kodoai-gtm-os.md`. Outreach content rules live in `MedSpa/` and are not redefined in code.
+KodoAI GTM OS for med spa outreach. Spec: `docs/superpowers/specs/2026-11-09-kodoai-gtm-os-design.md`. Plan: `docs/superpowers/plans/2026-11-09-kodoai-gtm-os.md`. Outreach content rules live in `MedSpa/` and are not redefined in code. Operating-layer design: `docs/superpowers/specs/2026-11-12-gtm-os-operating-layer-design.md`; six-plan roadmap: `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md`. Settings, budget caps and the jobs queue live in `gtm/settings_store.py`, `gtm/budget.py`, `gtm/jobs.py`, `gtm/worker.py`.
 
 ## Commands
 - `uv run pytest -q` runs the suite. Tests marked `db` hit the real Supabase project and clean up after themselves.
