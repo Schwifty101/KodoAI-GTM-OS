@@ -72,7 +72,7 @@ Plan 1 (branch `gtm-os-build`) was **merged to `main` by the owner as PR #1** (`
 | 4 | Hunter plan (buy only when the OS can safely run a campaign) |
 | 5 | Re-pull Notion Batch03 and `import-history` before each batch |
 | 6 | Prospeo (83 credits) and Apify free credit renew/end 2026-11-24; no paid Apify top-up without asking. Apify balances left 2026-11-13: about $4.7 and $4.68; month spend so far about $5.8 |
-| 9 | Daily schedule (`walk_schedule_enabled`) is OFF: the owner decides when to turn it on. The daily Apify cap ($2 default, no stored row) was raised temporarily for the spike, the live tile and the fallback test, and restored each time |
+| 9 | **Owner decision 2026-11-13: the daily schedule (`walk_schedule_enabled`) stays OFF until the owner says to turn it on.** The owner will add Apify credit when the free credit runs out (ends 2026-11-24) or when the OS is completely built and ready to start campaigns, not before. Until then scraping is manual (`walk --tiles N` through the worker); do not turn the schedule on and do not top up Apify without asking. The daily Apify cap ($2 default, no stored row) was raised temporarily for the spike, the live tile and the fallback test, and restored each time |
 | 7 | Live `weekly_target=200` row in the `settings` table equals the default (left by an old unguarded test upsert): delete if the owner never set it |
 | 8 | Brainstorm visual-companion server dir `.superpowers/brainstorm/36501-1794413655/state/` had `server-stopped` at last check; if a server runs, stop it with the brainstorming skill's `scripts/stop-server.sh` |
 
@@ -80,6 +80,7 @@ Plan 1 (branch `gtm-os-build`) was **merged to `main` by the owner as PR #1** (`
 
 - UI: Home plus tabs; pages Home, Batches, Scrape & Coverage, Leads, Review, Drafts, Send, Replies, Manual queue, Metrics, Settings.
 - Batches of 100 verified, selected owners, filling over several days; a lead's batch is fixed once assigned.
+- **Daily scrape schedule OFF (owner, 2026-11-13):** turn `walk_schedule_enabled` on only when the owner says so. The owner adds Apify credit when the free credit runs out or when the OS is fully built and ready to start campaigns.
 - Runner: worker on an always-on Google Cloud VM, us-west1 (created 2026-11-12; latency to Tokyo DB median 162 ms from the VM vs 230 ms from the Mac). UI and schedule add jobs; keys and Gmail login go to Secret Manager.
 - Sending: weekdays, recipient-local US time, random times in a window (assumed 9 to 4), start 20 a day and ramp +5 a day to 40 per mailbox (RAMP_STEP=5; the design-doc typo was fixed in `aa4d0f0`). Cadence Day 0/3/7. Auto-pause at >5% bounce over >=40 sends.
 - Follow-ups drafted automatically but each approved by the owner in a **Pending follow-ups** list on the Send page; replied/bounced leads skipped and listed as flagged.
