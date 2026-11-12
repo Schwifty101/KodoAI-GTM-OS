@@ -21,7 +21,6 @@ OPT_OUT = re.compile(r"unsubscribe|stop (emailing|contacting|sending|email)|take
 # Local classifier: negative is an allow-list (a wrong "no" suppresses the lead for good): the whole reply must be a bare decline and nothing else.
 NEG_FULL = re.compile(r"(?:(?:hi|hello|hey)(?: [a-z]+)?[\s,.!-]+)?(?:(?:(?:we are|we're|i am|i'm|we) )?(?:not interested|not for us)|no thanks|no thank you|no"
                       r"|(?:we're|we are) (?:all set|good|covered)|(?:we )?already have (?:a|an|someone|a provider|a system))(?:[\s,.!-]+(?:thanks|thank you|sorry|at all|really|please))*[\s,.!-]*", re.I)
-SIGNATURE = re.compile(r"\n[ \t]*(?:sent from my (?:iphone|ipad|ipod|android|(?:samsung )?galaxy(?: [a-z]?\d{1,3}(?: ultra| plus| fe| \+)?)?|blackberry|phone|mobile device|windows phone)|get outlook for (?:ios|android))[ \t]*\.?\s*\Z", re.I)  # only a standard last line
 # A decline cue anywhere: only stops a positive cue from winning over a mixed reply.
 NEG_CUE = re.compile(r"\bnot interested\b|\bno thanks\b|\bno thank you\b|\bnot for us\b|\bnot a fit\b|\bwe(?:'re| are) (?:all set|good|covered)\b"
                      r"|\balready have (?:a|an|someone|a provider|a system)\b|\bnot looking\b(?! forward)|^\W*no\W*$", re.I)
@@ -42,10 +41,9 @@ def new_text(body: str) -> str:
 
 def local_kind(text: str) -> str | None:
     """negative only for a bare decline, positive only for a clear cue with no decline or deferral; None sends it to the model."""
-    clean = SIGNATURE.sub("", text).strip()
-    if len(clean.split()) <= 6 and NEG_FULL.fullmatch(clean):
+    if len(text.split()) <= 6 and NEG_FULL.fullmatch(text):
         return "negative"
-    return "positive" if POS_CUE.search(clean) and not NEG_CUE.search(clean) and not DEFER_CUE.search(clean) else None
+    return "positive" if POS_CUE.search(text) and not NEG_CUE.search(text) and not DEFER_CUE.search(text) else None
 
 
 def classify_reply(msg: dict, llm=None) -> str:

@@ -68,10 +68,8 @@ def test_anything_unclear_or_failing_is_other():
     assert classify_reply(msg("hmm"), llm=boom) == "other"
 
 
-@pytest.mark.parametrize("text", ["Not interested, thanks.", "No thank you", "we're all set", "We are covered.", "No.", "no", "I am not interested", "We already have a provider", "Not interested.\n\nSent from my iPhone", "I'm not interested", "we are not interested", "No thank you!",
-                                  "Hi, no thanks", "Hello Soban, not interested, thanks", "Not interested, sorry", "We're all set", "We're good, thanks",
-                                  "Not interested\nGet Outlook for iOS", "Not interested\n\nSent from my iPhone\n", "Not interested\nSent from my Galaxy",
-                                  "No thanks\nSent from my Samsung Galaxy S23 Ultra", "No thanks\nSent from my Galaxy S21", "No thanks\nSent from my phone", "No thanks\nSent from my mobile device", "Not interested\nSent from my iPhone."])
+@pytest.mark.parametrize("text", ["Not interested, thanks.", "No thank you", "we're all set", "We are covered.", "No.", "no", "I am not interested", "We already have a provider", "I'm not interested", "we are not interested", "No thank you!",
+                                  "Hi, no thanks", "Hello Soban, not interested, thanks", "Not interested, sorry", "We're all set", "We're good, thanks"])
 def test_local_negative(text):
     assert local_kind(text) == "negative"
 
@@ -125,12 +123,15 @@ def test_a_bare_decline_skips_the_model_but_a_decline_with_more_in_it_does_not()
 
     assert classify_reply(msg("No thanks"), llm=llm) == "negative" and calls == []
     assert classify_reply(msg("Not interested in a call. Email works"), llm=llm) == "other" and len(calls) == 1
+    assert classify_reply(msg("Not interested\nSent from my iPhone"), llm=llm) == "other" and len(calls) == 2
 
 
-@pytest.mark.parametrize("text", ["Not interested\nSent from my iPhone but call me", "No thanks\nSent from my iPhone\n\nActually, call me tomorrow",
+@pytest.mark.parametrize("text", ["Not interested.\n\nSent from my iPhone", "No thanks\nSent from my Samsung Galaxy S23 Ultra", "Not interested\nGet Outlook for iOS",
+                                  "Not interested\nSent from my iPhone but call me", "No thanks\nSent from my iPhone\n\nActually, call me tomorrow",
                                   "No thanks\nSent from my iPhone\n\nPlease reach out to my partner Sarah at sarah@x.com", "Not interested\nSent from my Galaxy\nsend details",
                                   "No thanks\nSent from my Samsung call me tomorrow", "No thanks\nSent from my Samsung send me pricing", "No thanks\nSent from my samsung want demo", "Not interested\nSent from my Samsung maybe later", "No thanks\nSent from my Samsung Galaxy S23 Ultra and I want a demo"])
-def test_text_after_a_signature_line_is_never_dropped(text):
+def test_a_decline_with_a_signature_line_goes_to_the_model(text):
+    assert local_kind(text) is None
     assert classify_reply(msg(text), llm=llm_says("other")) == "other"
 
 
