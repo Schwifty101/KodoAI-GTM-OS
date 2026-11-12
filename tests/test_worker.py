@@ -9,7 +9,7 @@ db = get_db()
 
 
 @pytest.fixture
-def clean():
+def clean(no_real_jobs):
     def wipe():
         db.table("jobs").delete().eq("payload->>test", "1").execute()
     wipe()
