@@ -6,6 +6,7 @@ from __future__ import annotations
 import httpx
 
 from gtm.buyer import is_decision_maker
+from gtm import budget
 from gtm.costs import log_cost
 from gtm.owner_search import _about_business
 
@@ -37,6 +38,7 @@ class HarvestClient:
 
     def profile(self, url: str) -> dict | None:
         """One profile with email search. None if Harvest has no such profile. Raises HarvestBudget once the cap is reached."""
+        budget.require("harvest", 0.01)
         if self.spent >= self.budget:
             raise HarvestBudget(f"Harvest spend cap ${self.budget:.2f} reached")
         before = self._balance()

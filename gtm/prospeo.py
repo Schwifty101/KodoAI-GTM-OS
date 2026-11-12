@@ -8,6 +8,7 @@ import time
 import httpx
 
 from gtm.buyer import is_decision_maker
+from gtm import budget
 from gtm.costs import log_cost
 
 URL = "https://api.prospeo.io/enrich-person"
@@ -30,6 +31,7 @@ class ProspeoClient:
         """The verified person record, or None (no match, or the account is out of credits: then the client stops asking)."""
         if self.dead:
             return None
+        budget.require("prospeo", 1)
         body = {"only_verified_email": True, "data": {"first_name": first, "last_name": last, "company_website": domain}}
         for attempt in range(4):
             self.sleep(self.gap)

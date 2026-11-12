@@ -6,6 +6,7 @@ import time
 
 import httpx
 
+from gtm import budget
 from gtm.config import get_settings
 
 ACTOR = "compass~crawler-google-places"
@@ -27,6 +28,7 @@ def remaining_usd(key: str) -> float:
 
 def run_places(run_input: dict, max_usd: float = MIN_CAP) -> tuple[list[dict], float | None]:
     """One actor run, stopped by Apify at max_usd. Returns (items, usd charged)."""
+    budget.require("apify", max_usd)
     keys = get_settings().apify_keys
     key = choose_key({k: remaining_usd(k) for k in keys})
     h = {"Authorization": f"Bearer {key}"}

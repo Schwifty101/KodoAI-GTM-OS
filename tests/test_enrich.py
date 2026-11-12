@@ -125,6 +125,18 @@ def test_out_of_credits_stops_the_run_and_leaves_leads_cleaned(cleaned):
 
 
 @pytest.mark.db
+def test_run_enrich_budget_exceeded_leaves_leads_cleaned(cleaned):
+    from gtm.budget import BudgetExceeded
+    db, bid = cleaned
+
+    def finder(lead):
+        raise BudgetExceeded("cap")
+
+    assert run_enrich(db, [finder], bid) == {"out_of_credits": 3}
+    assert all(row(db, i)["status"] == "cleaned" for i in range(3))
+
+
+@pytest.mark.db
 def test_limit_caps_how_many_leads_are_processed(cleaned):
     db, bid = cleaned
     run_enrich(db, [lambda lead: []], bid, limit=1)

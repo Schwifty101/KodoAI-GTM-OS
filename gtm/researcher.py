@@ -11,8 +11,8 @@ import httpx
 
 from gtm.buyer import is_decision_maker
 from gtm.config import get_settings
-from gtm.costs import log_cost
-from gtm.llm import GEMINI_MODEL
+from gtm import budget
+from gtm.llm import GEMINI_MODEL, log_gemini_usage
 from gtm.owner_search import _about_business
 from gtm.sitescrape import _clean_name
 
@@ -32,6 +32,7 @@ _DIRECTORY = re.compile(r"/(?:search|directory|list|best|top)[-/\w]*|[?&](?:find
 
 def gemini_step(contents: list, last: bool = False) -> list | None:
     """One function-calling turn on Vertex Gemini (same endpoint, key and cost log as gtm.llm._vertex). Returns the reply parts."""
+    budget.require("gemini", 0)
     cfg = {"mode": "ANY", **({"allowedFunctionNames": ["answer"]} if last else {})}
     for attempt in range(3):
         try:
@@ -43,7 +44,7 @@ def gemini_step(contents: list, last: bool = False) -> list | None:
             continue
         if r.status_code == 200:
             j = r.json()
-            log_cost("gemini", (j.get("usageMetadata") or {}).get("totalTokenCount", 0), None, note="tokens")
+            log_gemini_usage(j.get("usageMetadata") or {})
             return ((j.get("candidates") or [{}])[0].get("content") or {}).get("parts") or None
         if r.status_code in (429, 503):
             time.sleep(2 ** (attempt + 1))

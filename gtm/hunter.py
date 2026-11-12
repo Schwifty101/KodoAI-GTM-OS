@@ -7,6 +7,7 @@ import time
 
 import httpx
 
+from gtm import budget
 from gtm.costs import log_cost
 
 
@@ -32,6 +33,7 @@ class HunterPool:
         self.log = log or (lambda units, note: log_cost("hunter", units, None, batch_id=batch_id, note=note))
 
     def _call(self, path: str, params: dict) -> dict:
+        budget.require("hunter", 1)
         retries = 0
         while self.idx < len(self.keys):
             status, body = self.http(path, params, self.keys[self.idx])

@@ -27,3 +27,15 @@ def test_results_are_mapped_to_title_link_snippet(monkeypatch):
     monkeypatch.setattr(search.httpx, "post", lambda *a, **k: Resp(200, body))
     monkeypatch.setattr(search, "log_cost", lambda *a, **k: None)
     assert search.serper_search("q") == [{"title": "T", "link": "https://a.com", "snippet": "S"}]
+
+
+def test_serper_search_raises_budget_exceeded_before_any_request(monkeypatch):
+    from gtm import budget
+
+    def deny(*a, **k):
+        raise budget.BudgetExceeded("serper cap")
+
+    monkeypatch.setattr(budget, "require", deny)
+    monkeypatch.setattr(search.httpx, "post", lambda *a, **k: pytest.fail("no request when over budget"))
+    with pytest.raises(budget.BudgetExceeded):
+        search.serper_search("q")

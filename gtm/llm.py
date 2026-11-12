@@ -9,8 +9,10 @@ from collections import deque
 
 import httpx
 
+from gtm import budget
 from gtm.config import get_settings
 from gtm.costs import log_cost
+from gtm.settings_store import setting
 
 GROQ_MODEL = "openai/gpt-oss-120b"
 GEMINI_MODEL = "gemini-3.5-flash"
@@ -51,8 +53,16 @@ def _groq(system: str, prompt: str) -> str:
     return j["choices"][0]["message"]["content"]
 
 
+def log_gemini_usage(meta: dict) -> None:
+    """Cost row for one Gemini reply: input and output (thinking included) priced separately."""
+    out = (meta.get("candidatesTokenCount") or 0) + (meta.get("thoughtsTokenCount") or 0)
+    usd = ((meta.get("promptTokenCount") or 0) * setting("gemini_input_usd_per_m") + out * setting("gemini_output_usd_per_m")) / 1_000_000
+    log_cost("gemini", meta.get("totalTokenCount") or 0, usd, note="tokens")
+
+
 def _vertex(system: str, prompt: str) -> str:
     """Gemini on Vertex AI (paid, billed to the Google Cloud credit). The Agent Platform key works on this endpoint without ADC."""
+    budget.require("gemini", 0)
     for attempt in range(3):
         r = httpx.post(
             f"https://aiplatform.googleapis.com/v1/publishers/google/models/{GEMINI_MODEL}:generateContent",
@@ -66,7 +76,7 @@ def _vertex(system: str, prompt: str) -> str:
             continue
         r.raise_for_status()
         j = r.json()
-        log_cost("gemini", (j.get("usageMetadata") or {}).get("totalTokenCount", 0), None, note="tokens")
+        log_gemini_usage(j.get("usageMetadata") or {})
         return j["candidates"][0]["content"]["parts"][0]["text"]
     raise RuntimeError("vertex unavailable")
 

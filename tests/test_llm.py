@@ -54,3 +54,29 @@ def test_raises_when_both_fail():
 
     with pytest.raises(RuntimeError):
         complete_json("sys", "prompt", primary=boom, fallback=boom)
+
+
+def test_log_gemini_usage_prices_input_and_output_separately(monkeypatch):
+    import gtm.llm as llm
+    rows = []
+    monkeypatch.setattr(llm, "log_cost", lambda *a, **k: rows.append((a, k)))
+    monkeypatch.setattr(llm, "setting", lambda key, db=None: {"gemini_input_usd_per_m": 1.5, "gemini_output_usd_per_m": 9.0}[key])
+    llm.log_gemini_usage({"promptTokenCount": 1_000_000, "candidatesTokenCount": 1_000_000, "totalTokenCount": 2_000_000})
+    assert rows == [(("gemini", 2_000_000, 10.5), {"note": "tokens"})]
+
+
+def test_thinking_tokens_count_as_output(monkeypatch):
+    import gtm.llm as llm
+    rows = []
+    monkeypatch.setattr(llm, "log_cost", lambda *a, **k: rows.append(a))
+    monkeypatch.setattr(llm, "setting", lambda key, db=None: {"gemini_input_usd_per_m": 1.5, "gemini_output_usd_per_m": 9.0}[key])
+    llm.log_gemini_usage({"promptTokenCount": 0, "candidatesTokenCount": 500_000, "thoughtsTokenCount": 500_000, "totalTokenCount": 1_000_000})
+    assert rows[0][2] == 9.0
+
+
+def test_vertex_not_called_when_gemini_not_allowed(monkeypatch):
+    import gtm.budget as budget
+    import gtm.llm as llm
+    monkeypatch.setattr(budget, "gemini_allowed", lambda *a, **k: False)
+    monkeypatch.setattr(llm.httpx, "post", lambda *a, **k: pytest.fail("Vertex must not be called"))
+    assert complete_json("sys", "prompt", fallback=lambda s, p: '{"g": 1}') == {"g": 1}
