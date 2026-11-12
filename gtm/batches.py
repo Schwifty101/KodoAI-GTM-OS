@@ -19,8 +19,14 @@ def plan_numbers(counts: dict[int, int], n_new: int, size: int = BATCH_SIZE) -> 
     return out
 
 
-def assign_batches(db) -> int:
-    new = fetch_all(lambda: db.table("leads").select("id").eq("status", "selected").is_("batch_no", "null").order("created_at").order("id"))
+def assign_batches(db, lead_ids: list[str] | None = None) -> int:
+    """Number selected leads without a batch; lead_ids limits the candidates (default: all)."""
+    if lead_ids is not None and not lead_ids:
+        return 0
+    def cand():
+        q = db.table("leads").select("id").eq("status", "selected").is_("batch_no", "null")
+        return (q if lead_ids is None else q.in_("id", lead_ids)).order("created_at").order("id")
+    new = fetch_all(cand)
     if not new:
         return 0
     counts = Counter(r["batch_no"] for r in fetch_all(lambda: db.table("leads").select("id,batch_no").not_.is_("batch_no", "null").order("id")))

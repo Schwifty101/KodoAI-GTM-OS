@@ -17,18 +17,22 @@ def test_plan_numbers():
 def selected():
     db = get_db()
     bid = new_batch(db, "A", "TX", ["x"])
-    items = [{"placeId": f"TEST_B{i}", "title": f"Spa {i}", "website": f"https://glowb{i}.com", "categories": ["Medical spa"], "state": "Texas"} for i in range(2)]
-    db.table("leads").insert([{**place_to_lead(i, bid), "status": "selected"} for i in items]).execute()
-    yield db
-    db.table("leads").delete().like("place_id", "TEST_B%").execute()
-    db.table("batches").delete().eq("id", bid).execute()
+    try:
+        items = [{"placeId": f"TEST_B{i}", "title": f"Spa {i}", "website": f"https://glowb{i}.com", "categories": ["Medical spa"], "state": "Texas"} for i in range(3)]
+        rows = db.table("leads").insert([{**place_to_lead(i, bid), "status": "selected"} for i in items]).execute().data
+        yield db, [r["id"] for r in rows[:2]], rows[2]["id"]
+    finally:
+        db.table("leads").delete().like("place_id", "TEST_B%").execute()
+        db.table("batches").delete().eq("id", bid).execute()
 
 
 @pytest.mark.db
 def test_assign_is_stable_on_rerun(selected):
-    db = selected
-    assert assign_batches(db) >= 2  # also numbers any real selected leads still waiting: that is the job
-    first = db.table("leads").select("place_id,batch_no").like("place_id", "TEST_B%").order("place_id").execute().data
+    db, ids, other = selected
+    q = lambda: db.table("leads").select("place_id,batch_no").like("place_id", "TEST_B%").in_("id", ids).order("place_id").execute().data
+    assert assign_batches(db, ids) == 2
+    first = q()
     assert all(r["batch_no"] for r in first)
-    assert assign_batches(db) == 0
-    assert db.table("leads").select("place_id,batch_no").like("place_id", "TEST_B%").order("place_id").execute().data == first
+    assert assign_batches(db, ids) == 0
+    assert q() == first
+    assert db.table("leads").select("batch_no").eq("id", other).execute().data[0]["batch_no"] is None
