@@ -21,6 +21,7 @@ def test_place_to_lead_keeps_only_needed_fields():
     assert lead["categories"] == ["Medical spa", "Skin care clinic"] and lead["category"] == "Medical spa"
     assert (lead["rating"], lead["review_count"]) == (4.6, 120)
     assert lead["status"] == "scraped" and lead["batch_id"] == "batch-1"
+    assert lead["tz"] == "America/Chicago"
 
 
 @pytest.mark.parametrize("flags", [{"permanentlyClosed": True}, {"temporarilyClosed": True}])

@@ -9,7 +9,8 @@ from datetime import date
 from gtm import budget
 from gtm.budget import BudgetExceeded
 from gtm.apify import MIN_CAP, run_places
-from gtm.db import get_db
+from gtm.db import fetch_all, get_db
+from gtm.tz import lead_tz
 from gtm.clean import run_clean
 from gtm.config import get_settings
 from gtm.enrich import hunter_domain_finder, run_enrich, site_owner_finder
@@ -103,6 +104,17 @@ def cmd_replies(a: argparse.Namespace) -> None:
     print(run_replies(get_db(), gmail_service, complete_json))
 
 
+def cmd_tz_backfill(a: argparse.Namespace) -> None:
+    db = get_db()
+    rows = fetch_all(lambda: db.table("leads").select("id,city,state").is_("tz", "null").order("id"))
+    n = 0
+    for r in rows:
+        if tz := lead_tz(r["state"], r["city"]):
+            db.table("leads").update({"tz": tz}).eq("id", r["id"]).execute()
+            n += 1
+    print(f"tz set on {n} of {len(rows)} leads")
+
+
 def cmd_mailbox(a: argparse.Namespace) -> None:
     if a.action == "unpause":
         get_db().table("mailboxes").update({"paused": False, "paused_reason": None}).eq("address", a.address).execute()
@@ -182,6 +194,8 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("kind")
     q.add_argument("flags", nargs=argparse.REMAINDER)
     q.set_defaults(fn=cmd_enqueue)
+    t = sub.add_parser("tz-backfill", help="set tz on leads that have none (free)")
+    t.set_defaults(fn=cmd_tz_backfill)
     return p
 
 
