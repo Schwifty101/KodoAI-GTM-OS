@@ -55,7 +55,7 @@ sudo systemctl start gtm-worker
 systemctl is-active gtm-worker
 ```
 
-Or stop the whole VM from the Mac: `gcloud compute instances stop gtm-worker --zone us-west1-b` (the disk still bills nothing within the free 30 GB; the external IP may still bill while stopped, **unverified**).
+Or stop the whole VM from the Mac: `gcloud compute instances stop gtm-worker --zone us-west1-b` (a stopped VM may still bill for its disk and external IP, **unverified**).
 
 ## Rotate a key
 
