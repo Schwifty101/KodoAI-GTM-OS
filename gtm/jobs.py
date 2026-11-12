@@ -21,7 +21,7 @@ def claim(db) -> dict | None:
 
 
 def finish(db, job_id: str, status: str, result: dict | None = None, error: str | None = None) -> None:
-    db.table("jobs").update({"status": status, "result": result, "error": error, "finished_at": _now().isoformat()}).eq("id", job_id).execute()
+    db.table("jobs").update({"status": status, "result": result, "error": error, "finished_at": _now().isoformat()}).eq("id", job_id).eq("status", "running").execute()
 
 
 def requeue_stale(db, older_than_minutes: int = 60) -> int:

@@ -6,6 +6,7 @@ import argparse
 import sys
 from datetime import date
 
+from gtm import budget
 from gtm.budget import BudgetExceeded
 from gtm.apify import MIN_CAP, run_places
 from gtm.db import get_db
@@ -32,6 +33,7 @@ from gtm.scrape import DEFAULT_QUERIES, new_batch, scrape_city
 
 
 def cmd_scrape(a: argparse.Namespace) -> None:
+    budget.require("apify", a.max_usd)  # before new_batch: a blocked scrape leaves no empty batch
     queries = a.query or DEFAULT_QUERIES
     est = a.max_places * len(queries) * 0.005
     print(f"Scraping {a.city}, {a.state}: {queries}; up to ~${est:.2f} (hard cap ${a.max_usd:.2f}, listed price $0.005/place)")

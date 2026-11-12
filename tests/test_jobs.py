@@ -58,9 +58,19 @@ def test_requeue_stale_fails_jobs_after_three_attempts():
 
 def test_finish_sets_finished_at():
     jid = enqueue(db, "clean", T)
+    claim(db)
     finish(db, jid, "done", {"output": "x"})
     r = db.table("jobs").select("*").eq("id", jid).single().execute().data
     assert r["status"] == "done" and r["finished_at"] and r["result"] == {"output": "x"}
+
+
+@pytest.mark.parametrize("state", ["done", "cancelled", "queued"])
+def test_finish_ignores_a_job_that_is_not_running(state):
+    jid = enqueue(db, "clean", T)
+    db.table("jobs").update({"status": state}).eq("id", jid).execute()
+    finish(db, jid, "failed", error="late")
+    r = db.table("jobs").select("status,error,finished_at").eq("id", jid).single().execute().data
+    assert r["status"] == state and r["error"] is None and r["finished_at"] is None
 
 
 def test_guard_sees_a_real_queued_job_and_ignores_test_rows():
