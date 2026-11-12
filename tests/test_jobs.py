@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from gtm.db import get_db
 from tests.conftest import real_jobs
-from gtm.jobs import claim, enqueue, finish, requeue_stale
+from gtm.jobs import claim, enqueue, finish, heartbeat, requeue_stale
 
 pytestmark = pytest.mark.db
 db = get_db()
@@ -83,3 +85,31 @@ def test_guard_sees_a_real_queued_job_and_ignores_test_rows():
         assert real_jobs(db) == []
     finally:
         db.table("jobs").delete().eq("id", jid).execute()
+
+
+def test_heartbeat_keeps_a_long_running_job_from_being_requeued():
+    jid = enqueue(db, "clean", T)
+    claim(db)
+    two_h = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    db.table("jobs").update({"started_at": two_h}).eq("id", jid).execute()
+    heartbeat(db, jid)
+    assert requeue_stale(db) == 0
+    assert db.table("jobs").select("status").eq("id", jid).single().execute().data["status"] == "running"
+
+
+def test_job_without_heartbeat_is_requeued_after_five_minutes():
+    jid = enqueue(db, "clean", T)
+    claim(db)
+    old = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+    db.table("jobs").update({"started_at": old, "heartbeat_at": old}).eq("id", jid).execute()
+    assert requeue_stale(db) == 1
+    assert db.table("jobs").select("status").eq("id", jid).single().execute().data["status"] == "queued"
+
+
+def test_claim_sets_heartbeat_at():
+    enqueue(db, "clean", T)
+    assert claim(db)["heartbeat_at"]
+
+
+def test_heartbeat_swallows_errors():
+    assert heartbeat(MagicMock(side_effect=Exception), "x") is None
