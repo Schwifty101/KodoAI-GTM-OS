@@ -69,7 +69,8 @@ def test_anything_unclear_or_failing_is_other():
 
 
 @pytest.mark.parametrize("text", ["Not interested, thanks.", "No thank you", "we're all set", "We are covered.", "No.", "no", "I am not interested", "We already have a provider", "Not interested.\n\nSent from my iPhone", "I'm not interested", "we are not interested", "No thank you!",
-                                  "Hi, no thanks", "Hello Soban, not interested, thanks", "Not interested, sorry", "We're all set", "We're good, thanks"])
+                                  "Hi, no thanks", "Hello Soban, not interested, thanks", "Not interested, sorry", "We're all set", "We're good, thanks",
+                                  "Not interested\nGet Outlook for iOS", "Not interested\n\nSent from my iPhone\n", "Not interested\nSent from my Galaxy"])
 def test_local_negative(text):
     assert local_kind(text) == "negative"
 
@@ -96,7 +97,9 @@ def test_local_positive(text):
                                   "No thanks, we have two other locations you could email", "Not interested in that, ask about lasers",
                                   "Not interested in that service, what else do you do", "Not interested unless it's free", "Not interested until Q3", "No thanks, busy season",
                                   "We're good for the time being", "Not interested right now", "Not looking to switch our software", "Not interested in AI", "Not interested in Botox",
-                                  "We are good, thanks! Actually yes tell me more", "Thank you for reaching out but we are not interested in this at all so please stop"])
+                                  "We are good, thanks! Actually yes tell me more",
+                                  "Not interested\nSent from my iPhone but call me", "No thanks\nSent from my iPhone\n\nActually, call me tomorrow",
+                                  "No thanks\nSent from my iPhone\n\nPlease reach out to my partner Sarah at sarah@x.com", "Not interested\nSent from my Galaxy\nsend details", "Thank you for reaching out but we are not interested in this at all so please stop"])
 def test_local_unsure_falls_through(text):
     assert local_kind(text) is None
 
@@ -120,6 +123,12 @@ def test_a_bare_decline_skips_the_model_but_a_decline_with_more_in_it_does_not()
 
     assert classify_reply(msg("No thanks"), llm=llm) == "negative" and calls == []
     assert classify_reply(msg("Not interested in a call. Email works"), llm=llm) == "other" and len(calls) == 1
+
+
+@pytest.mark.parametrize("text", ["Not interested\nSent from my iPhone but call me", "No thanks\nSent from my iPhone\n\nActually, call me tomorrow",
+                                  "No thanks\nSent from my iPhone\n\nPlease reach out to my partner Sarah at sarah@x.com", "Not interested\nSent from my Galaxy\nsend details"])
+def test_text_after_a_signature_line_is_never_dropped(text):
+    assert classify_reply(msg(text), llm=llm_says("other")) == "other"
 
 
 def test_unsure_replies_do_call_the_model():
