@@ -262,6 +262,7 @@ Measurement record for the 2026-11-11 owner-finding experiments: `docs/spikes/ow
 | 8 | Richer signal sources (Instagram/Facebook posts, Google Business updates, job boards, news; not measured) | Owner decides; assistant measures |
 | 9 | Deferred Minor review findings (below) | Assistant, when relevant |
 | 10 | Stale docs: `docs/handoffs/`; `docs/spikes/llm.md` and `docs/spikes/funnel.md` predate the Gemini switch and finder changes | Assistant |
+| 11 | **Parked:** finalise the email drafting instructions and the angle strategy once the Batch03 strategy is settled: see `docs/NEXT-email-strategy.md` | Owner + assistant |
 | Done | Supabase signups disabled (owner, 2026-11-10); `.env.example` updated (Serper, Gemini, Prospeo, Harvest names); CLAUDE.md pass list updated | |
 
 **Minor (deferred), copied from the ledger:** clean.py `seen` excludes operator-rejected domains; same owner_email across different domains in one run; bounce substring match (ajo@ vs jo@); quote-cut regex can cut an opt-out that starts "On..."; HTML-only replies collapse to one line so quoted history is not stripped; bare "Stop." with no object goes to the model; `sent_at` uses local date with UTC time and Outreach page uses UTC date; Touch 3 can follow Touch 2 by a day after deferral; leads with no reachable pages are never re-judged; `reason_to_respond` shown unlabeled; groq/serper costs have no batch_id so those dashboard columns are 0; Serper out of credits stops the whole enrich run; `test_sending_lives_only_in_send_py` greps one file only.
