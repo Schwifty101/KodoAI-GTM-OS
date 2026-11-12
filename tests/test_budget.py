@@ -53,6 +53,11 @@ def test_gemini_blocked_after_credit_end_when_paid_off(world):
     assert not budget.gemini_allowed(today=date(2027, 2, 10))
 
 
+@pytest.mark.parametrize("day,ok", [(date(2027, 2, 8), True), (date(2027, 2, 9), False), (date(2027, 2, 10), False)])
+def test_credit_ends_on_the_end_date(world, day, ok):
+    assert budget.gemini_allowed(today=day) is ok
+
+
 def test_gemini_blocked_when_credit_exhausted(world):
     world["rows"] = [("gemini", 1, 298.0, utc(2026, 11, 13))]
     assert budget.credit_remaining_usd(now=NOW) == 0

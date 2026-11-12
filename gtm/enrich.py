@@ -62,7 +62,7 @@ def run_enrich(db, finders: list, batch_id: str, limit: int | None = None, retry
                     buyer = pick_buyer(found)
                     if buyer:
                         break
-        except (OutOfCredits, BudgetExceeded):
+        except OutOfCredits:
             counts["out_of_credits"] = len(rows) - done  # stay `cleaned`: running out of credits is not "no buyer"
             break
         if buyer:

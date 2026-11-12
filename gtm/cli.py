@@ -6,6 +6,7 @@ import argparse
 import sys
 from datetime import date
 
+from gtm.budget import BudgetExceeded
 from gtm.apify import MIN_CAP, run_places
 from gtm.db import get_db
 from gtm.clean import run_clean
@@ -184,7 +185,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     a = build_parser().parse_args(argv)
-    a.fn(a)
+    try:
+        a.fn(a)
+    except BudgetExceeded as e:
+        sys.exit(f"budget cap reached: {e}")
 
 
 if __name__ == "__main__":

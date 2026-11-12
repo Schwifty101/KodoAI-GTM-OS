@@ -132,7 +132,8 @@ def test_run_enrich_budget_exceeded_leaves_leads_cleaned(cleaned):
     def finder(lead):
         raise BudgetExceeded("cap")
 
-    assert run_enrich(db, [finder], bid) == {"out_of_credits": 3}
+    with pytest.raises(BudgetExceeded):
+        run_enrich(db, [finder], bid)
     assert all(row(db, i)["status"] == "cleaned" for i in range(3))
 
 

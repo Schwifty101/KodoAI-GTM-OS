@@ -69,3 +69,36 @@ def test_run_one_empty_queue_returns_none(clean):
 def test_run_pass_parses_argv_with_the_real_parser():
     with pytest.raises(SystemExit):
         _run_pass("clean", [])
+
+
+def test_enrich_pass_hitting_the_budget_cap_finishes_the_job_paused_budget(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from gtm import cli, worker
+
+    fdb = MagicMock()
+    fdb.table.return_value.select.return_value.eq.return_value.in_.return_value.execute.return_value.data = [{"id": 1, "domain": "a.com"}]
+
+    def finder(lead):
+        raise BudgetExceeded("gemini cap")
+
+    done = []
+    monkeypatch.setattr(worker, "claim", lambda d: {"id": "j1", "kind": "enrich", "payload": {"argv": ["--batch", "b", "--finders", "site"]}})
+    monkeypatch.setattr(worker, "finish", lambda d, i, s, result=None, error=None: done.append((i, s, error)))
+    monkeypatch.setattr(cli, "get_db", lambda: fdb)
+    monkeypatch.setattr(cli, "HunterPool", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "get_settings", lambda: MagicMock())
+    monkeypatch.setattr(cli, "site_owner_finder", lambda pool: finder)
+    worker.run_one(None)
+    assert done == [("j1", "paused_budget", "gemini cap")]
+
+
+def test_run_one_keyboard_interrupt_cancels_the_job_and_reraises(monkeypatch):
+    from gtm import worker
+
+    done = []
+    monkeypatch.setattr(worker, "claim", lambda d: {"id": "j1", "kind": "clean", "payload": {}})
+    monkeypatch.setattr(worker, "finish", lambda d, i, s, result=None, error=None: done.append((i, s, error)))
+    with pytest.raises(KeyboardInterrupt):
+        run_one(None, _boom(KeyboardInterrupt()))
+    assert done == [("j1", "cancelled", "interrupted")]

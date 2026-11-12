@@ -37,7 +37,7 @@ def credit_remaining_usd(db=None, now: datetime | None = None) -> float:
 
 def gemini_allowed(db=None, today: date | None = None) -> bool:
     today = today or datetime.now(timezone.utc).date()
-    if today <= date.fromisoformat(setting("credit_end_date", db)) and credit_remaining_usd(db) > 0:
+    if today < date.fromisoformat(setting("credit_end_date", db)) and credit_remaining_usd(db) > 0:
         return True
     return bool(setting("allow_paid_gemini", db)) and spent_since(db, "gemini", _midnight(today.replace(day=1))) < setting("paid_gemini_monthly_cap_usd", db)
 

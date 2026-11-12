@@ -46,6 +46,16 @@ def test_requeue_stale_returns_old_running_job_to_queue():
     assert st == {old: "queued", new: "running"}
 
 
+def test_requeue_stale_fails_jobs_after_three_attempts():
+    spent, fresh = enqueue(db, "clean", T), enqueue(db, "clean", T)
+    two_h = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    db.table("jobs").update({"status": "running", "started_at": two_h, "attempts": 3}).eq("id", spent).execute()
+    db.table("jobs").update({"status": "running", "started_at": two_h, "attempts": 2}).eq("id", fresh).execute()
+    assert requeue_stale(db) == 1
+    st = {r["id"]: r for r in db.table("jobs").select("id,status,error").in_("id", [spent, fresh]).execute().data}
+    assert st[spent]["status"] == "failed" and st[spent]["error"] == "stale after 3 attempts" and st[fresh]["status"] == "queued"
+
+
 def test_finish_sets_finished_at():
     jid = enqueue(db, "clean", T)
     finish(db, jid, "done", {"output": "x"})

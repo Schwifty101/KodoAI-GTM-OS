@@ -26,4 +26,5 @@ def finish(db, job_id: str, status: str, result: dict | None = None, error: str 
 
 def requeue_stale(db, older_than_minutes: int = 60) -> int:
     cutoff = (_now() - timedelta(minutes=older_than_minutes)).isoformat()
-    return len(db.table("jobs").update({"status": "queued", "started_at": None}).eq("status", "running").lt("started_at", cutoff).execute().data)
+    db.table("jobs").update({"status": "failed", "error": "stale after 3 attempts", "finished_at": _now().isoformat()}).eq("status", "running").lt("started_at", cutoff).gte("attempts", 3).execute()
+    return len(db.table("jobs").update({"status": "queued", "started_at": None}).eq("status", "running").lt("started_at", cutoff).lt("attempts", 3).execute().data)

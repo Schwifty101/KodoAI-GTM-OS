@@ -29,6 +29,9 @@ def run_one(db, run_pass=_run_pass) -> str | None:
             raise ValueError(f"job kind {job['kind']!r} cannot be run by the worker")
         out = run_pass(job["kind"], job["payload"].get("argv", []))
         finish(db, job["id"], "done", {"output": out[-4000:]})
+    except KeyboardInterrupt:
+        finish(db, job["id"], "cancelled", error="interrupted")
+        raise
     except BudgetExceeded as e:
         finish(db, job["id"], "paused_budget", error=str(e))
     except SystemExit as e:

@@ -86,3 +86,17 @@ def test_run_budget_stops_spending():
     f = research_owner_finder(Pool(), lambda q, n=6: searches.append(q) or [], lambda u: None, lambda c, last=False: call("web_search", query="x") if not last else call("answer"), budget=2)
     f(dict(LEAD)); f(dict(LEAD)); f(dict(LEAD))
     assert len(searches) == 2
+
+
+def test_gemini_step_raises_budget_exceeded_before_any_http_request(monkeypatch):
+    import pytest
+
+    from gtm import budget, researcher
+
+    def no_http(*a, **k):
+        raise AssertionError("http called")
+
+    monkeypatch.setattr(budget, "gemini_allowed", lambda db=None, today=None: False)
+    monkeypatch.setattr(researcher.httpx, "post", no_http)
+    with pytest.raises(budget.BudgetExceeded):
+        researcher.gemini_step([])
