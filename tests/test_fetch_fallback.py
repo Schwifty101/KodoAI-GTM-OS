@@ -86,3 +86,7 @@ def test_fallback_swallows_service_errors_but_not_budget_exceeded(monkeypatch, c
     monkeypatch.setattr(search, "serper_scrape", over)
     with pytest.raises(BudgetExceeded):
         sitescrape.fetch_with_fallback("u")
+
+
+def test_malformed_url_is_gone_not_a_crash(monkeypatch):
+    assert fetch(monkeypatch, httpx.InvalidURL("bad")) == (None, "gone")

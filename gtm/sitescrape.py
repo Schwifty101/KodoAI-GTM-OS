@@ -107,7 +107,7 @@ def fetch_page(url: str) -> tuple[str | None, str]:
     """(html, outcome): ok, blocked (paid fallback may help) or gone (never worth paying for)."""
     try:
         r = httpx.get(url, timeout=10, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; KodoAI research)"})
-    except httpx.HTTPError:
+    except (httpx.HTTPError, httpx.InvalidURL):
         return None, "gone"
     if r.status_code in BLOCK_CODES:
         return None, "blocked"
