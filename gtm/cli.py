@@ -24,7 +24,7 @@ from gtm.prospeo import ProspeoClient, prospeo_finder
 from gtm.owner_search import search_owner_finder
 from gtm.researcher import gemini_step, research_owner_finder
 from gtm.search import serper_search
-from gtm.sitescrape import http_fetch
+from gtm.sitescrape import fetch_with_fallback
 from gtm.draft import run_draft, run_followups
 from gtm.gmail import gmail_service
 from gtm.replies import run_replies
@@ -67,7 +67,7 @@ def cmd_enrich(a: argparse.Namespace) -> None:
     available = {
         "site": site_owner_finder(pool),  # free scrape for a name, then Hunter Email Finder
         "search": search_owner_finder(pool, serper_search, complete_json),  # "owner of <domain>" search, then Hunter Email Finder
-        "research": research_owner_finder(pool, serper_search, http_fetch, gemini_step, budget=a.research_budget),  # LLM web-research loop for a named owner, code-validated, then Hunter Email Finder
+        "research": research_owner_finder(pool, serper_search, fetch_with_fallback, gemini_step, budget=a.research_budget),  # LLM web-research loop for a named owner, code-validated, then Hunter Email Finder
         "prospeo": prospeo_finder(ProspeoClient(get_settings().prospeo_api_key, batch_id=a.batch)),  # verified email for a named owner; pays only on a find
         "harvest": harvest_finder(HarvestClient(get_settings().harvest_api_key, a.harvest_budget, batch_id=a.batch), serper_search),  # LinkedIn lookup of a named owner
         "hunter": hunter_domain_finder(pool),  # Hunter Domain Search

@@ -13,9 +13,9 @@ DEFAULTS: dict[str, bool | int | float | str] = {
     # proposed daily caps, owner adjusts
     "cap_apify_usd_day": 2.0, "cap_serper_queries_day": 700, "cap_gemini_usd_day": 5.0,
     "cap_hunter_credits_day": 100, "cap_prospeo_credits_day": 20, "cap_harvest_usd_day": 0.5,
-    # metro walk (provisional until the tile tuning spike); walk_queries is ordered, comma separated
+    # metro walk (set from docs/spikes/tile_tuning.md); walk_queries is ordered, comma separated
     "walk_schedule_enabled": False, "walk_hour_utc": 13, "walk_tiles_per_run": 3,
-    "walk_queries": "med spa,aesthetics clinic,botox", "walk_max_places": 40, "walk_escalate_at": 0.9,
+    "walk_queries": "med spa,aesthetics clinic", "walk_max_places": 40, "walk_escalate_at": 0.8,
     "fetch_fallback": True,
 }
 TTL = 60
