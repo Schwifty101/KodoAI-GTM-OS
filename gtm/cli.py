@@ -12,6 +12,7 @@ from gtm.apify import MIN_CAP, run_places
 from gtm.db import fetch_all, get_db
 from gtm.tz import lead_tz
 from gtm.clean import run_clean
+from gtm.batches import BATCH_SIZE, assign_batches
 from gtm.config import get_settings
 from gtm.enrich import hunter_domain_finder, run_enrich, site_owner_finder
 from gtm.harvest import HarvestClient, harvest_finder
@@ -70,7 +71,9 @@ def cmd_signals(a: argparse.Namespace) -> None:
 
 
 def cmd_select(a: argparse.Namespace) -> None:
-    print(f"selected {run_select(get_db(), complete_json, a.batch)} leads")
+    db = get_db()
+    print(f"selected {run_select(db, complete_json, a.batch)} leads")
+    print(f"numbered {assign_batches(db)} leads into batches of {BATCH_SIZE}")
 
 
 def cmd_draft(a: argparse.Namespace) -> None:
