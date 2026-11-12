@@ -1,0 +1,20 @@
+[Unit]
+Description=KodoAI GTM worker
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+User=gtm
+WorkingDirectory=/opt/gtm
+RuntimeDirectory=gtm
+RuntimeDirectoryPreserve=yes
+ExecStartPre=+/opt/gtm/deploy/fetch_secrets.sh
+EnvironmentFile=/run/gtm/env
+ExecStart=/opt/gtm/.venv/bin/python -m gtm.cli worker
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
