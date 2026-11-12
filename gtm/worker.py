@@ -8,6 +8,7 @@ import time
 from gtm.budget import BudgetExceeded
 from gtm.db import get_db
 from gtm.jobs import claim, finish, heartbeat, requeue_stale
+from gtm.schedule import tick
 
 ALLOWED = {"scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "walk"}  # send is not job-runnable until Plan 4
 BEAT_SECONDS = 30.0
@@ -70,6 +71,10 @@ def main(poll_seconds: int = 15) -> None:
             if time.monotonic() - last_sweep > 300:
                 requeue_stale(db)
                 last_sweep = time.monotonic()
+            try:
+                tick(db)
+            except Exception as e:  # a schedule error must never stop the loop
+                print(f"schedule tick failed: {type(e).__name__}: {e}")
             if not run_one(db):
                 time.sleep(poll_seconds)
     except KeyboardInterrupt:
