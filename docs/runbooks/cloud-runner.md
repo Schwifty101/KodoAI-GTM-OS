@@ -87,6 +87,8 @@ Then delete the `gtm-worker` service account if unused. Queued jobs stay in the 
 ## Open items
 
 - Verified 2026-11-12: a real `clean` job on the Houston batch ran to `done` on the VM (output `{}`: nothing left to clean). Not verified: a heavy pass (enrich, signals) and the RAM peak under load on 1 GB.
-- Not verified: RAM peak on 1 GB under a real pass.
+- Verified 2026-11-13: one live `walk` tile (New York / Manhattan, 80 places) ran to `done` on the VM, worker unchanged. RAM peak under it not recorded.
+- Not verified: RAM peak on 1 GB under a heavy pass; the walk on the daily schedule unattended (`walk_schedule_enabled` is off).
+- The daily Apify cap ($2 default) needs a temporary raise for spikes only; restore it afterwards (delete the stored row).
 - Not verified: Gmail send from the VM (Plan 4).
 - If the VM's Python ever changes: empty `/opt/gtm/.venv` as `gtm` over ssh first, then redeploy (uv cannot remove it; `/opt/gtm` is root-owned).
