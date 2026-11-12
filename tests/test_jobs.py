@@ -24,18 +24,18 @@ def clean(no_real_jobs):
 
 def test_enqueue_then_claim_returns_the_job_running():
     jid = enqueue(db, "clean", T)
-    j = claim(db)
+    j = claim(db, include_test=True)
     assert j["id"] == jid and j["status"] == "running" and j["started_at"]
 
 
 def test_claim_is_atomic_second_claim_gets_nothing():
     enqueue(db, "clean", T)
-    assert [x for x in (claim(db), claim(db)) if x] and claim(db) is None
+    assert [x for x in (claim(db, include_test=True), claim(db, include_test=True)) if x] and claim(db, include_test=True) is None
 
 
 def test_future_run_after_is_not_claimed():
     enqueue(db, "clean", T, run_after=datetime.now(timezone.utc) + timedelta(hours=1))
-    assert claim(db) is None
+    assert claim(db, include_test=True) is None
 
 
 def test_requeue_stale_returns_old_running_job_to_queue():
@@ -60,7 +60,7 @@ def test_requeue_stale_fails_jobs_after_three_attempts():
 
 def test_finish_sets_finished_at():
     jid = enqueue(db, "clean", T)
-    claim(db)
+    claim(db, include_test=True)
     finish(db, jid, "done", {"output": "x"})
     r = db.table("jobs").select("*").eq("id", jid).single().execute().data
     assert r["status"] == "done" and r["finished_at"] and r["result"] == {"output": "x"}
@@ -89,7 +89,7 @@ def test_guard_sees_a_real_queued_job_and_ignores_test_rows():
 
 def test_heartbeat_keeps_a_long_running_job_from_being_requeued():
     jid = enqueue(db, "clean", T)
-    claim(db)
+    claim(db, include_test=True)
     two_h = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
     db.table("jobs").update({"started_at": two_h}).eq("id", jid).execute()
     heartbeat(db, jid)
@@ -99,7 +99,7 @@ def test_heartbeat_keeps_a_long_running_job_from_being_requeued():
 
 def test_job_without_heartbeat_is_requeued_after_five_minutes():
     jid = enqueue(db, "clean", T)
-    claim(db)
+    claim(db, include_test=True)
     old = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
     db.table("jobs").update({"started_at": old, "heartbeat_at": old}).eq("id", jid).execute()
     assert requeue_stale(db) == 1
@@ -108,8 +108,22 @@ def test_job_without_heartbeat_is_requeued_after_five_minutes():
 
 def test_claim_sets_heartbeat_at():
     enqueue(db, "clean", T)
-    assert claim(db)["heartbeat_at"]
+    assert claim(db, include_test=True)["heartbeat_at"]
 
 
 def test_heartbeat_swallows_errors():
     assert heartbeat(MagicMock(side_effect=Exception), "x") is None
+
+
+def test_default_claim_ignores_test_marked_jobs():
+    jid = enqueue(db, "clean", T)
+    assert claim(db) is None
+    assert db.table("jobs").select("status").eq("id", jid).single().execute().data["status"] == "queued"
+    assert claim(db, include_test=True)["id"] == jid
+
+
+def test_claim_without_include_test_calls_rpc_without_args():
+    m = MagicMock()
+    m.rpc.return_value.execute.return_value.data = []
+    claim(m)
+    m.rpc.assert_called_once_with("claim_job")

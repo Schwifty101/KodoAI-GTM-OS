@@ -40,8 +40,8 @@ def _run_pass(kind: str, argv: list[str]) -> str:
     return out.getvalue()
 
 
-def run_one(db, run_pass=_run_pass) -> str | None:
-    job = claim(db)
+def run_one(db, run_pass=_run_pass, include_test: bool = False) -> str | None:
+    job = claim(db, include_test=include_test)
     if not job:
         return None
     try:
