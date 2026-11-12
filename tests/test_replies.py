@@ -68,18 +68,27 @@ def test_anything_unclear_or_failing_is_other():
     assert classify_reply(msg("hmm"), llm=boom) == "other"
 
 
-@pytest.mark.parametrize("text", ["Not interested, thanks.", "No thank you", "we're all set", "We are covered.", "No.", "no", "I am not interested", "We already have a provider"])
+@pytest.mark.parametrize("text", ["Not interested, thanks.", "No thank you", "we're all set", "We are covered.", "No.", "no", "I am not interested", "We already have a provider", "Not interested.\n\nSent from my iPhone", "I'm not interested"])
 def test_local_negative(text):
     assert local_kind(text) == "negative"
 
 
-@pytest.mark.parametrize("text", ["Sounds good, tell me more", "Yes please", "yes", "What's the pricing?", "Let's schedule a call", "I'm interested", "Send me more info"])
+@pytest.mark.parametrize("text", ["Sounds good, tell me more", "Yes please", "yes", "What's the pricing?", "Let's schedule a call", "I'm interested", "Send me more info", "no problem, send details"])
 def test_local_positive(text):
     assert local_kind(text) == "positive"
 
 
 @pytest.mark.parametrize("text", ["Not right now, maybe next quarter", "not sure if we're interested", "Who are you?", "Please send details but we are not interested",
-                                  "No thanks, can you explain what this is?", "hmm", "Circle back later, sounds good"])
+                                  "No thanks, can you explain what this is?", "hmm", "Circle back later, sounds good",
+                                  "Not interested in that, but I would love to hear about your capacity tool", "Sure, no need to call, just email me pricing",
+                                  "We already have a provider but we're unhappy with them", "Not a fit for the owner, but talk to my manager Dana", "Please don't hesitate to call",
+                                  "no need to apologize, I'd love to see a demo", "No need for a call, can you send a one pager", "not looking forward to another tool but intrigued",
+                                  "We're good on that front, but I'd love to learn about the booking piece", "We're good on that front. Forward this to dana@x.com she handles it",
+                                  "Not interested personally, my partner Jen handles marketing: jen@x.com", "Thanks! not for us, but my friend runs a spa, can I refer her",
+                                  "Not interested in Botox marketing, we need help with front desk calls", "we've been looking for something like this, not interested in contracts though",
+                                  "We are covered for now, but happy to chat in the spring", "Not interested at this time", "Not interested at the moment", "Not interested this year",
+                                  "Not interested, try us in 6 months", "No thanks for now", "we're good for now", "Not a fit yet, we open our second location in spring",
+                                  "I know", "note", "innovation", "Thank you for reaching out but we are not interested in this at all so please stop"])
 def test_local_unsure_falls_through(text):
     assert local_kind(text) is None
 
@@ -87,6 +96,11 @@ def test_local_unsure_falls_through(text):
 @pytest.mark.parametrize("text,kind", [("Not interested, thanks.", "negative"), ("Sounds good, tell me more", "positive")])
 def test_clear_replies_never_call_the_model(text, kind):
     assert classify_reply(msg(text), llm=lambda s, p: pytest.fail("local rules decide this")) == kind
+
+
+def test_dont_call_me_is_an_opt_out_and_dont_hesitate_is_not():
+    assert classify_reply(msg("Don't call me"), llm=lambda s, p: pytest.fail("rules decide this")) == "opt_out"
+    assert classify_reply(msg("Please don't hesitate to call"), llm=llm_says("other")) == "other"
 
 
 def test_unsure_replies_do_call_the_model():
@@ -240,3 +254,13 @@ def test_positive_reply_adds_no_suppression(world):
     db, leads, _ = world
     apply_reply(db, leads[0]["id"], "positive", "dana@glow0.com")
     assert db.table("suppression").select("id").in_("email", ["dana@glow0.com"]).execute().data == []
+
+
+@pytest.mark.db
+def test_a_later_positive_in_the_thread_beats_an_earlier_negative(world):
+    db, leads, _ = world
+    own = msg("Hi", frm="Soban <pytest-rep@example.com>")
+    threads = {"thread-0": [own, msg("not interested"), msg("actually tell me more")], "thread-1": [own], "thread-2": [own]}
+    out = run_replies(db, lambda addr: object(), lambda s, p: pytest.fail("local"), thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [])
+    assert out == {"positive": 1} and state(db, leads[0])[0] == "replied"
+    assert db.table("suppression").select("id").eq("reason", "not-interested").in_("email", ["dana@glow0.com"]).execute().data == []

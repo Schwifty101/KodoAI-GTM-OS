@@ -17,13 +17,17 @@ BOUNCE_FROM = re.compile(r"mailer-daemon|postmaster", re.I)
 BOUNCE_SUBJECT = re.compile(r"delivery status notification|undeliverable|mail delivery failed|returned mail", re.I)
 AUTO_SUBJECT = re.compile(r"^\s*(automatic reply|auto[- ]?reply|autoreply|out of office)\b", re.I)
 AUTO_BODY = re.compile(r"out of (the )?office|automatic reply|auto-?reply|i am currently (away|out)|on (annual )?leave until|on vacation", re.I)
-OPT_OUT = re.compile(r"unsubscribe|stop (emailing|contacting|sending|email)|take me off|remove me|please remove|do not (contact|email)|don'?t (contact|email)|opt[- ]?out|no more emails", re.I)
+OPT_OUT = re.compile(r"unsubscribe|stop (emailing|contacting|sending|email)|take me off|remove me|please remove|do not (contact|email)|don'?t (contact|email|call)|opt[- ]?out|no more emails", re.I)
 # Local classifier: clear declines and clear interest skip the model; anything uncertain or deferred is left to it.
-NEG_CUE = re.compile(r"not interested|no thanks|no thank you|not for us|not a fit|we(?:'re| are) (?:all set|good|covered)|already have (?:a|an|someone|a provider|a system)"
-                     r"|not looking|no need|please don't|^\W*no\W*$", re.I)
-POS_CUE = re.compile(r"tell me more|sounds (?:good|interesting)|(?:i|we)(?:'m|'re| am| are) interested|let'?s (?:talk|chat|connect|schedule|set up)|send (?:me )?(?:more )?(?:info|information|details)"
-                     r"|how much|what(?:'?s| is) the (?:price|pricing|cost)|(?:book|schedule) a (?:call|demo)|call me|^\W*yes(?: please)?\W*$", re.I)
-DEFER_CUE = re.compile(r"not right now|maybe|not sure|next (?:quarter|month|year)|\blater\b|circle back|reach out (?:in|again)|check back", re.I)
+NEG_CUE = re.compile(r"\bnot interested\b|\bno thanks\b|\bno thank you\b|\bnot for us\b|\bnot a fit\b|\bwe(?:'re| are) (?:all set|good|covered)\b"
+                     r"|\balready have (?:a|an|someone|a provider|a system)\b|\bnot looking\b(?! forward)|^\W*no\W*$", re.I)
+POS_CUE = re.compile(r"\btell me more\b|\bsounds (?:good|interesting)\b|\b(?:i|we)(?:'m|'re| am| are) interested\b|\blet'?s (?:talk|chat|connect|schedule|set up)\b"
+                     r"|\bsend (?:me )?(?:more )?(?:info|information|details)\b|\bhow much\b|\bwhat(?:'?s| is) the (?:price|pricing|cost)\b|\b(?:book|schedule) a (?:call|demo)\b|\bcall me\b|^\W*yes(?: please)?\W*$", re.I)
+# Deferral, either side. Negative also needs a short reply and none of the contrast, referral or interest words: a wrong "no" suppresses the lead for good.
+DEFER_CUE = re.compile(r"\b(?:not right now|maybe|not sure|next|\blater|circle back|reach out|check back|for now|at this time|at the moment|this year|in \d+ (?:days?|weeks?|months?)"
+                       r"|spring|summer|fall|autumn|winter|january|february|march|april|may|june|july|august|september|october|november|december)\b", re.I)
+NEG_VETO = re.compile(r"\b(?:but|though|however|actually|although|yet|manager|partner|colleague|assistant|handles|forward|refer|my (?:friend|boss|wife|husband)|someone else|wrong (?:person|email)"
+                      r"|not the (?:right )?(?:person|owner|one)|love to|would like to|demo|pric(?:e|ing)|cost|one[- ]?pager|email me|call me|intrigued|curious|learn more|tell me more|send|need|help)\b|@", re.I)
 FREE_MAIL = {"gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com", "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com"}
 
 
@@ -37,7 +41,7 @@ def new_text(body: str) -> str:
 def local_kind(text: str) -> str | None:
     """negative or positive only when the cue is clear; None sends it to the model."""
     neg, pos = NEG_CUE.search(text), POS_CUE.search(text)
-    if DEFER_CUE.search(text) or bool(neg) == bool(pos) or (neg and "?" in text):
+    if DEFER_CUE.search(text) or bool(neg) == bool(pos) or (neg and ("?" in text or len(text.split()) > 12 or NEG_VETO.search(text))):
         return None
     return "negative" if neg else "positive"
 
@@ -66,7 +70,7 @@ def classify_reply(msg: dict, llm=None) -> str:
     return "other"
 
 
-PRIORITY = {"bounce": 0, "opt_out": 1, "positive": 2, "negative": 2, "other": 2, "auto_reply": 3}
+PRIORITY = {"bounce": 0, "opt_out": 1, "positive": 2, "other": 2, "negative": 2.5, "auto_reply": 3}
 
 
 def _address(frm: str) -> str:
