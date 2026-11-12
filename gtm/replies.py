@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+from gtm.costs import spend_context
 from gtm.db import fetch_all
 from gtm.gmail import recent_bounces, thread_messages
 from gtm.status import Status
@@ -17,6 +18,12 @@ BOUNCE_SUBJECT = re.compile(r"delivery status notification|undeliverable|mail de
 AUTO_SUBJECT = re.compile(r"^\s*(automatic reply|auto[- ]?reply|autoreply|out of office)\b", re.I)
 AUTO_BODY = re.compile(r"out of (the )?office|automatic reply|auto-?reply|i am currently (away|out)|on (annual )?leave until|on vacation", re.I)
 OPT_OUT = re.compile(r"unsubscribe|stop (emailing|contacting|sending|email)|take me off|remove me|please remove|do not (contact|email)|don'?t (contact|email)|opt[- ]?out|no more emails", re.I)
+# Local classifier: clear declines and clear interest skip the model; anything uncertain or deferred is left to it.
+NEG_CUE = re.compile(r"not interested|no thanks|no thank you|not for us|not a fit|we(?:'re| are) (?:all set|good|covered)|already have (?:a|an|someone|a provider|a system)"
+                     r"|not looking|no need|please don't|^\W*no\W*$", re.I)
+POS_CUE = re.compile(r"tell me more|sounds (?:good|interesting)|(?:i|we)(?:'m|'re| am| are) interested|let'?s (?:talk|chat|connect|schedule|set up)|send (?:me )?(?:more )?(?:info|information|details)"
+                     r"|how much|what(?:'?s| is) the (?:price|pricing|cost)|(?:book|schedule) a (?:call|demo)|call me|^\W*yes(?: please)?\W*$", re.I)
+DEFER_CUE = re.compile(r"not right now|maybe|not sure|next (?:quarter|month|year)|\blater\b|circle back|reach out (?:in|again)|check back", re.I)
 FREE_MAIL = {"gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com", "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com"}
 
 
@@ -25,6 +32,14 @@ def new_text(body: str) -> str:
     body = body.replace("’", "'")
     cut = re.split(r"\n\s*On .{0,150}wrote:|\n-{2,}\s*Original Message\s*-{2,}|\nFrom: .*\nSent:", body, maxsplit=1, flags=re.S)[0]
     return "\n".join(ln for ln in cut.splitlines() if not ln.lstrip().startswith(">")).strip()
+
+
+def local_kind(text: str) -> str | None:
+    """negative or positive only when the cue is clear; None sends it to the model."""
+    neg, pos = NEG_CUE.search(text), POS_CUE.search(text)
+    if DEFER_CUE.search(text) or bool(neg) == bool(pos) or (neg and "?" in text):
+        return None
+    return "negative" if neg else "positive"
 
 
 def classify_reply(msg: dict, llm=None) -> str:
@@ -40,6 +55,8 @@ def classify_reply(msg: dict, llm=None) -> str:
         return "opt_out"  # before the body check: "back from vacation, please remove me" is a person asking to stop
     if AUTO_BODY.search(text):
         return "auto_reply"
+    if kind := local_kind(text):
+        return kind
     if llm:
         try:
             kind = llm(SYSTEM, text[:2000]).get("kind")
@@ -67,13 +84,19 @@ def apply_reply(db, lead_id: str, kind: str, sender: str | None = None) -> None:
         db.table("touches").update({"outcome": kind}).eq("id", last[0]["id"]).execute()
     status = {"opt_out": Status.UNSUBSCRIBED, "bounce": Status.BOUNCED}.get(kind, Status.REPLIED)
     db.table("leads").update({"status": status.value}).eq("id", lead_id).execute()
-    if kind == "opt_out":
-        rows = [{"email": e, "reason": "opt-out reply"} for e in {lead["owner_email"], sender} if e]
+    if kind in {"opt_out", "negative"}:
+        reason = "opt-out reply" if kind == "opt_out" else "not-interested"
+        rows = [{"email": e, "reason": reason} for e in {lead["owner_email"], sender} if e]
         if lead["domain"] and lead["domain"] not in FREE_MAIL:  # the business's own domain, never a shared mail provider
-            rows.append({"domain": lead["domain"], "reason": "opt-out reply"})
+            rows.append({"domain": lead["domain"], "reason": reason})
         db.table("suppression").insert(rows).execute()
     elif kind == "bounce" and lead["owner_email"]:
         db.table("suppression").insert({"email": lead["owner_email"], "reason": "bounce"}).execute()
+
+
+def _classify_for(m: dict, llm, lead_id: str) -> str:
+    with spend_context(lead_id=lead_id):  # the model's cost row names the lead
+        return classify_reply(m, llm)
 
 
 def run_replies(db, gmail_for, llm, thread_messages=thread_messages, recent_bounces=recent_bounces) -> dict[str, int]:
@@ -87,7 +110,7 @@ def run_replies(db, gmail_for, llm, thread_messages=thread_messages, recent_boun
             inbound = [m for tid in threads for m in thread_messages(svc, tid) if mb["address"].lower() not in m["from"].lower()]
             if not inbound:
                 continue
-            ranked = sorted(((classify_reply(m, llm), m) for m in inbound), key=lambda km: PRIORITY[km[0]])  # stable: bounce, opt-out, then a real reply, then auto-reply
+            ranked = sorted(((_classify_for(m, llm, lead_id), m) for m in inbound), key=lambda km: PRIORITY[km[0]])  # stable: bounce, opt-out, then a real reply, then auto-reply
             kind, m = ranked[0]
             counts[kind] += 1
             apply_reply(db, lead_id, kind, _address(m["from"]))

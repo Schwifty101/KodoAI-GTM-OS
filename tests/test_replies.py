@@ -2,7 +2,7 @@ import pytest
 
 from support import purge_test_suppression
 from gtm.db import get_db
-from gtm.replies import apply_reply, classify_reply, new_text, run_replies
+from gtm.replies import apply_reply, classify_reply, local_kind, new_text, run_replies
 from gtm.scrape import new_batch, place_to_lead
 
 
@@ -55,7 +55,7 @@ def test_bounce_notices_are_bounce(frm, subject):
 
 @pytest.mark.parametrize("kind", ["positive", "negative", "other"])
 def test_the_model_decides_between_positive_negative_and_other(kind):
-    assert classify_reply(msg("Tell me more about what you build."), llm=llm_says(kind)) == kind
+    assert classify_reply(msg("Who are you and what do you build?"), llm=llm_says(kind)) == kind
 
 
 def test_anything_unclear_or_failing_is_other():
@@ -66,6 +66,52 @@ def test_anything_unclear_or_failing_is_other():
         raise RuntimeError("down")
 
     assert classify_reply(msg("hmm"), llm=boom) == "other"
+
+
+@pytest.mark.parametrize("text", ["Not interested, thanks.", "No thank you", "we're all set", "We are covered.", "No.", "no", "I am not interested", "We already have a provider"])
+def test_local_negative(text):
+    assert local_kind(text) == "negative"
+
+
+@pytest.mark.parametrize("text", ["Sounds good, tell me more", "Yes please", "yes", "What's the pricing?", "Let's schedule a call", "I'm interested", "Send me more info"])
+def test_local_positive(text):
+    assert local_kind(text) == "positive"
+
+
+@pytest.mark.parametrize("text", ["Not right now, maybe next quarter", "not sure if we're interested", "Who are you?", "Please send details but we are not interested",
+                                  "No thanks, can you explain what this is?", "hmm", "Circle back later, sounds good"])
+def test_local_unsure_falls_through(text):
+    assert local_kind(text) is None
+
+
+@pytest.mark.parametrize("text,kind", [("Not interested, thanks.", "negative"), ("Sounds good, tell me more", "positive")])
+def test_clear_replies_never_call_the_model(text, kind):
+    assert classify_reply(msg(text), llm=lambda s, p: pytest.fail("local rules decide this")) == kind
+
+
+def test_unsure_replies_do_call_the_model():
+    assert classify_reply(msg("Not right now, maybe next quarter"), llm=llm_says("other")) == "other"
+    assert classify_reply(msg("Who are you?"), llm=llm_says("negative")) == "negative"
+
+
+@pytest.mark.db
+def test_classification_cost_carries_the_lead(world):
+    from gtm.costs import log_cost
+
+    db, leads, _ = world
+    own = msg("Hi", frm="Soban <pytest-rep@example.com>")
+    threads = {"thread-0": [own, msg("Who are you?")], "thread-1": [own], "thread-2": [own]}
+
+    def llm(system, prompt):
+        log_cost("gemini", 1, None, note="pytest-classify")
+        return {"kind": "other"}
+
+    try:
+        run_replies(db, lambda addr: object(), llm, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [])
+        got = db.table("cost_log").select("lead_id").eq("note", "pytest-classify").execute().data
+        assert [g["lead_id"] for g in got] == [leads[0]["id"]]
+    finally:
+        db.table("cost_log").delete().eq("note", "pytest-classify").execute()
 
 
 @pytest.fixture
@@ -177,3 +223,20 @@ def test_run_replies_reads_the_threads_of_every_sent_touch_not_just_the_latest(w
     threads = {"thread-0": [own, msg("stop emailing me")], "thread-new": [own], "thread-1": [own], "thread-2": [own]}
     out = run_replies(db, lambda addr: object(), lambda s, p: {"kind": "other"}, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [])
     assert out == {"opt_out": 1} and state(db, leads[0])[0] == "unsubscribed"
+
+
+@pytest.mark.db
+def test_negative_reply_suppresses_like_an_opt_out_but_keeps_replied(world):
+    db, leads, _ = world
+    apply_reply(db, leads[0]["id"], "negative", "dana@glow0.com")
+    assert state(db, leads[0])[0] == "replied"
+    rows = db.table("suppression").select("*").eq("reason", "not-interested").in_("email", ["dana@glow0.com"]).execute().data
+    dom = db.table("suppression").select("*").eq("reason", "not-interested").eq("domain", "glow0.com").execute().data
+    assert len(rows) == 1 and len(dom) == 1
+
+
+@pytest.mark.db
+def test_positive_reply_adds_no_suppression(world):
+    db, leads, _ = world
+    apply_reply(db, leads[0]["id"], "positive", "dana@glow0.com")
+    assert db.table("suppression").select("id").in_("email", ["dana@glow0.com"]).execute().data == []

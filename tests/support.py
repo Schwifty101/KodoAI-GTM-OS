@@ -8,6 +8,6 @@ TEST_EMAILS = [f"dana@glow{i}.com" for i in range(300)] + ["other@glow0.com", "d
 
 def purge_test_suppression(db) -> None:
     for i in range(0, len(TEST_EMAILS), 100):
-        db.table("suppression").delete().in_("reason", ["opt-out reply", "bounce"]).in_("email", TEST_EMAILS[i : i + 100]).execute()
+        db.table("suppression").delete().in_("reason", ["opt-out reply", "bounce", "not-interested"]).in_("email", TEST_EMAILS[i : i + 100]).execute()
     for i in range(0, len(TEST_DOMAINS), 100):
-        db.table("suppression").delete().in_("reason", ["opt-out reply", "bounce"]).in_("domain", TEST_DOMAINS[i : i + 100]).execute()
+        db.table("suppression").delete().in_("reason", ["opt-out reply", "bounce", "not-interested"]).in_("domain", TEST_DOMAINS[i : i + 100]).execute()
