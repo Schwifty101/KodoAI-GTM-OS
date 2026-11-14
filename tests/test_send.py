@@ -177,7 +177,8 @@ def test_stopped_and_blocked_leads_are_not_scheduled(world):
     assert _status(db, a["id"]) == "approved" and _status(db, b["id"]) == "approved"
 
 
-PAST = "2026-11-10T17:00:00+00:00"  # an hour before NOW
+PAST = "2026-11-10T17:55:00+00:00"  # five minutes before NOW: due, not stale
+STALE = "2026-11-10T15:00:00+00:00"  # three hours before NOW
 
 
 def _go(db, gm, mb, **kw):
@@ -367,6 +368,17 @@ def test_clearing_a_bounce_pause_with_ramp_from_does_not_repause_on_the_same_bou
     db.table("mailboxes").update({"paused": False, "paused_reason": None, "ramp_from": TODAY.isoformat()}).eq("id", mb["id"]).execute()
     out = _tick(db, Gmail(), mailbox_id=mb["id"])
     assert "paused" not in out and db.table("mailboxes").select("paused").eq("id", mb["id"]).execute().data[0]["paused"] is False
+
+
+@pytest.mark.db
+def test_stale_scheduled_touches_are_respread_not_sent_back_to_back(world):
+    db, bid, mb = world
+    ls = make_leads(db, bid, mb, 2, touch_status="scheduled", tkw={"send_at": STALE})  # ramp_start 2: room for both
+    gm = Gmail()
+    out = _tick(db, gm, mailbox_id=mb["id"])
+    ts = [touch(db, l["id"]) for l in ls]
+    assert gm.sent == [] and out["send"].get("sent", 0) == 0
+    assert all(t["status"] == "scheduled" and datetime.fromisoformat(t["send_at"]) >= NOW for t in ts)  # a fresh send_at in the rest of today's window
 
 
 @pytest.mark.db

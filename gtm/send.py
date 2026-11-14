@@ -17,6 +17,7 @@ from gtm.status import Status
 
 STOPPED = {Status.REPLIED.value, Status.BOUNCED.value, Status.UNSUBSCRIBED.value, Status.SUPPRESSED.value, Status.BOOKED.value}
 REPLIES_EVERY_MINUTES = 10  # replies are read per mailbox at most this often: one threads.get per sent lead per read
+STALE_MINUTES = 15  # a scheduled touch this far overdue (pause, outage, overnight) is re-spread instead of sent in a burst
 WINDOW_DAYS = 7  # bounce rate is judged over the last week of sends
 SEND_START, SEND_END = 9, 16  # local hours, Mon-Fri: design spec section 15 (owner guess, "9 to 4"); a lead with no tz uses Chicago
 
@@ -84,6 +85,15 @@ def schedule_approved(db, mailbox: dict, now: datetime, settings: Settings, rng:
             room -= 1
             n += 1
     return n
+
+
+def respread_stale(db, mailbox: dict, now: datetime) -> int:
+    """Scheduled touches overdue by more than STALE_MINUTES go back to approved (send_at cleared) so schedule_approved spreads them again."""
+    cutoff = now - timedelta(minutes=STALE_MINUTES)
+    ids = [t["id"] for t in _touches(db, mailbox["id"], "scheduled") if datetime.fromisoformat(t["send_at"]) < cutoff]
+    if ids:
+        db.table("touches").update({"status": "approved", "send_at": None}).in_("id", ids).eq("status", "scheduled").execute()
+    return len(ids)
 
 
 def _cancel(db, t: dict) -> None:
@@ -187,6 +197,7 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
         if _auto_pause(db, mb, now, s):
             out["paused"] = out.get("paused", 0) + 1
             continue
+        respread_stale(db, mb, now)
         out["scheduled"] += schedule_approved(db, mb, now, s, anytime=anytime)
         out["send"].update(send_scheduled(db, lambda _: svc, mb, now, s, anytime=anytime))
     out["replies"], out["send"] = dict(out["replies"]), dict(out["send"])
