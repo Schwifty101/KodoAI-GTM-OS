@@ -9,8 +9,10 @@ from datetime import date
 from gtm import budget
 from gtm.budget import BudgetExceeded
 from gtm.apify import MIN_CAP, run_places
-from gtm.db import get_db
+from gtm.db import fetch_all, get_db
+from gtm.tz import lead_tz
 from gtm.clean import run_clean
+from gtm.batches import BATCH_SIZE, assign_batches
 from gtm.config import get_settings
 from gtm.enrich import hunter_domain_finder, run_enrich, site_owner_finder
 from gtm.harvest import HarvestClient, harvest_finder
@@ -22,7 +24,7 @@ from gtm.prospeo import ProspeoClient, prospeo_finder
 from gtm.owner_search import search_owner_finder
 from gtm.researcher import gemini_step, research_owner_finder
 from gtm.search import serper_search
-from gtm.sitescrape import http_fetch
+from gtm.sitescrape import fetch_with_fallback
 from gtm.draft import run_draft, run_followups
 from gtm.gmail import gmail_service
 from gtm.replies import run_replies
@@ -43,6 +45,19 @@ def cmd_scrape(a: argparse.Namespace) -> None:
     print(f"batch {batch}: {new} new leads, {known} already known")
 
 
+def cmd_walk(a: argparse.Namespace) -> None:
+    from gtm.coverage import run_walk
+    from gtm.settings_store import setting
+
+    print(run_walk(get_db(), lambda inp: run_places(inp, MIN_CAP), a.tiles or setting("walk_tiles_per_run")))
+
+
+def cmd_seed_coverage(a: argparse.Namespace) -> None:
+    from gtm.coverage import load_metros, seed_coverage
+
+    print(f"{seed_coverage(get_db(), load_metros())} tiles inserted")
+
+
 def cmd_clean(a: argparse.Namespace) -> None:
     print(run_clean(get_db(), a.batch))
 
@@ -52,7 +67,7 @@ def cmd_enrich(a: argparse.Namespace) -> None:
     available = {
         "site": site_owner_finder(pool),  # free scrape for a name, then Hunter Email Finder
         "search": search_owner_finder(pool, serper_search, complete_json),  # "owner of <domain>" search, then Hunter Email Finder
-        "research": research_owner_finder(pool, serper_search, http_fetch, gemini_step, budget=a.research_budget),  # LLM web-research loop for a named owner, code-validated, then Hunter Email Finder
+        "research": research_owner_finder(pool, serper_search, fetch_with_fallback, gemini_step, budget=a.research_budget),  # LLM web-research loop for a named owner, code-validated, then Hunter Email Finder
         "prospeo": prospeo_finder(ProspeoClient(get_settings().prospeo_api_key, batch_id=a.batch)),  # verified email for a named owner; pays only on a find
         "harvest": harvest_finder(HarvestClient(get_settings().harvest_api_key, a.harvest_budget, batch_id=a.batch), serper_search),  # LinkedIn lookup of a named owner
         "hunter": hunter_domain_finder(pool),  # Hunter Domain Search
@@ -69,7 +84,9 @@ def cmd_signals(a: argparse.Namespace) -> None:
 
 
 def cmd_select(a: argparse.Namespace) -> None:
-    print(f"selected {run_select(get_db(), complete_json, a.batch)} leads")
+    db = get_db()
+    print(f"selected {run_select(db, complete_json, a.batch)} leads")
+    print(f"numbered {assign_batches(db)} leads into batches of {BATCH_SIZE}")
 
 
 def cmd_draft(a: argparse.Namespace) -> None:
@@ -101,6 +118,17 @@ def cmd_import_history(a: argparse.Namespace) -> None:
 
 def cmd_replies(a: argparse.Namespace) -> None:
     print(run_replies(get_db(), gmail_service, complete_reply_json))
+
+
+def cmd_tz_backfill(a: argparse.Namespace) -> None:
+    db = get_db()
+    rows = fetch_all(lambda: db.table("leads").select("id,city,state").is_("tz", "null").order("id"))
+    n = 0
+    for r in rows:
+        if tz := lead_tz(r["state"], r["city"]):
+            db.table("leads").update({"tz": tz}).eq("id", r["id"]).execute()
+            n += 1
+    print(f"tz set on {n} of {len(rows)} leads")
 
 
 def cmd_mailbox(a: argparse.Namespace) -> None:
@@ -137,6 +165,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-places", type=int, default=40, help="per query")
     s.add_argument("--max-usd", type=float, default=MIN_CAP)
     s.set_defaults(fn=cmd_scrape)
+    w = sub.add_parser("walk", help="scrape and clean the next uncovered tiles")
+    w.add_argument("--tiles", type=int)
+    w.set_defaults(fn=cmd_walk)
+    sub.add_parser("seed-coverage").set_defaults(fn=cmd_seed_coverage)
     c = sub.add_parser("clean")
     c.add_argument("--batch", required=True)
     c.set_defaults(fn=cmd_clean)
@@ -182,6 +214,8 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("kind")
     q.add_argument("flags", nargs=argparse.REMAINDER)
     q.set_defaults(fn=cmd_enqueue)
+    t = sub.add_parser("tz-backfill", help="set tz on leads that have none (free)")
+    t.set_defaults(fn=cmd_tz_backfill)
     return p
 
 

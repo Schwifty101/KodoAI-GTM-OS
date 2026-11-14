@@ -13,9 +13,10 @@ def enqueue(db, kind: str, payload: dict | None = None, run_after: datetime | No
     return db.table("jobs").insert(row).execute().data[0]["id"]
 
 
-def claim(db) -> dict | None:
+def claim(db, include_test: bool = False) -> dict | None:
     """Atomically take the oldest due queued job (marked running), or None."""
-    data = db.rpc("claim_job").execute().data
+    rpc = db.rpc("claim_job", {"include_test": True}) if include_test else db.rpc("claim_job")
+    data = rpc.execute().data
     row = data[0] if isinstance(data, list) and data else data
     return row if row and row.get("id") else None  # an empty queue comes back as a row of nulls
 

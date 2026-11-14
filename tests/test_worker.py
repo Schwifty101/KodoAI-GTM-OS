@@ -33,7 +33,7 @@ def _boom(exc):
 def test_run_one_success_marks_done_with_output(clean):
     jid = enqueue(db, "clean", {"test": 1, "argv": ["--batch", "x"]})
     seen = []
-    assert run_one(db, lambda k, a: seen.append((k, a)) or "ok") == jid
+    assert run_one(db, include_test=True, run_pass=lambda k, a: seen.append((k, a)) or "ok") == jid
     j = _job(jid)
     assert j["status"] == "done" and j["result"] == {"output": "ok"} and seen == [("clean", ["--batch", "x"])]
 
@@ -41,7 +41,7 @@ def test_run_one_success_marks_done_with_output(clean):
 @pytest.mark.db
 def test_run_one_budget_exceeded_marks_paused_budget(clean):
     jid = enqueue(db, "clean", {"test": 1})
-    run_one(db, _boom(BudgetExceeded("cap")))
+    run_one(db, include_test=True, run_pass=_boom(BudgetExceeded("cap")))
     j = _job(jid)
     assert j["status"] == "paused_budget" and "cap" in j["error"]
 
@@ -50,7 +50,7 @@ def test_run_one_budget_exceeded_marks_paused_budget(clean):
 @pytest.mark.parametrize("exc", [RuntimeError("bad"), SystemExit("nope")])
 def test_run_one_exception_marks_failed_with_error(clean, exc):
     jid = enqueue(db, "clean", {"test": 1})
-    run_one(db, _boom(exc))
+    run_one(db, include_test=True, run_pass=_boom(exc))
     j = _job(jid)
     assert j["status"] == "failed" and str(exc) in j["error"]
 
@@ -58,14 +58,14 @@ def test_run_one_exception_marks_failed_with_error(clean, exc):
 @pytest.mark.db
 def test_run_one_unknown_kind_fails_without_running_anything(clean):
     jid = enqueue(db, "send", {"test": 1})
-    run_one(db, _boom(AssertionError("must not run")))
+    run_one(db, include_test=True, run_pass=_boom(AssertionError("must not run")))
     j = _job(jid)
     assert j["status"] == "failed" and "send" in j["error"]
 
 
 @pytest.mark.db
 def test_run_one_empty_queue_returns_none(clean):
-    assert run_one(db, _boom(AssertionError("must not run"))) is None
+    assert run_one(db, include_test=True, run_pass=_boom(AssertionError("must not run"))) is None
 
 
 def test_run_pass_parses_argv_with_the_real_parser():
@@ -85,7 +85,7 @@ def test_enrich_pass_hitting_the_budget_cap_finishes_the_job_paused_budget(monke
         raise BudgetExceeded("gemini cap")
 
     done = []
-    monkeypatch.setattr(worker, "claim", lambda d: {"id": "j1", "kind": "enrich", "payload": {"argv": ["--batch", "b", "--finders", "site"]}})
+    monkeypatch.setattr(worker, "claim", lambda d, **k: {"id": "j1", "kind": "enrich", "payload": {"argv": ["--batch", "b", "--finders", "site"]}})
     monkeypatch.setattr(worker, "finish", lambda d, i, s, result=None, error=None: done.append((i, s, error)))
     monkeypatch.setattr(cli, "get_db", lambda: fdb)
     monkeypatch.setattr(cli, "HunterPool", lambda *a, **k: None)
@@ -99,7 +99,7 @@ def test_run_one_keyboard_interrupt_cancels_the_job_and_reraises(monkeypatch):
     from gtm import worker
 
     done = []
-    monkeypatch.setattr(worker, "claim", lambda d: {"id": "j1", "kind": "clean", "payload": {}})
+    monkeypatch.setattr(worker, "claim", lambda d, **k: {"id": "j1", "kind": "clean", "payload": {}})
     monkeypatch.setattr(worker, "finish", lambda d, i, s, result=None, error=None: done.append((i, s, error)))
     with pytest.raises(KeyboardInterrupt):
         run_one(None, _boom(KeyboardInterrupt()))
@@ -124,7 +124,7 @@ def test_run_one_beats_during_the_pass(monkeypatch):
 
     beats = []
     monkeypatch.setattr(worker, "BEAT_SECONDS", 0.01)
-    monkeypatch.setattr(worker, "claim", lambda d: {"id": "j1", "kind": "clean", "payload": {}})
+    monkeypatch.setattr(worker, "claim", lambda d, **k: {"id": "j1", "kind": "clean", "payload": {}})
     monkeypatch.setattr(worker, "finish", lambda *a, **k: None)
     monkeypatch.setattr(worker, "heartbeat", lambda d, i: beats.append(i))
     run_one(None, lambda kind, argv: time.sleep(0.1) or "ok")

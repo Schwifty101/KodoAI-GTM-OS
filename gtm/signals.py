@@ -7,7 +7,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from gtm.sitescrape import _lines, http_fetch
+from gtm.sitescrape import _lines, fetch_with_fallback
 from gtm.costs import spend_context
 from gtm.status import Status
 
@@ -28,7 +28,7 @@ def detect_platform(html: str) -> str | None:
     return next((name for key, name in PLATFORMS.items() if key in low), None)
 
 
-def fetch_evidence(lead: dict, fetch=http_fetch) -> dict:
+def fetch_evidence(lead: dict, fetch=fetch_with_fallback) -> dict:
     pages, platform, total = [], None, 0
     for path in PATHS:
         url = f"https://{lead['domain']}{path}"

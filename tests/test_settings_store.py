@@ -58,3 +58,14 @@ def test_float_settings_accept_fractions_and_malformed_dates_fall_back():
     db.table("settings").upsert({"key": "credit_end_date", "value": "soon"}).execute()
     clear_cache()
     assert setting("credit_end_date") == "2027-02-09"
+
+
+def test_walk_and_fallback_defaults():
+    from gtm.settings_store import DEFAULTS
+    want = {"walk_schedule_enabled": False, "walk_hour_utc": 13, "walk_tiles_per_run": 3,
+            "walk_queries": "med spa,aesthetics clinic", "walk_max_places": 40,
+            "walk_escalate_at": 0.8, "fetch_fallback": True}
+    for k, v in want.items():
+        assert DEFAULTS[k] == v and type(DEFAULTS[k]) is type(v)
+    with pytest.raises(ValueError):
+        set_setting(db, "walk_hour_utc", True)

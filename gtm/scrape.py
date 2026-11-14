@@ -7,11 +7,12 @@ from urllib.parse import urlparse
 
 from gtm.costs import log_cost
 from gtm.status import Status
+from gtm.tz import lead_tz
 
 DEFAULT_QUERIES = ["med spa", "aesthetics clinic", "botox"]  # measured, docs/spikes/apify.md A2
 SCRAPE_COLUMNS = {
     "place_id", "name", "website", "domain", "address", "city", "state", "category", "categories",
-    "closed", "rating", "review_count", "status", "batch_id",
+    "closed", "rating", "review_count", "status", "batch_id", "tz",
 }
 
 
@@ -38,6 +39,7 @@ def place_to_lead(item: dict, batch_id: str) -> dict:
         "review_count": item.get("reviewsCount"),
         "status": Status.SCRAPED.value,
         "batch_id": batch_id,
+        "tz": lead_tz(item.get("state"), item.get("city")),
     }
 
 

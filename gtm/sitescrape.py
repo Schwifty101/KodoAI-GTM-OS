@@ -89,11 +89,56 @@ def find_owner_candidates(domain: str, fetch) -> list[dict]:
     return []
 
 
-def http_fetch(url: str) -> str | None:
+BLOCK_CODES = {401, 403, 406, 429, 503}
+CHALLENGE = ("just a moment", "attention required", "captcha", "cf-chl", "verify you are human", "access denied")
+MIN_TEXT = 200
+
+
+def _visible(html: str) -> str:
+    return " ".join(_lines(html))
+
+
+def _is_challenge(text: str) -> bool:
+    # ponytail: markers only checked on short pages, a long real page may mention reCAPTCHA in a form footer
+    return len(text) < 2000 and any(m in text.lower() for m in CHALLENGE)
+
+
+def fetch_page(url: str) -> tuple[str | None, str]:
+    """(html, outcome): ok, blocked (paid fallback may help) or gone (never worth paying for)."""
     try:
         r = httpx.get(url, timeout=10, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; KodoAI research)"})
-    except httpx.HTTPError:
-        return None
+    except (httpx.HTTPError, httpx.InvalidURL):
+        return None, "gone"
+    if r.status_code in BLOCK_CODES:
+        return None, "blocked"
     if r.status_code != 200 or "html" not in r.headers.get("content-type", "") or len(r.content) > 1_500_000:
-        return None
-    return r.text
+        return None, "gone"
+    vis = _visible(r.text)
+    if _is_challenge(vis) or (len(vis) < MIN_TEXT and "<script" in r.text.lower()):
+        return None, "blocked"
+    return r.text, "ok"
+
+
+def http_fetch(url: str) -> str | None:
+    return fetch_page(url)[0]
+
+
+def fetch_with_fallback(url: str) -> str | None:
+    """Direct fetch; only when it is blocked (and the setting is on) try Serper, then Apify (cheapest first)."""
+    from gtm import apify, search  # late: both import paid-call plumbing
+    from gtm.budget import BudgetExceeded
+    from gtm.settings_store import setting
+
+    text, outcome = fetch_page(url)
+    if outcome != "blocked" or not setting("fetch_fallback"):
+        return text
+    for route in (search.serper_scrape, apify.crawl_page):
+        try:
+            got = route(url)
+        except BudgetExceeded:
+            raise
+        except Exception:
+            continue
+        if got and len(got) >= MIN_TEXT and not _is_challenge(got):
+            return got
+    return None

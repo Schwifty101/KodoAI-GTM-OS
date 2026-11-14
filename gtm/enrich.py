@@ -5,7 +5,7 @@ from __future__ import annotations
 from gtm.buyer import is_decision_maker, is_role_email, pick_buyer, seniority  # noqa: F401  (re-exported: the plan's interface)
 from gtm.budget import BudgetExceeded
 from gtm.hunter import HunterPool, OutOfCredits
-from gtm.sitescrape import find_owner_candidates, http_fetch
+from gtm.sitescrape import find_owner_candidates, fetch_with_fallback
 from gtm.costs import spend_context
 from gtm.status import Status
 
@@ -14,7 +14,7 @@ def hunter_domain_finder(pool: HunterPool):
     return lambda lead: pool.domain_search(lead["domain"])
 
 
-def site_owner_finder(pool: HunterPool, fetch=http_fetch):
+def site_owner_finder(pool: HunterPool, fetch=fetch_with_fallback):
     """Free scrape for an owner's name, then Hunter Email Finder (1 credit only if it finds one)."""
 
     def find(lead: dict) -> list[dict]:
