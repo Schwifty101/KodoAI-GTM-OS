@@ -396,6 +396,33 @@ def test_force_reads_replies_even_when_recently_checked(world):
     assert "t-f" in seen
 
 
+@pytest.mark.db
+@pytest.mark.parametrize("broken", ["service", "replies"])
+def test_a_gmail_failure_pauses_that_mailbox_with_the_reason(world, broken):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    make_leads(db, bid, mb, 1, status="sent", touch_status="sent", offset=60, prefix="REHEARSAL_F_", sent_at="2026-11-07T12:00:00+00:00", tkw={"gmail_thread_id": "t-g"})
+    gm = Gmail()
+
+    def gmail_for(addr):
+        if broken == "service":
+            raise RuntimeError("Gmail token missing or invalid for " + addr + ": re-authorise on the Mac")
+        return gm
+
+    def tm(svc, tid):
+        raise ConnectionError("x" * 300)
+
+    import gtm.send as send
+
+    send.setting = lambda key, db=None: True
+    out = send_tick(db, gmail_for, lambda s, p: {"kind": "other"}, settings=SETTINGS, now=NOW, thread_messages=tm, recent_bounces=lambda svc: [])
+    row = db.table("mailboxes").select("*").eq("id", mb["id"]).execute().data[0]
+    assert out["paused"] == 1 and gm.sent == [] and row["paused"] is True
+    want = "gmail: RuntimeError: Gmail token missing" if broken == "service" else "gmail: ConnectionError: " + "x" * 120
+    assert row["paused_reason"].startswith(want) and len(row["paused_reason"]) <= len("gmail: ConnectionError: ") + 120
+    assert touch(db, l["id"])["status"] == "scheduled"
+
+
 def test_sending_lives_only_in_send_py_so_drafting_can_never_send():
     assert "send_draft" not in Path("gtm/draft.py").read_text()
 

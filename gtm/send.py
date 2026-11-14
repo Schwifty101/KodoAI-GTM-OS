@@ -161,14 +161,20 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
         if mb["paused"]:
             continue
         last = mb.get("replies_checked_at")
-        # A reply or bounce that lands inside the 10-minute window is seen at the next read: accepted, a stop still beats the next Touch by minutes.
-        if force or not last or datetime.fromisoformat(last) <= now - timedelta(minutes=REPLIES_EVERY_MINUTES):
-            out["replies"].update(run_replies(db, gmail_for, llm, mailbox_id=mb["id"], **fetchers))
-            db.table("mailboxes").update({"replies_checked_at": now.isoformat()}).eq("id", mb["id"]).execute()
+        try:
+            svc = gmail_for(mb["address"])
+            # A reply or bounce that lands inside the 10-minute window is seen at the next read: accepted, a stop still beats the next Touch by minutes.
+            if force or not last or datetime.fromisoformat(last) <= now - timedelta(minutes=REPLIES_EVERY_MINUTES):
+                out["replies"].update(run_replies(db, gmail_for, llm, mailbox_id=mb["id"], **fetchers))
+                db.table("mailboxes").update({"replies_checked_at": now.isoformat()}).eq("id", mb["id"]).execute()
+        except Exception as e:  # spec 5.4: a failing Gmail token or API pauses this mailbox and says why; sending_on is untouched
+            db.table("mailboxes").update({"paused": True, "paused_reason": f"gmail: {type(e).__name__}: {str(e)[:120]}"}).eq("id", mb["id"]).execute()
+            out["paused"] = out.get("paused", 0) + 1
+            continue
         if _auto_pause(db, mb, now, s):
             out["paused"] = out.get("paused", 0) + 1
             continue
         out["scheduled"] += schedule_approved(db, mb, now, s, anytime=anytime)
-        out["send"].update(send_scheduled(db, gmail_for, mb, now, s, anytime=anytime))
+        out["send"].update(send_scheduled(db, lambda _: svc, mb, now, s, anytime=anytime))
     out["replies"], out["send"] = dict(out["replies"]), dict(out["send"])
     return out
