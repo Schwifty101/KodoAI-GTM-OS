@@ -150,7 +150,7 @@ def _auto_pause(db, mailbox: dict, now: datetime, s: Settings) -> bool:
     return True
 
 
-def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Settings | None = None, force: bool = False, anytime: bool = False, **fetchers) -> dict:
+def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Settings | None = None, force: bool = False, anytime: bool = False, mailbox_id: str | None = None, **fetchers) -> dict:
     """One scheduler pass: read replies and bounces first (a lead who said stop is cancelled before it can send), then per unpaused mailbox auto-pause, schedule, send. Does nothing while sending is off unless forced (terminal `send --confirm`)."""
     s, now = settings or get_settings(), (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     clear_cache()  # Pause must bite now, not after the settings cache expires
@@ -158,7 +158,7 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
         return {"off": 1}
     out: dict = {"replies": Counter(), "scheduled": 0, "send": Counter()}
     for mb in db.table("mailboxes").select("*").execute().data:
-        if mb["paused"]:
+        if mb["paused"] or (mailbox_id and mb["id"] != mailbox_id):
             continue
         last = mb.get("replies_checked_at")
         try:

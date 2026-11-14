@@ -22,3 +22,19 @@ def no_real_jobs():
 
     if real_jobs(get_db()):
         pytest.skip("real jobs in the queue: refusing to run claim tests against them")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _real_mailbox_untouched():
+    """Guard: a test run must never pause, stamp or otherwise change the real mailbox row."""
+    from gtm.db import get_db
+
+    def row():
+        try:
+            return get_db().table("mailboxes").select("paused,paused_reason,replies_checked_at").eq("address", "soban@kodoai.xyz").execute().data
+        except Exception:
+            return None  # no database in this run: nothing to guard
+
+    before = row()
+    yield
+    assert row() == before, "a test changed the real soban@kodoai.xyz mailbox row"

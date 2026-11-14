@@ -309,7 +309,7 @@ def test_tick_does_nothing_when_sending_off(world):
     db, bid, mb = world
     (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
     gm = Gmail()
-    assert _tick(db, gm, on=False) == {"off": 1} and gm.sent == [] and touch(db, l["id"])["status"] == "scheduled"
+    assert _tick(db, gm, mailbox_id=mb["id"], on=False) == {"off": 1} and gm.sent == [] and touch(db, l["id"])["status"] == "scheduled"
 
 
 @pytest.mark.db
@@ -317,7 +317,7 @@ def test_force_sends_even_when_off(world):
     db, bid, mb = world
     (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
     gm = Gmail()
-    out = _tick(db, gm, on=False, force=True)
+    out = _tick(db, gm, mailbox_id=mb["id"], on=False, force=True)
     assert out["send"]["sent"] == 1 and touch(db, l["id"])["status"] == "sent"
     assert db.table("mailboxes").select("replies_checked_at").eq("id", mb["id"]).execute().data[0]["replies_checked_at"]
 
@@ -327,7 +327,7 @@ def test_tick_schedules_and_sends_an_approved_touch(world):
     db, bid, mb = world
     (l,) = make_leads(db, bid, mb, 1, touch_status="approved")
     gm = Gmail()
-    out = _tick(db, gm, anytime=True)
+    out = _tick(db, gm, mailbox_id=mb["id"], anytime=True)
     assert out["scheduled"] == 1 and out["send"]["sent"] == 1 and touch(db, l["id"])["status"] == "sent"
 
 
@@ -337,7 +337,7 @@ def test_tick_does_nothing_when_mailbox_paused(world):
     (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
     db.table("mailboxes").update({"paused": True, "paused_reason": "pytest"}).eq("id", mb["id"]).execute()
     gm = Gmail()
-    out = _tick(db, gm)
+    out = _tick(db, gm, mailbox_id=mb["id"])
     assert out["scheduled"] == 0 and out["send"] == {} and gm.sent == [] and touch(db, l["id"])["status"] == "scheduled"
 
 
@@ -350,7 +350,7 @@ def test_bounce_spike_auto_pauses_and_sends_nothing(world):
         db.table("leads").update({"status": "bounced"}).eq("id", l["id"]).execute()
     (due,) = make_leads(db, bid, mb, 1, touch_status="scheduled", offset=0, tkw={"send_at": PAST})
     gm = Gmail()
-    out = _tick(db, gm)
+    out = _tick(db, gm, mailbox_id=mb["id"])
     row = db.table("mailboxes").select("*").eq("id", mb["id"]).execute().data[0]
     assert out["paused"] == 1 and gm.sent == [] and row["paused"] is True and "bounce" in row["paused_reason"]
     assert touch(db, due["id"])["status"] == "scheduled"
@@ -364,7 +364,7 @@ def test_tick_reads_replies_before_sending(world):
     db.table("touches").insert({"lead_id": l["id"], "touch_no": 1, "status": "sent", "gmail_thread_id": "thread-1", "sent_at": "2026-11-07T12:00:00+00:00"}).execute()
     gm = Gmail()
     inbox = {"thread-1": [{"from": "Dana <dana@glow0.com>", "subject": "Re: s", "headers": {}, "body": "Please stop emailing me."}]}
-    out = _tick(db, gm, thread_messages=lambda svc, tid: inbox.get(tid, []))  # other mailboxes' leads may have threads too
+    out = _tick(db, gm, mailbox_id=mb["id"], thread_messages=lambda svc, tid: inbox.get(tid, []))  # other mailboxes' leads may have threads too
     assert gm.sent == [] and out["replies"] == {"opt_out": 1}
     assert touch(db, l["id"], 2)["status"] == "cancelled" and lead(db, l["id"])["status"] == "unsubscribed"
 
@@ -382,7 +382,7 @@ def test_replies_are_read_at_most_every_ten_minutes_but_sending_happens_every_ti
     if ago is not None:
         _checked(db, mb, ago)
     seen = []
-    out = _tick(db, Gmail(), thread_messages=lambda svc, tid: seen.append(tid) or [])
+    out = _tick(db, Gmail(), mailbox_id=mb["id"], thread_messages=lambda svc, tid: seen.append(tid) or [])
     assert ("t-h" in seen) is reads and out["send"]["sent"] == 1
 
 
@@ -392,7 +392,7 @@ def test_force_reads_replies_even_when_recently_checked(world):
     make_leads(db, bid, mb, 1, status="sent", touch_status="sent", prefix="REHEARSAL_F_", sent_at="2026-11-07T12:00:00+00:00", tkw={"gmail_thread_id": "t-f"})
     _checked(db, mb, 1)
     seen = []
-    _tick(db, Gmail(), force=True, thread_messages=lambda svc, tid: seen.append(tid) or [])
+    _tick(db, Gmail(), mailbox_id=mb["id"], force=True, thread_messages=lambda svc, tid: seen.append(tid) or [])
     assert "t-f" in seen
 
 
@@ -415,12 +415,23 @@ def test_a_gmail_failure_pauses_that_mailbox_with_the_reason(world, broken):
     import gtm.send as send
 
     send.setting = lambda key, db=None: True
-    out = send_tick(db, gmail_for, lambda s, p: {"kind": "other"}, settings=SETTINGS, now=NOW, thread_messages=tm, recent_bounces=lambda svc: [])
+    out = send_tick(db, gmail_for, lambda s, p: {"kind": "other"}, settings=SETTINGS, now=NOW, mailbox_id=mb["id"], thread_messages=tm, recent_bounces=lambda svc: [])
     row = db.table("mailboxes").select("*").eq("id", mb["id"]).execute().data[0]
     assert out["paused"] == 1 and gm.sent == [] and row["paused"] is True
     want = "gmail: RuntimeError: Gmail token missing" if broken == "service" else "gmail: ConnectionError: " + "x" * 120
     assert row["paused_reason"].startswith(want) and len(row["paused_reason"]) <= len("gmail: ConnectionError: ") + 120
     assert touch(db, l["id"])["status"] == "scheduled"
+
+
+@pytest.mark.db
+def test_tick_touches_only_the_given_mailbox(world):
+    db, bid, mb = world
+    other = db.table("mailboxes").insert({"address": "pytest-send-other@example.com", "daily_cap": 40, "enabled_on": TODAY.isoformat()}).execute().data[0]
+    (l,) = make_leads(db, bid, other, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    gm = Gmail()
+    _tick(db, gm, mailbox_id=mb["id"])
+    row = db.table("mailboxes").select("*").eq("id", other["id"]).execute().data[0]
+    assert gm.sent == [] and touch(db, l["id"])["status"] == "scheduled" and row["replies_checked_at"] is None and row["paused"] is False
 
 
 def test_sending_lives_only_in_send_py_so_drafting_can_never_send():
