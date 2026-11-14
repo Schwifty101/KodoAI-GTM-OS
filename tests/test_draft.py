@@ -5,7 +5,7 @@ import pytest
 
 from gtm.config import Settings
 from gtm.db import get_db
-from gtm.draft import APPROVED_CLIENTS, build_followup, check_draft, draft_touch1, footer, run_draft, run_followups, touch_date
+from gtm.draft import APPROVED_CLIENTS, build_followup, check_draft, check_subject, strip_footer,draft_touch1, footer, run_draft, run_followups, touch_date
 from gtm.mailboxes import assign_mailbox
 from gtm.scrape import new_batch, place_to_lead
 
@@ -279,3 +279,15 @@ def test_run_draft_says_why_a_lead_was_skipped(world, capsys):
     assert run_draft(db, boom, bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs}) == 0
     assert "skipped Glow Med Spa: ValueError: vertex down" in capsys.readouterr().err
     assert lead_row(db, 0)["status"] == "selected"
+
+
+def test_check_subject_applies_to_touch_1_only():
+    assert check_subject("Glow Med Spa / booking", 1) == [] and check_subject("Quick hello", 1) == ["bad_subject"] and check_subject("", 1) == ["bad_subject"]
+    assert check_subject("Re: Glow Med Spa", 2) == []
+
+
+def test_strip_footer_removes_a_configured_footer_only(monkeypatch):
+    monkeypatch.setattr("gtm.draft.get_settings", lambda: Settings.from_env({"OPT_OUT_LINE": "Reply stop."}))
+    assert strip_footer("Hi\n\nSoban\n\nReply stop.") == "Hi\n\nSoban" and strip_footer("Hi\n\nSoban") == "Hi\n\nSoban"
+    monkeypatch.setattr("gtm.draft.get_settings", lambda: Settings.from_env({}))
+    assert strip_footer("Hi\n\nSoban") == "Hi\n\nSoban"

@@ -96,6 +96,16 @@ def check_draft(text: str, touch_no: int = 1) -> list[str]:
     return problems
 
 
+def check_subject(subject: str, touch_no: int) -> list[str]:
+    """Touch 1 subjects are `Company / topic`; follow-ups reuse the thread subject (`Re: ...`)."""
+    return ["bad_subject"] if touch_no == 1 and not re.match(r"^.+ / .+$", subject or "") else []
+
+
+def strip_footer(body: str) -> str:
+    f = footer(get_settings())
+    return body[: -len(f)].rstrip() if f and body.endswith(f) else body
+
+
 def build_followup(touch_no: int, first_name: str, company: str, objective: str) -> str:
     if touch_no == 2:
         return f"{first_name},\n\nIs {objective} something you're working on right now, or is it not a priority?\n\nSoban"
@@ -126,8 +136,7 @@ def draft_touch1(llm, lead: dict, attempts: int = 3, instruction: str | None = N
         ans = llm(SYSTEM, _prompt(lead, problems, instruction)) or {}
         subject, body, objective = ans.get("subject") or "", ans.get("body") or "", (ans.get("objective") or "").strip()
         problems = check_draft(body, 1)
-        if not re.match(r"^.+ / .+$", subject):
-            problems.append("bad_subject")
+        problems += check_subject(subject, 1)
         if not objective:
             problems.append("no_objective")
         if not problems:
