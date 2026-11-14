@@ -2,10 +2,10 @@
 // Run: node --env-file=.env.local --env-file=../.env --import tsx scripts/verify.mts   (reads the secret key from ../.env; never bundled into the app)
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import { approveLeads, cancelJob, clearPause, enqueueJob, markBooked, rejectLeads, retryJob, saveSetting, setOutcome, unapproveLeads } from "../lib/actions";
-import { SETTING_FIELDS } from "../lib/settings";
+import { approveLeads, cancelJob, clearPause, enqueueJob, enqueueJobOnce, markBooked, rejectLeads, retryJob, retryTile, saveSetting, setOutcome, unapproveLeads } from "../lib/actions";
+import { SETTING_FIELDS, validSetting } from "../lib/settings";
 import { splitArgs } from "../lib/args";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!);
 const fails: string[] = [];
@@ -61,8 +61,15 @@ check("markBooked does nothing to a lead that has not replied", (await row(2)).s
 await admin.from("mailboxes").delete().eq("id", mb!.id);
 
 // Task 6: settings and jobs actions
-const pyKeys = [...readFileSync("../gtm/settings_store.py", "utf8").split("DEFAULTS")[1].split("\nTTL")[0].matchAll(/"(\w+)":/g)].map((m) => m[1]).sort();
-check("SETTING_FIELDS keys equal the Python DEFAULTS keys", JSON.stringify(SETTING_FIELDS.map((f) => f.key).sort()) === JSON.stringify(pyKeys));
+const pyDefaults = JSON.parse(execFileSync("uv", ["run", "python", "-c", "import json;from gtm.settings_store import DEFAULTS;print(json.dumps(DEFAULTS))"], { cwd: "..", encoding: "utf8" }));
+check("SETTING_FIELDS keys and defaults equal the Python DEFAULTS",
+  JSON.stringify(SETTING_FIELDS.map((f) => f.key).sort()) === JSON.stringify(Object.keys(pyDefaults).sort()) && SETTING_FIELDS.every((f) => f.def === pyDefaults[f.key]));
+const fld = (k: string) => SETTING_FIELDS.find((f) => f.key === k)!;
+check("validSetting enforces ranges",
+  !validSetting(fld("walk_hour_utc"), 24) && !validSetting(fld("walk_hour_utc"), -1) && validSetting(fld("walk_hour_utc"), 0) && validSetting(fld("walk_hour_utc"), 23)
+  && !validSetting(fld("walk_escalate_at"), 1.5) && validSetting(fld("walk_escalate_at"), 0.8)
+  && !validSetting(fld("walk_queries"), "") && !validSetting(fld("walk_queries"), "  ") && validSetting(fld("walk_queries"), "med spa")
+  && !validSetting(fld("walk_schedule_enabled"), "yes") && !validSetting(fld("walk_tiles_per_run"), 0));
 const wt = async () => (await admin.from("settings").select("value").eq("key", "weekly_target")).data?.[0]?.value;
 const wt0 = await wt();
 await saveSetting("weekly_target", 150);
@@ -88,6 +95,25 @@ await retryJob(jf); await retryJob(jd);
 check("retryJob requeues a failed job", (await jstat(jf)) === "queued");
 check("retryJob ignores a done job", (await jstat(jd)) === "done");
 await admin.from("jobs").delete().or("payload->>test.eq.true,payload->argv.cs.[\"TEST\"]");
+
+// Plan 3b Task 1. Test jobs use kind `walk_test` (not job-runnable) so the live worker never takes them.
+const onceArgv = ["--tiles", "1", "TEST_once"];
+const openOnce = async () => (await admin.from("jobs").select("id,status").eq("kind", "walk_test").contains("payload", { argv: onceArgv })).data!;
+await enqueueJobOnce("walk_test", onceArgv);
+check("enqueueJobOnce refuses a second identical open job", (await throws(() => enqueueJobOnce("walk_test", onceArgv))) && (await openOnce()).length === 1);
+await admin.from("jobs").update({ status: "done" }).eq("id", (await openOnce())[0].id);
+await enqueueJobOnce("walk_test", onceArgv);
+check("enqueueJobOnce allows a new job once the old one is done", (await openOnce()).length === 2);
+await admin.from("jobs").delete().eq("kind", "walk_test").contains("payload", { argv: onceArgv });
+
+const sts = ["failed", "running", "done", "pending"];
+await admin.from("coverage").insert(sts.map((st, i) => ({ seq: 900000 + i, metro_rank: 0, metro: "TEST", state: "ZZ", tile: `TEST_rt_${st}`, status: st, error: st === "failed" ? "boom" : null })));
+const cov = (await admin.from("coverage").select("id,status").eq("metro", "TEST")).data!;
+for (const r of cov) await retryTile(r.id);
+const after = (await admin.from("coverage").select("tile,status,error").eq("metro", "TEST")).data!;
+const st = (n: string) => after.find((r) => r.tile === `TEST_rt_${n}`)!;
+check("retryTile only flips failed", st("failed").status === "pending" && st("failed").error === null && st("running").status === "running" && st("done").status === "done" && st("pending").status === "pending");
+await admin.from("coverage").delete().eq("metro", "TEST");
 
 await admin.from("leads").delete().like("place_id", "TEST_v%");
 await admin.from("batches").delete().eq("id", batch!.id);

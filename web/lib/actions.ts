@@ -48,3 +48,15 @@ export const cancelJob = (id: string) => ok(supabase.from("jobs").update({ statu
 
 export const retryJob = (id: string) =>
   ok(supabase.from("jobs").update({ status: "queued", error: null, run_after: new Date().toISOString() }).eq("id", id).in("status", ["failed", "paused_budget"]));
+
+/** Like enqueueJob, but refuses a second identical job (same kind and argv) while one is queued, running or paused for budget. */
+export async function enqueueJobOnce(kind: string, argv: string[]) {
+  const { data, error } = await supabase.from("jobs").select("payload").eq("kind", kind).in("status", ["queued", "running", "paused_budget"]);
+  if (error) throw new Error(error.message);
+  if ((data ?? []).some((j) => JSON.stringify(j.payload?.argv ?? []) === JSON.stringify(argv))) throw new Error("an identical job is already open");
+  await enqueueJob(kind, argv);
+}
+
+/** Only a failed tile goes back to pending; running and done tiles are never touched. */
+export const retryTile = (id: string) =>
+  ok(supabase.from("coverage").update({ status: "pending", error: null }).eq("id", id).eq("status", "failed"));
