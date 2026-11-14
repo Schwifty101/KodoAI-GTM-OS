@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from gtm.config import Settings, get_settings
 from gtm.db import fetch_all
-from gtm.gmail import send_draft
+from gtm.gmail import create_draft, send_draft, thread_messages
 from gtm.replies import run_replies
 from gtm.select import _blocklists, blocked_reason
 from gtm.status import Status
@@ -82,6 +82,50 @@ def schedule_approved(db, mailbox: dict, now: datetime, settings: Settings, rng:
             room -= 1
             n += 1
     return n
+
+
+def _cancel(db, t: dict) -> None:
+    db.table("touches").update({"status": "cancelled"}).eq("id", t["id"]).eq("status", "scheduled").execute()
+
+
+def send_scheduled(db, gmail_for, mailbox: dict, now: datetime, settings: Settings, anytime: bool = False) -> dict[str, int]:
+    """Send scheduled touches whose send_at has come. Re-checks stop/suppression, claims scheduled -> sending atomically, then drafts and sends the stored text."""
+    out: Counter = Counter()
+    suppressed, contacted = _blocklists(db)
+    svc = gmail_for(mailbox["address"])
+    due = [t for t in _touches(db, mailbox["id"], "scheduled") if datetime.fromisoformat(t["send_at"]) <= now]
+    for t in sorted(due, key=lambda t: (-t["touch_no"], t["send_at"])):
+        lead = t["leads"]
+        blocked = blocked_reason(lead, suppressed, contacted if t["touch_no"] == 1 else set())
+        if lead["status"] in STOPPED or blocked:
+            _cancel(db, t)
+            if blocked == "suppressed":
+                db.table("leads").update({"status": Status.SUPPRESSED.value, "reject_reason": blocked}).eq("id", t["lead_id"]).execute()
+            out["cancelled"] += 1
+            continue
+        if not (anytime or in_window(now, lead.get("tz"))):
+            out["deferred"] += 1
+            continue
+        if not db.table("touches").update({"status": "sending"}).eq("id", t["id"]).eq("status", "scheduled").execute().data:
+            continue  # another sender claimed it
+        try:
+            reply_to = thread_messages(svc, t["gmail_thread_id"])[0]["headers"]["message-id"] if t["touch_no"] > 1 else None
+            draft = create_draft(svc, lead["owner_email"], t["subject"], t["body"], t["gmail_thread_id"], reply_to)
+        except Exception:
+            db.table("touches").update({"status": "scheduled"}).eq("id", t["id"]).execute()
+            out["errors"] += 1
+            continue
+        try:
+            thread = send_draft(svc, draft)
+        except Exception:
+            db.table("touches").update({"gmail_draft_id": draft}).eq("id", t["id"]).execute()  # stays `sending`: the owner decides (Mark sent / Mark failed)
+            out["stranded"] += 1
+            continue
+        db.table("touches").update({"status": "sent", "sent_at": now.isoformat(), "gmail_draft_id": draft, "gmail_thread_id": thread}).eq("id", t["id"]).execute()
+        if t["touch_no"] == 1:
+            db.table("leads").update({"status": Status.SENT.value}).eq("id", t["lead_id"]).execute()
+        out["sent"] += 1
+    return dict(out)
 
 
 def should_pause(sent: int, bounced: int, complaints: int, *, rate: float = 0.03, min_sends: int = 20) -> bool:

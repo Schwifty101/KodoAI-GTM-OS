@@ -1,7 +1,9 @@
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
+import base64
 import random
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -9,7 +11,7 @@ from support import purge_test_suppression
 from gtm.config import Settings
 from gtm.db import get_db
 from gtm.scrape import new_batch, place_to_lead
-from gtm.send import allowance, in_window, is_test_lead, pick_send_at, schedule_approved, send_due, send_with_reply_check, sending_days, should_pause, window_end
+from gtm.send import allowance, in_window, is_test_lead, pick_send_at, schedule_approved, send_due, send_scheduled, send_with_reply_check, sending_days, should_pause, window_end
 
 TODAY = date(2026, 11, 10)
 NOW = datetime(2026, 11, 10, 18, 0, tzinfo=timezone.utc)  # Tuesday 12:00 in Texas, inside the window
@@ -188,6 +190,117 @@ def test_stopped_and_blocked_leads_are_not_scheduled(world):
     assert _status(db, a["id"]) == "approved" and _status(db, b["id"]) == "approved"
 
 
+PAST = "2026-11-10T17:00:00+00:00"  # an hour before NOW
+
+
+def _go(db, gm, mb, **kw):
+    return send_scheduled(db, lambda addr: gm, mb, NOW, SETTINGS, **kw)
+
+
+@pytest.mark.db
+def test_touch_1_is_created_sent_and_marks_the_lead_sent(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    gm = Gmail()
+    assert _go(db, gm, mb)["sent"] == 1 and gm.sent == ["draft1"]
+    t = touch(db, l["id"])
+    assert t["status"] == "sent" and t["sent_at"] and t["gmail_thread_id"] == "thread-draft1" and lead(db, l["id"])["status"] == "sent"
+    assert "threadId" not in gm.created[0]
+
+
+@pytest.mark.db
+def test_send_once_under_two_concurrent_claims(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    gm = Gmail()
+    with ThreadPoolExecutor(2) as ex:
+        list(ex.map(lambda _: send_scheduled(get_db(), lambda addr: gm, mb, NOW, SETTINGS), range(2)))
+    assert gm.sent == ["draft1"] and len(gm.created) == 1 and touch(db, l["id"])["status"] == "sent"
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("stopper", ["replied", "bounced", "unsubscribed", "suppressed", "booked"])
+def test_a_stopped_lead_is_cancelled_not_sent(world, stopper):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, status=stopper, touch_status="scheduled", tkw={"send_at": PAST})
+    gm = Gmail()
+    assert _go(db, gm, mb)["cancelled"] == 1 and gm.sent == [] and gm.created == [] and touch(db, l["id"])["status"] == "cancelled"
+
+
+@pytest.mark.db
+def test_suppressed_after_approval_is_cancelled_and_the_lead_suppressed(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    db.table("suppression").insert({"domain": "glow0.com", "reason": "pytest"}).execute()
+    gm = Gmail()
+    assert _go(db, gm, mb)["cancelled"] == 1 and gm.sent == []
+    assert touch(db, l["id"])["status"] == "cancelled" and lead(db, l["id"])["status"] == "suppressed"
+
+
+@pytest.mark.db
+def test_touch_1_to_a_company_we_already_emailed_is_cancelled(world):
+    db, bid, mb = world
+    make_leads(db, bid, mb, 1, status="sent", touch_status="sent", offset=0)
+    (b,) = make_leads(db, bid, mb, 1, touch_status="scheduled", offset=1, tkw={"send_at": PAST})
+    db.table("leads").update({"domain": "glow0.com", "owner_email": "other@glow0.com"}).eq("id", b["id"]).execute()
+    gm = Gmail()
+    assert _go(db, gm, mb)["cancelled"] == 1 and gm.sent == [] and touch(db, b["id"])["status"] == "cancelled"
+
+
+@pytest.mark.db
+def test_not_yet_due_or_outside_the_window_is_left_scheduled(world):
+    db, bid, mb = world
+    (later,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": "2026-11-10T19:00:00+00:00"}, offset=0)
+    (night,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST}, offset=1, tz="America/Chicago")
+    gm = Gmail()
+    saturday = datetime(2026, 11, 14, 18, 0, tzinfo=timezone.utc)
+    assert send_scheduled(db, lambda a: gm, mb, NOW - timedelta(hours=2), SETTINGS).get("sent", 0) == 0  # 10:00 Chicago: neither is due yet
+    assert send_scheduled(db, lambda a: gm, mb, saturday, SETTINGS)["deferred"] == 2 and gm.sent == []
+    assert touch(db, later["id"])["status"] == "scheduled" and touch(db, night["id"])["status"] == "scheduled"
+    assert send_scheduled(db, lambda a: gm, mb, saturday, SETTINGS, anytime=True)["sent"] == 2
+
+
+@pytest.mark.db
+def test_create_draft_failure_reverts_to_scheduled(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+
+    class Down(Gmail):
+        def create(self, **kw):
+            raise RuntimeError("quota")
+
+    gm = Down()
+    out = _go(db, gm, mb)
+    assert out["errors"] == 1 and gm.sent == [] and touch(db, l["id"])["status"] == "scheduled"
+
+
+@pytest.mark.db
+def test_send_draft_failure_leaves_sending_and_is_not_retried(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+
+    class Lost(Gmail):
+        def send(self, **kw):
+            raise TimeoutError("ambiguous")
+
+    out = _go(db, Lost(), mb)
+    t = touch(db, l["id"])
+    assert out["stranded"] == 1 and t["status"] == "sending" and t["gmail_draft_id"] == "draft1"
+    gm = Gmail()
+    assert _go(db, gm, mb).get("sent", 0) == 0 and gm.created == []
+
+
+@pytest.mark.db
+def test_touch_2_replies_in_the_touch_1_thread(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, status="sent", touch_no=2, touch_status="scheduled", tkw={"send_at": PAST, "gmail_thread_id": "thread-1"})
+    gm = Gmail()
+    assert _go(db, gm, mb)["sent"] == 1
+    msg = gm.created[0]
+    assert msg["threadId"] == "thread-1" and b"In-Reply-To: <first@x>" in base64.urlsafe_b64decode(msg["raw"])
+    assert touch(db, l["id"], 2)["status"] == "sent" and lead(db, l["id"])["status"] == "sent"
+
+
 def test_sending_lives_only_in_send_py_so_drafting_can_never_send():
     assert "send_draft" not in Path("gtm/draft.py").read_text()
 
@@ -205,6 +318,18 @@ class Gmail:
     def send(self, **kw):
         self.sent.append(kw["body"]["id"])
         return type("E", (), {"execute": lambda s: {"id": "m", "threadId": f"thread-{kw['body']['id']}"}})()
+
+    created: list = []
+
+    def create(self, **kw):
+        self.created = [*self.created, kw["body"]["message"]]
+        return type("E", (), {"execute": lambda s: {"id": f"draft{len(self.created)}"}})()
+
+    def threads(self):
+        return self
+
+    def get(self, **kw):
+        return type("E", (), {"execute": lambda s: {"messages": [{"payload": {"headers": [{"name": "Message-ID", "value": "<first@x>"}]}}]}})()
 
 
 @pytest.fixture
