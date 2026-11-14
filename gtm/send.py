@@ -142,7 +142,8 @@ def _day(ts: str | None) -> str:
 
 def _auto_pause(db, mailbox: dict, now: datetime, s: Settings) -> bool:
     """Pause the mailbox when the bounce rate over the last week of sends is too high."""
-    recent = _touches(db, mailbox["id"], "sent", (now.date() - timedelta(days=WINDOW_DAYS)).isoformat())
+    since = max((now.date() - timedelta(days=WINDOW_DAYS)).isoformat(), mailbox.get("ramp_from") or "")  # clearing a pause sets ramp_from: the old bounces must not re-pause it
+    recent = _touches(db, mailbox["id"], "sent", since)
     bounced = len({t["lead_id"] for t in recent if t["leads"]["status"] == Status.BOUNCED.value})
     if not should_pause(len(recent), bounced, 0, rate=s.pause_bounce_rate, min_sends=s.pause_min_sends):
         return False

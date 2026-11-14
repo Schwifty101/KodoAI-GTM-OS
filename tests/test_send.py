@@ -357,6 +357,19 @@ def test_bounce_spike_auto_pauses_and_sends_nothing(world):
 
 
 @pytest.mark.db
+def test_clearing_a_bounce_pause_with_ramp_from_does_not_repause_on_the_same_bounces(world):
+    db, bid, mb = world
+    old = datetime.combine(TODAY - timedelta(days=2), time(12), tzinfo=timezone.utc).isoformat()
+    history = make_leads(db, bid, mb, 25, status="sent", touch_status="sent", offset=100, prefix="PYB_", sent_at=old)
+    for l in history[:5]:
+        db.table("leads").update({"status": "bounced"}).eq("id", l["id"]).execute()
+    assert _tick(db, Gmail(), mailbox_id=mb["id"])["paused"] == 1
+    db.table("mailboxes").update({"paused": False, "paused_reason": None, "ramp_from": TODAY.isoformat()}).eq("id", mb["id"]).execute()
+    out = _tick(db, Gmail(), mailbox_id=mb["id"])
+    assert "paused" not in out and db.table("mailboxes").select("paused").eq("id", mb["id"]).execute().data[0]["paused"] is False
+
+
+@pytest.mark.db
 def test_tick_reads_replies_before_sending(world):
     """Anti-goal: emailing after an opt-out. The lead is still `sent` in the database until replies are read."""
     db, bid, mb = world
