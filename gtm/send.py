@@ -121,7 +121,7 @@ def send_scheduled(db, gmail_for, mailbox: dict, now: datetime, settings: Settin
         if not db.table("touches").update({"status": "sending"}).eq("id", t["id"]).eq("status", "scheduled").execute().data:
             continue  # another sender claimed it
         try:
-            reply_to = thread_messages(svc, t["gmail_thread_id"])[0]["headers"]["message-id"] if t["touch_no"] > 1 else None
+            reply_to = next((m["headers"].get("message-id") for m in thread_messages(svc, t["gmail_thread_id"])), None) if t["touch_no"] > 1 else None  # no id: still threads by threadId
             draft = create_draft(svc, lead["owner_email"], t["subject"], t["body"], t["gmail_thread_id"], reply_to)
             db.table("touches").update({"gmail_draft_id": draft, "gmail_thread_id": draft_thread_id(svc, draft)}).eq("id", t["id"]).execute()  # before the send: a stranded touch still has its thread
         except Exception:

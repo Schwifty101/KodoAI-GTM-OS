@@ -307,6 +307,24 @@ def _restore_setting():
 
 
 @pytest.mark.db
+@pytest.mark.parametrize("messages", [[], [{"payload": {"headers": [{"name": "Subject", "value": "s"}], "mimeType": "text/plain", "body": {}}}]])
+def test_touch_2_without_a_message_id_still_sends_with_only_the_thread_id(world, messages):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, status="sent", touch_no=2, touch_status="scheduled", tkw={"send_at": PAST, "gmail_thread_id": "thread-1"})
+
+    class NoId(Gmail):
+        def get(self, **kw):
+            if self.kind == "threads":
+                return type("E", (), {"execute": lambda s: {"messages": messages}})()
+            return super().get(**kw)
+
+    gm = NoId()
+    assert _go(db, gm, mb)["sent"] == 1
+    assert gm.created[0]["threadId"] == "thread-1" and b"In-Reply-To" not in base64.urlsafe_b64decode(gm.created[0]["raw"])
+    assert touch(db, l["id"], 2)["status"] == "sent"
+
+
+@pytest.mark.db
 def test_tick_does_nothing_when_sending_off(world):
     db, bid, mb = world
     (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
