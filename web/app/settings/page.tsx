@@ -13,10 +13,13 @@ const DEFAULTS: Record<string, unknown> = {
   monthly_budget_pkr: 25000, pkr_per_usd: 276, weekly_target: 200, allow_paid_gemini: false, paid_gemini_monthly_cap_usd: 0,
   credit_end_date: "2027-02-09", credit_balance_usd: 298, credit_balance_as_of: "2026-11-12",
   gemini_input_usd_per_m: 1.5, gemini_output_usd_per_m: 9.0,
+  gemini_lite_input_usd_per_m: 0.25, gemini_lite_output_usd_per_m: 1.5,
   cap_apify_usd_day: 2.0, cap_serper_queries_day: 700, cap_gemini_usd_day: 5.0,
   cap_hunter_credits_day: 100, cap_prospeo_credits_day: 20, cap_harvest_usd_day: 0.5,
+  walk_schedule_enabled: false, walk_hour_utc: 13, walk_tiles_per_run: 3, walk_queries: "med spa,aesthetics clinic",
+  walk_max_places: 40, walk_escalate_at: 0.8, fetch_fallback: true,
 };
-const GROUPS = ["Budget", "Google credit", "API prices", "Daily caps"];
+const GROUPS = ["Budget", "Google credit", "API prices", "Daily caps", "Metro walk"];
 // Spend meter: provider, its daily cap key, and which spend column that cap counts.
 const METER: [string, string, "usd" | "units"][] = [
   ["apify", "cap_apify_usd_day", "usd"], ["serper", "cap_serper_queries_day", "units"], ["gemini", "cap_gemini_usd_day", "usd"],
@@ -59,7 +62,7 @@ export default function Settings() {
         <input type="checkbox" checked={vals[f.key] === true} onChange={(e) => save(f, e.target.checked)} />
       ) : (
         // key remounts the uncontrolled input after a save so it shows the stored value
-        <input key={String(vals[f.key])} type={f.type === "date" ? "date" : "number"} step={f.type === "float" ? "any" : 1}
+        <input key={String(vals[f.key])} type={f.type === "date" ? "date" : f.type === "text" ? "text" : "number"} step={f.type === "float" ? "any" : 1}
           defaultValue={String(vals[f.key])} onBlur={(e) => e.target.value !== String(vals[f.key]) && save(f, e.target.value)} />
       )}
     </label>
@@ -70,7 +73,7 @@ export default function Settings() {
     <>
       <h1>Settings</h1>
       {err && <p className="err">{err}</p>}
-      <p className="muted">Paid Gemini is {gemini ? <span className="pill bad">allowed</span> : <span className="pill ok">off</span>}: with it off, the LLM passes (signals, select, draft, replies) use Groq, and only the owner-research step of enrich, which needs Gemini, stops and pauses the job.</p>
+      <p className="muted">Paid Gemini is {gemini ? <span className="pill bad">allowed</span> : <span className="pill ok">off</span>}: while the free Google credit lasts the LLM passes (signals, select, draft, replies) use Gemini; once it ends or runs out they use Groq unless paid Gemini is allowed, and only the owner-research step of enrich, which needs Gemini, stops and pauses the job.</p>
 
       {GROUPS.map((g) => (
         <div key={g}>

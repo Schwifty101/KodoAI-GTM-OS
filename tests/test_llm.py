@@ -103,3 +103,38 @@ def test_reply_classifier_uses_flash_lite_and_prices_its_tokens(monkeypatch):
     assert classify_reply({"body": "Can we revisit this next month?"}, llm.complete_reply_json) == "other"
     assert "/gemini-3.1-flash-lite:generateContent" in requests[0]
     assert rows == [(('gemini', 2_000_000, 1.75), {'note': 'gemini-3.1-flash-lite'})]
+
+
+@pytest.mark.parametrize("model,prefix,note", [("gemini-3.1-flash-lite", "lite", "gemini-3.1-flash-lite"), ("gemini-3.5-flash", "norm", "tokens"), ("other-model", "norm", "tokens")])
+def test_log_gemini_usage_prices_lite_only_for_reply_model(monkeypatch, model, prefix, note):
+    import gtm.llm as llm
+    rows = []
+    monkeypatch.setattr(llm, "log_cost", lambda *a, **k: rows.append((a, k)))
+    prices = {"gemini_input_usd_per_m": 1.0, "gemini_output_usd_per_m": 2.0, "gemini_lite_input_usd_per_m": 10.0, "gemini_lite_output_usd_per_m": 20.0}
+    monkeypatch.setattr(llm, "setting", lambda key, db=None: prices[key])
+    llm.log_gemini_usage({"promptTokenCount": 1_000_000, "candidatesTokenCount": 1_000_000, "totalTokenCount": 2_000_000}, model)
+    assert rows == [(("gemini", 2_000_000, 30.0 if prefix == "lite" else 3.0), {"note": note})]
+
+
+def test_lite_call_is_budget_gated_and_falls_back_to_groq(monkeypatch):
+    import gtm.llm as llm
+    from gtm.budget import BudgetExceeded
+    gated = []
+
+    def deny(*a):
+        gated.append(a)
+        raise BudgetExceeded("no")
+    monkeypatch.setattr(llm.budget, "require", deny)
+    urls = []
+
+    class Groq:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"ok": 1}'}}]}
+    monkeypatch.setattr(llm.httpx, "post", lambda url, **k: (urls.append(url), Groq())[1])
+    monkeypatch.setattr(llm, "get_settings", lambda: type("S", (), {"groq_api_key": "t"})())
+    monkeypatch.setattr(llm, "log_cost", lambda *a, **k: None)
+    assert llm.complete_reply_json("sys", "prompt") == {"ok": 1}
+    assert gated == [("gemini", 0)] and len(urls) == 1 and "groq.com" in urls[0]

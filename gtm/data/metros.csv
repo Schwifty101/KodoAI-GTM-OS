@@ -37,7 +37,7 @@ metro_rank,metro,state,tile
 2,Los Angeles,CA,Newport Beach
 2,Los Angeles,CA,Torrance
 2,Los Angeles,CA,Culver City
-2,Los Angeles,CA,Brentwood
+2,Los Angeles,CA,"Brentwood, Los Angeles"
 3,Chicago,IL,Chicago
 3,Chicago,IL,Naperville
 3,Chicago,IL,Oak Brook
@@ -348,7 +348,7 @@ metro_rank,metro,state,tile
 22,Baltimore,MD,Glen Burnie
 22,Baltimore,MD,Severna Park
 22,Baltimore,MD,Pikesville
-22,Baltimore,MD,Canton
+22,Baltimore,MD,"Canton, Baltimore"
 22,Baltimore,MD,Federal Hill
 22,Baltimore,MD,Westminster
 23,St. Louis,MO,St. Louis
@@ -509,11 +509,11 @@ metro_rank,metro,state,tile
 33,Indianapolis,IN,Brownsburg
 33,Indianapolis,IN,Plainfield
 33,Indianapolis,IN,Lawrence
-33,Indianapolis,IN,Franklin
+33,Indianapolis,IN,City of Franklin
 33,Indianapolis,IN,Castleton
 33,Indianapolis,IN,Speedway
 34,Nashville,TN,Nashville
-34,Nashville,TN,Franklin
+34,Nashville,TN,City of Franklin
 34,Nashville,TN,Brentwood
 34,Nashville,TN,Murfreesboro
 34,Nashville,TN,Hendersonville
@@ -764,7 +764,7 @@ metro_rank,metro,state,tile
 69,Allentown,PA,Allentown
 69,Allentown,PA,Bethlehem
 69,Allentown,PA,Easton
-69,Allentown,PA,Whitehall
+69,Allentown,PA,Whitehall Township
 69,Allentown,PA,Emmaus
 70,El Paso,TX,El Paso
 70,El Paso,TX,Horizon City
@@ -877,7 +877,7 @@ metro_rank,metro,state,tile
 92,Augusta,GA,Augusta
 92,Augusta,GA,Evans
 92,Augusta,GA,Martinez
-92,Augusta,GA,North Augusta
+92,Augusta,SC,North Augusta
 93,Durham,NC,Durham
 93,Durham,NC,Chapel Hill
 93,Durham,NC,Hillsborough
@@ -889,10 +889,10 @@ metro_rank,metro,state,tile
 95,Harrisburg,PA,Camp Hill
 95,Harrisburg,PA,Mechanicsburg
 95,Harrisburg,PA,Hershey
-96,Jackson,MS,Jackson
+96,Jackson,MS,City of Jackson
 96,Jackson,MS,Ridgeland
 96,Jackson,MS,Flowood
-96,Jackson,MS,Madison
+96,Jackson,MS,City of Madison
 97,Spokane,WA,Spokane
 97,Spokane,WA,Spokane Valley
 97,Spokane,WA,Liberty Lake
@@ -931,7 +931,7 @@ metro_rank,metro,state,tile
 106,Modesto,CA,Ceres
 106,Modesto,CA,Oakdale
 107,Huntsville,AL,Huntsville
-107,Huntsville,AL,Madison
+107,Huntsville,AL,City of Madison
 107,Huntsville,AL,Hampton Cove
 108,Pensacola,FL,Pensacola
 108,Pensacola,FL,Gulf Breeze
@@ -1062,7 +1062,7 @@ metro_rank,metro,state,tile
 141,Beaumont,TX,Groves
 142,Trenton,NJ,Trenton
 142,Trenton,NJ,Princeton
-142,Trenton,NJ,Hamilton
+142,Trenton,NJ,"Hamilton Township, Mercer County"
 142,Trenton,NJ,Ewing
 142,Trenton,NJ,Lawrenceville
 143,Tallahassee,FL,Tallahassee
@@ -1083,8 +1083,8 @@ metro_rank,metro,state,tile
 147,Eugene,OR,Coburg
 148,Davenport,IA,Davenport
 148,Davenport,IA,Bettendorf
-148,Davenport,IA,Moline
-148,Davenport,IA,Rock Island
+148,Davenport,IL,Moline
+148,Davenport,IL,Rock Island
 149,Greeley,CO,Greeley
 149,Greeley,CO,Evans
 149,Greeley,CO,Windsor
@@ -1213,7 +1213,7 @@ metro_rank,metro,state,tile
 182,Duluth,WI,Superior
 182,Duluth,MN,Hermantown
 183,Cedar Rapids,IA,Cedar Rapids
-183,Cedar Rapids,IA,Marion
+183,Cedar Rapids,IA,City of Marion
 183,Cedar Rapids,IA,Hiawatha
 183,Cedar Rapids,IA,Robins
 184,Slidell,LA,Slidell
@@ -1245,7 +1245,7 @@ metro_rank,metro,state,tile
 190,Bend,OR,La Pine
 191,Erie,PA,Erie
 191,Erie,PA,Edinboro
-191,Erie,PA,Fairview
+191,Erie,PA,"Fairview Township, Erie County"
 192,Kalamazoo,MI,Kalamazoo
 192,Kalamazoo,MI,Portage
 192,Kalamazoo,MI,Parchment

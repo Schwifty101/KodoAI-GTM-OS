@@ -69,3 +69,9 @@ def test_walk_and_fallback_defaults():
         assert DEFAULTS[k] == v and type(DEFAULTS[k]) is type(v)
     with pytest.raises(ValueError):
         set_setting(db, "walk_hour_utc", True)
+
+
+def test_gemini_lite_price_defaults_are_floats():
+    from gtm.settings_store import DEFAULTS
+    for k in ("gemini_lite_input_usd_per_m", "gemini_lite_output_usd_per_m"):
+        assert isinstance(DEFAULTS[k], float)

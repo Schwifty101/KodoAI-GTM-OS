@@ -62,7 +62,7 @@ await admin.from("mailboxes").delete().eq("id", mb!.id);
 
 // Task 6: settings and jobs actions
 const pyKeys = [...readFileSync("../gtm/settings_store.py", "utf8").split("DEFAULTS")[1].split("\nTTL")[0].matchAll(/"(\w+)":/g)].map((m) => m[1]).sort();
-check("SETTING_FIELDS keys equal the Python DEFAULTS keys", JSON.stringify(SETTING_FIELDS.map((f) => f.key).sort()) === JSON.stringify(pyKeys) && pyKeys.length === 16);
+check("SETTING_FIELDS keys equal the Python DEFAULTS keys", JSON.stringify(SETTING_FIELDS.map((f) => f.key).sort()) === JSON.stringify(pyKeys));
 const wt = async () => (await admin.from("settings").select("value").eq("key", "weekly_target")).data?.[0]?.value;
 const wt0 = await wt();
 await saveSetting("weekly_target", 150);
