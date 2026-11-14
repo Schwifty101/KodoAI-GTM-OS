@@ -48,3 +48,23 @@ def test_cmd_send_dry_run_writes_nothing(monkeypatch, capsys):
     with pytest.raises(SystemExit):
         cli.cmd_send(argparse.Namespace(confirm=False, anytime=False))
     assert "allowance today=20" in capsys.readouterr().out
+
+
+def test_mailbox_unpause_restarts_the_ramp(monkeypatch):
+    """Unpausing clears the pause AND sets ramp_from to today (ramp restarts at 20; the bounce window forgets the old spike)."""
+    from datetime import date
+
+    seen = {}
+
+    class Table:
+        def update(self, v): seen["update"] = v; return self
+        def eq(self, *a): seen["eq"] = a; return self
+        def execute(self): return self
+
+    class Db:
+        def table(self, name): seen["table"] = name; return Table()
+
+    monkeypatch.setattr(cli, "get_db", lambda: Db())
+    cli.cmd_mailbox(argparse.Namespace(action="unpause", address="x@example.com"))
+    assert seen["update"] == {"paused": False, "paused_reason": None, "ramp_from": date.today().isoformat()}
+    assert seen["table"] == "mailboxes" and seen["eq"] == ("address", "x@example.com")

@@ -148,7 +148,7 @@ def cmd_tz_backfill(a: argparse.Namespace) -> None:
 
 def cmd_mailbox(a: argparse.Namespace) -> None:
     if a.action == "unpause":
-        get_db().table("mailboxes").update({"paused": False, "paused_reason": None}).eq("address", a.address).execute()
+        get_db().table("mailboxes").update({"paused": False, "paused_reason": None, "ramp_from": date.today().isoformat()}).eq("address", a.address).execute()  # the ramp restarts at 20 and the bounce window forgets the spike
         print(f"mailbox {a.address} unpaused")
     else:
         cmd_mailbox_add(a)
