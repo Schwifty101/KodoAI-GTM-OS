@@ -174,7 +174,7 @@ await admin.from("coverage").delete().eq("metro", "TEST");
   const j0 = (await admin.from("jobs").select("id", { count: "exact", head: true }).eq("kind", "redraft")).count;
   check("redraft refuses an empty instruction", (await throws(() => redraftBatch(rb!.id, "   "))) && (await admin.from("jobs").select("id", { count: "exact", head: true }).eq("kind", "redraft")).count === j0);
   await admin.from("jobs").delete().eq("kind", "redraft").contains("payload", { argv: ["--batch", rb!.id] });
-  await admin.from("leads").delete().like("place_id", "REHEARSAL_C_t%");
+  await admin.from("leads").delete().like("place_id", "REHEARSAL_C_%");
   await admin.from("batches").delete().eq("id", rb!.id);
 }
 
