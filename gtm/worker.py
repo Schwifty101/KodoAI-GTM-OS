@@ -1,5 +1,6 @@
 """`gtm worker`: runs queued jobs one at a time by calling the same CLI passes."""
 import contextlib
+import functools
 import io
 import signal
 import threading
@@ -7,10 +8,13 @@ import time
 
 from gtm.budget import BudgetExceeded
 from gtm.db import get_db
+from gtm.gmail import gmail_service
 from gtm.jobs import claim, finish, heartbeat, requeue_stale
+from gtm.llm import complete_reply_json
 from gtm.schedule import tick
+from gtm.send import send_tick
 
-ALLOWED = {"scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "walk"}  # send is not job-runnable until Plan 4
+ALLOWED = {"scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "walk"}
 BEAT_SECONDS = 30.0
 
 
@@ -62,10 +66,22 @@ def run_one(db, run_pass=_run_pass, include_test: bool = False) -> str | None:
     return job["id"]
 
 
+def send_loop(every: float = 60.0) -> None:
+    """The send scheduler on its own thread and db client, so a send is never queued behind a long job. A failed tick is printed, never fatal."""
+    db, gmail_for = get_db(), functools.cache(gmail_service)  # one service per mailbox, only ever used from this thread
+    while True:
+        try:
+            send_tick(db, gmail_for, complete_reply_json)
+        except Exception as e:
+            print(f"send tick failed: {type(e).__name__}: {e}")
+        time.sleep(every)
+
+
 def main(poll_seconds: int = 15) -> None:
     db, last_sweep = get_db(), float("-inf")
     # ponytail: heartbeat and stale cutoff both use the worker clock; a skewed VM clock of minutes would mis-stale jobs, use DB now() if that ever bites
     signal.signal(signal.SIGTERM, signal.default_int_handler)  # systemd stop cancels the job via KeyboardInterrupt
+    threading.Thread(target=send_loop, daemon=True).start()
     try:
         while True:
             if time.monotonic() - last_sweep > 300:

@@ -11,7 +11,7 @@ from support import purge_test_suppression
 from gtm.config import Settings
 from gtm.db import get_db
 from gtm.scrape import new_batch, place_to_lead
-from gtm.send import allowance, in_window, is_test_lead, pick_send_at, schedule_approved, send_due, send_scheduled, send_with_reply_check, sending_days, should_pause, window_end
+from gtm.send import allowance, in_window, is_test_lead, pick_send_at, schedule_approved, send_scheduled, send_tick, sending_days, should_pause, window_end
 
 TODAY = date(2026, 11, 10)
 NOW = datetime(2026, 11, 10, 18, 0, tzinfo=timezone.utc)  # Tuesday 12:00 in Texas, inside the window
@@ -107,19 +107,6 @@ def test_should_pause(sent, bounced, complaints, expected):
 ])
 def test_in_window(utc, tz, ok):
     assert in_window(utc, tz) is ok
-
-
-@pytest.mark.db
-def test_outside_the_window_the_draft_stays_drafted_and_sends_later(world):
-    db, bid, mb = world
-    (l,) = make_leads(db, bid, mb, 1, tz="America/Chicago")
-    gm = Gmail()
-    saturday = datetime(2026, 11, 14, 18, 0, tzinfo=timezone.utc)
-    out = send_due(db, lambda addr: gm, TODAY, SETTINGS, saturday)
-    assert out.get("sent", 0) == 0 and out["deferred"] == 1 and gm.sent == [] and touch(db, l["id"])["status"] == "drafted"
-    assert send_due(db, lambda addr: gm, TODAY, SETTINGS, saturday, anytime=True)["sent"] == 1  # --anytime ignores the window
-    (l2,) = make_leads(db, bid, mb, 1, offset=5, tz="America/Chicago")
-    assert send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)["sent"] == 1  # inside the window it sends
 
 
 @pytest.mark.parametrize("tz", [None, "America/Chicago", "America/Los_Angeles", "America/New_York"])
@@ -301,6 +288,87 @@ def test_touch_2_replies_in_the_touch_1_thread(world):
     assert touch(db, l["id"], 2)["status"] == "sent" and lead(db, l["id"])["status"] == "sent"
 
 
+def _tick(db, gm, on=True, **kw):
+    import gtm.send as send
+
+    send.setting = lambda key, db=None: on  # the sending_on flag; the real settings row is never touched
+    return send_tick(db, lambda addr: gm, lambda s, p: {"kind": "other"}, settings=SETTINGS, now=NOW, **{"thread_messages": lambda svc, tid: [], "recent_bounces": lambda svc: [], **kw})
+
+
+@pytest.fixture(autouse=True)
+def _restore_setting():
+    import gtm.send as send
+
+    real = send.setting
+    yield
+    send.setting = real
+
+
+@pytest.mark.db
+def test_tick_does_nothing_when_sending_off(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    gm = Gmail()
+    assert _tick(db, gm, on=False) == {"off": 1} and gm.sent == [] and touch(db, l["id"])["status"] == "scheduled"
+
+
+@pytest.mark.db
+def test_force_sends_even_when_off(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    gm = Gmail()
+    out = _tick(db, gm, on=False, force=True)
+    assert out["send"]["sent"] == 1 and touch(db, l["id"])["status"] == "sent"
+    assert db.table("mailboxes").select("replies_checked_at").eq("id", mb["id"]).execute().data[0]["replies_checked_at"]
+
+
+@pytest.mark.db
+def test_tick_schedules_and_sends_an_approved_touch(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="approved")
+    gm = Gmail()
+    out = _tick(db, gm, anytime=True)
+    assert out["scheduled"] == 1 and out["send"]["sent"] == 1 and touch(db, l["id"])["status"] == "sent"
+
+
+@pytest.mark.db
+def test_tick_does_nothing_when_mailbox_paused(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    db.table("mailboxes").update({"paused": True, "paused_reason": "pytest"}).eq("id", mb["id"]).execute()
+    gm = Gmail()
+    out = _tick(db, gm)
+    assert out["scheduled"] == 0 and out["send"] == {} and gm.sent == [] and touch(db, l["id"])["status"] == "scheduled"
+
+
+@pytest.mark.db
+def test_bounce_spike_auto_pauses_and_sends_nothing(world):
+    db, bid, mb = world
+    old = datetime.combine(TODAY - timedelta(days=2), time(12), tzinfo=timezone.utc).isoformat()
+    history = make_leads(db, bid, mb, 25, status="sent", touch_status="sent", offset=100, prefix="PYB_", sent_at=old)
+    for l in history[:5]:  # 5 of 25 bounced = 20%
+        db.table("leads").update({"status": "bounced"}).eq("id", l["id"]).execute()
+    (due,) = make_leads(db, bid, mb, 1, touch_status="scheduled", offset=0, tkw={"send_at": PAST})
+    gm = Gmail()
+    out = _tick(db, gm)
+    row = db.table("mailboxes").select("*").eq("id", mb["id"]).execute().data[0]
+    assert out["paused"] == 1 and gm.sent == [] and row["paused"] is True and "bounce" in row["paused_reason"]
+    assert touch(db, due["id"])["status"] == "scheduled"
+
+
+@pytest.mark.db
+def test_tick_reads_replies_before_sending(world):
+    """Anti-goal: emailing after an opt-out. The lead is still `sent` in the database until replies are read."""
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, status="sent", touch_no=2, touch_status="scheduled", tkw={"send_at": PAST, "gmail_thread_id": "thread-1"})
+    db.table("touches").insert({"lead_id": l["id"], "touch_no": 1, "status": "sent", "gmail_thread_id": "thread-1", "sent_at": "2026-11-07T12:00:00+00:00"}).execute()
+    gm = Gmail()
+    inbox = {"thread-1": [{"from": "Dana <dana@glow0.com>", "subject": "Re: s", "headers": {}, "body": "Please stop emailing me."}]}
+    out = _tick(db, gm, thread_messages=lambda svc, tid: inbox.get(tid, []))  # other mailboxes' leads may have threads too
+    assert gm.sent == [] and out["replies"] == {"opt_out": 1}
+    assert touch(db, l["id"], 2)["status"] == "cancelled" and lead(db, l["id"])["status"] == "unsubscribed"
+
+
 def test_sending_lives_only_in_send_py_so_drafting_can_never_send():
     assert "send_draft" not in Path("gtm/draft.py").read_text()
 
@@ -363,129 +431,3 @@ def touch(db, lead_id, n=1):
 
 def lead(db, lead_id):
     return db.table("leads").select("*").eq("id", lead_id).execute().data[0]
-
-
-@pytest.mark.db
-def test_send_sends_the_draft_records_thread_and_marks_lead_sent(world):
-    db, bid, mb = world
-    (l,) = make_leads(db, bid, mb, 1)
-    gm = Gmail()
-    out = send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)
-    t = touch(db, l["id"])
-    assert out["sent"] == 1 and gm.sent == [t["gmail_draft_id"]]
-    assert t["status"] == "sent" and t["gmail_thread_id"] == f"thread-{t['gmail_draft_id']}" and t["sent_at"]
-    assert lead(db, l["id"])["status"] == "sent"
-
-
-@pytest.mark.db
-def test_cap_reached_mid_batch_leaves_the_rest_drafted(world):
-    db, bid, mb = world
-    leads = make_leads(db, bid, mb, 3)
-    gm = Gmail()
-    out = send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)  # day 0 allowance = ramp_start = 2
-    assert out["sent"] == 2 and len(gm.sent) == 2
-    assert sorted(touch(db, l["id"])["status"] for l in leads) == ["drafted", "sent", "sent"]
-    assert send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW).get("sent", 0) == 0  # the same day's allowance is already used
-
-
-@pytest.mark.db
-def test_paused_mailbox_sends_nothing_until_cleared(world):
-    db, bid, mb = world
-    (l,) = make_leads(db, bid, mb, 1)
-    db.table("mailboxes").update({"paused": True, "paused_reason": "pytest"}).eq("id", mb["id"]).execute()
-    gm = Gmail()
-    assert send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW).get("sent", 0) == 0 and gm.sent == []
-    db.table("mailboxes").update({"paused": False}).eq("id", mb["id"]).execute()
-    assert send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)["sent"] == 1
-
-
-@pytest.mark.db
-def test_a_bounce_spike_pauses_the_mailbox_and_sends_nothing(world):
-    db, bid, mb = world
-    old = datetime.combine(TODAY - timedelta(days=2), time(12), tzinfo=timezone.utc).isoformat()
-    history = make_leads(db, bid, mb, 25, status="sent", touch_status="sent", offset=100)
-    for i, l in enumerate(history):
-        db.table("touches").update({"sent_at": old}).eq("lead_id", l["id"]).execute()
-        if i < 5:  # 5 of 25 bounced = 20%
-            db.table("leads").update({"status": "bounced"}).eq("id", l["id"]).execute()
-    (due,) = make_leads(db, bid, mb, 1, offset=0)
-    gm = Gmail()
-    out = send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)
-    row = db.table("mailboxes").select("*").eq("id", mb["id"]).execute().data[0]
-    assert out.get("sent", 0) == 0 and gm.sent == [] and row["paused"] is True and "bounce" in row["paused_reason"]
-    assert touch(db, due["id"])["status"] == "drafted"
-
-
-@pytest.mark.db
-def test_suppressed_lead_is_not_sent_even_if_drafted(world):
-    db, bid, mb = world
-    (l,) = make_leads(db, bid, mb, 1)
-    db.table("suppression").insert({"domain": "glow0.com", "reason": "pytest"}).execute()
-    gm = Gmail()
-    out = send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)
-    assert gm.sent == [] and out["cancelled"] == 1
-    assert touch(db, l["id"])["status"] == "cancelled" and lead(db, l["id"])["status"] == "suppressed"
-
-
-@pytest.mark.db
-@pytest.mark.parametrize("stopper", ["replied", "bounced", "unsubscribed", "suppressed", "booked"])
-def test_reply_or_bounce_cancels_later_touches(world, stopper):
-    db, bid, mb = world
-    (l,) = make_leads(db, bid, mb, 1, status=stopper, touch_no=2)
-    gm = Gmail()
-    out = send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)
-    assert gm.sent == [] and out["cancelled"] == 1 and touch(db, l["id"], 2)["status"] == "cancelled"
-
-
-@pytest.mark.db
-def test_touch_1_to_a_company_we_already_emailed_is_held_not_sent(world):
-    db, bid, mb = world
-    (a,) = make_leads(db, bid, mb, 1, status="sent", touch_status="sent", offset=0)
-    (b,) = make_leads(db, bid, mb, 1, offset=1)  # a different place...
-    db.table("leads").update({"domain": "glow0.com", "owner_email": "other@glow0.com"}).eq("id", b["id"]).execute()  # ...at the same company
-    gm = Gmail()
-    send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)
-    assert gm.sent == [] and touch(db, b["id"])["status"] == "drafted"
-
-
-@pytest.mark.db
-def test_follow_ups_go_out_before_new_leads_when_the_allowance_is_short(world):
-    db, bid, mb = world
-    new = make_leads(db, bid, mb, 2, offset=0)
-    (fu,) = make_leads(db, bid, mb, 1, status="sent", touch_no=2, offset=50)
-    gm = Gmail()
-    send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)  # allowance 2
-    assert touch(db, fu["id"], 2)["status"] == "sent"
-    assert sorted(touch(db, l["id"])["status"] for l in new) == ["drafted", "sent"]
-
-
-@pytest.mark.db
-def test_a_gmail_error_leaves_the_draft_unsent_and_the_run_going(world):
-    db, bid, mb = world
-    leads = make_leads(db, bid, mb, 2)
-
-    class Flaky(Gmail):
-        def send(self, **kw):
-            if not self.sent and not hasattr(self, "tried"):
-                self.tried = True
-                raise RuntimeError("quota")
-            return super().send(**kw)
-
-    gm = Flaky()
-    out = send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)
-    assert out["errors"] == 1 and out["sent"] == 1
-    assert sorted(touch(db, l["id"])["status"] for l in leads) == ["drafted", "sent"]
-
-
-@pytest.mark.db
-def test_send_with_reply_check_reads_replies_first_so_a_stopped_lead_gets_no_follow_up(world):
-    """Anti-goal: emailing after an opt-out. The lead is still `sent` in the database until replies are read."""
-    db, bid, mb = world
-    (l,) = make_leads(db, bid, mb, 1, status="sent", touch_no=2)
-    db.table("touches").insert({"lead_id": l["id"], "touch_no": 1, "status": "sent", "gmail_thread_id": "thread-1", "sent_at": "2026-11-10T12:00:00+00:00"}).execute()
-    gm = Gmail()
-    inbox = {"thread-1": [{"from": "Dana <dana@glow0.com>", "subject": "Re: s", "headers": {}, "body": "Please stop emailing me."}]}
-    out = send_with_reply_check(db, lambda addr: gm, lambda s, p: {"kind": "other"}, TODAY, SETTINGS, now=NOW,
-                                thread_messages=lambda svc, tid: inbox[tid], recent_bounces=lambda svc: [])
-    assert gm.sent == [] and out["replies"] == {"opt_out": 1}
-    assert touch(db, l["id"], 2)["status"] == "cancelled" and lead(db, l["id"])["status"] == "unsubscribed"
