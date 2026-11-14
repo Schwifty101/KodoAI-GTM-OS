@@ -3,7 +3,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { enqueueJobOnce } from "../lib/actions";
-import { loadCoverage, runTilesArgv, summarizeMetros, walkJobOpen } from "../lib/scrape";
+import { finishedMetros, loadCoverage, runTilesArgv, summarizeMetros, walkJobOpen } from "../lib/scrape";
 import type { Coverage, Job } from "../lib/types";
 
 const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!);
@@ -30,6 +30,11 @@ const s = summarizeMetros([
   mk({ metro_rank: 1, status: "failed" }),
 ]);
 check("summarizeMetros counts, sums, max date, order", s[0].metro === "A" && s[0].total === 3 && s[0].done === 2 && s[0].failed === 1 && s[0].places === 10 && s[0].lastScraped === "2026-01-05" && s[1].saturated === 1 && s[1].done === s[1].total && s[1].newLeads === 3);
+// a metro spanning two states: finished only when every state row is done; row keys (rank|metro|state) are unique
+const ms = summarizeMetros([mk({ metro: "M", state: "S1", status: "done" }), mk({ metro: "M", state: "S2", status: "pending" }), mk({ metro_rank: 2, metro: "N", state: "S1", status: "done" })]);
+check("finishedMetros counts a two-state metro only when all its states are done", finishedMetros(ms) === 1 && ms.length === 3);
+const realKeys = summarizeMetros(all).map((m) => `${m.metro_rank}|${m.metro}|${m.state}`);
+check("metro row keys (rank|metro|state) are unique across the real table", new Set(realKeys).size === realKeys.length);
 const real = summarizeMetros(all);
 check("metro totals equal the database", real.reduce((a, m) => a + m.total, 0) === all.length);
 for (const st of ["pending", "running", "done", "failed"] as const)

@@ -18,6 +18,7 @@ export default function Batches() {
   const [spend, setSpend] = useState<SpendRow[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [err, setErr] = useState("");
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -31,6 +32,7 @@ export default function Batches() {
       setErr(""); setNos(n); setRetry(rt);
       setRuns((m.data ?? []) as unknown as BatchMetrics[]); setSpend((sp.data ?? []) as SpendRow[]); setJobs((j.data ?? []) as Job[]);
     } catch (e) { setErr((e as Error).message); }
+    setLoaded(true);
   }, []);
   useEffect(() => { if (ready) load(); }, [ready, load]);
   if (!ready) return null;
@@ -53,7 +55,7 @@ export default function Batches() {
       {err && <p className="err">{err}</p>}
 
       <h2>Batches of {BATCH_SIZE}</h2>
-      {nos.length === 0 ? <p className="muted">No batch numbers yet: leads get one when select picks them.</p> : (
+      {!loaded ? <p className="muted">Loading…</p> : nos.length === 0 ? <p className="muted">No batch numbers yet: leads get one when select picks them.</p> : (
         <table>
           <thead><tr><th>Batch</th><th>Filled</th>{cols.map((s) => <th key={s}>{s}</th>)}<th>Apify</th><th>Hunter credits</th><th>Prospeo credits</th><th>Serper</th><th>Gemini</th></tr></thead>
           <tbody>{nos.map((r) => (
@@ -69,7 +71,7 @@ export default function Batches() {
       <p className="muted">Spend here is what was recorded against these leads (enrich, signals, drafts). Scrape-time Apify cost is per scrape run, below.</p>
 
       <h2>Scrape runs</h2>
-      {runs.length === 0 ? <p className="muted">No scrape runs yet.</p> : (
+      {!loaded ? <p className="muted">Loading…</p> : runs.length === 0 ? <p className="muted">No scrape runs yet.</p> : (
         <table>
           <thead><tr><th>Run</th><th>Created</th><th>Scraped</th><th>Cleaned</th><th>Enriched</th><th>Apify</th><th>Hunter credits</th><th>Owner known, email not verified</th></tr></thead>
           <tbody>{runs.map((r) => {
@@ -97,7 +99,7 @@ export default function Batches() {
           (each finder call costs 1 credit only when it finds an email; Prospeo no-match is free; no per-lookup price beyond that is confirmed, see docs/spikes/owner_routes.md)
           and stops by itself when a provider runs out or hits its daily cap. A saved email is never erased. The run also picks up any leads of that scrape run that are cleaned but not yet enriched. Nothing runs until you click.
         </p>
-        {retry.filter((r) => r.named > 0).length === 0 && <p className="muted">Nothing to retry: no scrape run has a known owner without a verified email.</p>}
+        {loaded && retry.filter((r) => r.named > 0).length === 0 && <p className="muted">Nothing to retry: no scrape run has a known owner without a verified email.</p>}
         {retry.map((r) => {
           const open = retryOpen(jobs, r.batch_id);
           const why = r.named === 0 ? "no named owners" : open ? "already queued or running" : allBlocked ? "Hunter and Prospeo are both blocked" : "";

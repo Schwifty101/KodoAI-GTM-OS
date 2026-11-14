@@ -7,7 +7,7 @@ import { useSettings } from "@/lib/useSettings";
 import { SettingInput } from "@/components/SettingInput";
 import { SETTING_FIELDS } from "@/lib/settings";
 import { enqueueJobOnce, retryTile } from "@/lib/actions";
-import { loadCoverage, runTilesArgv, summarizeMetros, walkJobOpen } from "@/lib/scrape";
+import { finishedMetros, loadCoverage, runTilesArgv, summarizeMetros, walkJobOpen } from "@/lib/scrape";
 import type { Coverage, Job, SpendRow } from "@/lib/types";
 
 const pct = (a: number, b: number) => (b ? Math.round((100 * a) / b) : 0);
@@ -22,6 +22,7 @@ export default function Scrape() {
   const [open, setOpen] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [err, setErr] = useState("");
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -33,6 +34,7 @@ export default function Scrape() {
       for (const r of [sp, j]) if (r.error) throw new Error(r.error.message);
       setErr(""); setCov(c); setSpend((sp.data as SpendRow[])[0]); setJobs((j.data ?? []) as Job[]);
     } catch (e) { setErr((e as Error).message); }
+    setLoaded(true);
   }, []);
   useEffect(() => { if (ready) load(); }, [ready, load]);
   if (!ready) return null;
@@ -59,14 +61,14 @@ export default function Scrape() {
 
       <h2>Coverage</h2>
       <div className="card">
-        <div>{done} of {cov.length} tiles done ({pct(done, cov.length)}%)</div>
+        <div>{loaded ? `${done} of ${cov.length} tiles done (${pct(done, cov.length)}%)` : "Loading…"}</div>
         <div style={{ height: 8, background: "var(--line)", borderRadius: 4, margin: "6px 0" }}>
           <div style={{ height: 8, width: `${pct(done, cov.length)}%`, background: "var(--accent)", borderRadius: 4 }} />
         </div>
         <div className="muted">
-          pending {count("pending")}, running {count("running")}, done {done}, failed {count("failed")} · places found {sum((c) => c.places_found ?? 0)} · new leads {sum((c) => c.new_leads ?? 0)} · saturated {cov.filter((c) => c.saturated).length} · metros finished {metros.filter((m) => m.done === m.total).length} of {metros.length}
+          pending {count("pending")}, running {count("running")}, done {done}, failed {count("failed")} · places found {sum((c) => c.places_found ?? 0)} · new leads {sum((c) => c.new_leads ?? 0)} · saturated {cov.filter((c) => c.saturated).length} · metros finished {finishedMetros(metros)} of {new Set(metros.map((m) => `${m.metro_rank}|${m.metro}`)).size}
         </div>
-        {!cov.length && <div className="muted">No coverage yet. Run `seed-coverage` first.</div>}
+        {loaded && !cov.length && <div className="muted">No coverage yet. Run `seed-coverage` first.</div>}
       </div>
 
       <h2>Apify spend</h2>
@@ -119,7 +121,7 @@ export default function Scrape() {
         <thead><tr><th>#</th><th>Metro</th><th>State</th><th>Done</th><th>Running</th><th>Failed</th><th>Places</th><th>New leads</th><th>Saturated</th><th>Last scraped</th></tr></thead>
         <tbody>
           {shown.map((m) => {
-            const k = `${m.metro_rank}|${m.metro}`;
+            const k = `${m.metro_rank}|${m.metro}|${m.state}`;
             return (
               <Fragment key={k}>
                 <tr className="row" onClick={() => setOpen(open === k ? null : k)}>
@@ -130,7 +132,7 @@ export default function Scrape() {
                   <tr><td colSpan={10}>
                     <table>
                       <thead><tr><th>Tile</th><th>Status</th><th>Places</th><th>New leads</th><th>Saturated</th><th>Queries run</th><th>Scraped</th><th>Error</th></tr></thead>
-                      <tbody>{cov.filter((c) => c.metro_rank === m.metro_rank && c.metro === m.metro).map((c) => (
+                      <tbody>{cov.filter((c) => c.metro_rank === m.metro_rank && c.metro === m.metro && c.state === m.state).map((c) => (
                         <tr key={c.id}><td>{c.tile}</td><td><span className={`pill ${c.status === "failed" ? "bad" : ""}`}>{c.status}</span></td>
                           <td>{c.places_found ?? ""}</td><td>{c.new_leads ?? ""}</td><td>{c.saturated ? "yes" : ""}</td><td>{c.queries_run ?? ""}</td>
                           <td className="muted">{c.scraped_at?.slice(0, 16).replace("T", " ") ?? ""}</td><td className="err">{c.error}</td></tr>

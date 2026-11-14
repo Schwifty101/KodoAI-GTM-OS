@@ -23,6 +23,13 @@ export function summarizeMetros(rows: Coverage[]): MetroRow[] {
   return [...m.values()].sort((a, b) => a.metro_rank - b.metro_rank);
 }
 
+// a metro (it can span states) is finished when every tile of every state row is done
+export function finishedMetros(rows: MetroRow[]): number {
+  const m = new Map<string, boolean>();
+  for (const r of rows) { const k = `${r.metro_rank}|${r.metro}`; m.set(k, (m.get(k) ?? true) && r.done === r.total); }
+  return [...m.values()].filter(Boolean).length;
+}
+
 export const walkJobOpen = (jobs: Job[]) => jobs.some((j) => j.kind === "walk" && ["queued", "running", "paused_budget"].includes(j.status));
 
 export function runTilesArgv(n: number): string[] {
