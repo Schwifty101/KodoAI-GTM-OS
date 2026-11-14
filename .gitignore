@@ -35,3 +35,6 @@ Thumbs.db
 /graphify-out
 
 .*
+
+# Google lat/lng cache: 30-day limit, never commit
+docs/spikes/tile_verification.csv.cache.json
