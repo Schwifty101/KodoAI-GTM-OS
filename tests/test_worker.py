@@ -170,3 +170,24 @@ def test_send_loop_survives_an_exception(monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         worker.send_loop(every=0)
     assert len(calls) == 2
+
+
+def test_send_loop_prints_the_tick_result_only_when_something_happened(monkeypatch, capsys):
+    results = iter([{"off": 1}, {"replies": {}, "scheduled": 0, "send": {}, "bad_tz": 0}, {"replies": {}, "scheduled": 1, "send": {"sent": 2, "stranded": 1}, "paused": 1, "bad_tz": 0}])
+    calls = []
+
+    def tick(*a, **k):
+        calls.append(1)
+        return next(results)
+
+    def stop(_):
+        if len(calls) >= 3:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(worker, "get_db", lambda: object())
+    monkeypatch.setattr(worker, "send_tick", tick)
+    monkeypatch.setattr(worker.time, "sleep", stop)
+    with pytest.raises(KeyboardInterrupt):
+        worker.send_loop(every=0)
+    out = capsys.readouterr().out
+    assert out.count("send tick:") == 1 and "'sent': 2" in out

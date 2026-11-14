@@ -71,7 +71,9 @@ def send_loop(every: float = 60.0) -> None:
     db, gmail_for = get_db(), functools.cache(gmail_service)  # one service per mailbox, only ever used from this thread
     while True:
         try:
-            send_tick(db, gmail_for, complete_reply_json)
+            out = send_tick(db, gmail_for, complete_reply_json)
+            if out.get("paused") or out.get("bad_tz") or out.get("replies") or any(k != "deferred" for k in out.get("send", {})):
+                print(f"send tick: {out}")  # the VM log shows what a tick did; quiet ticks (and touches waiting for their window) print nothing
         except Exception as e:
             print(f"send tick failed: {type(e).__name__}: {e}")
         time.sleep(every)
