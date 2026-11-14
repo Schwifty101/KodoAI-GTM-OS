@@ -2,7 +2,7 @@
 // Run: node --env-file=.env.local --env-file=../.env --import tsx scripts/verify.mts   (reads the secret key from ../.env; never bundled into the app)
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import { approveLeads, approveTouches, cancelJob, clearPause, markFailed, redraftBatch, saveDraftEdit, skipTouch, enqueueJob, enqueueJobOnce, markBooked, rejectLeads, retryJob, retryTile, saveSetting, setOutcome, unapproveLeads } from "../lib/actions";
+import { approveLeads, approveTouches, markSent, unapproveTouches, cancelJob, clearPause, markFailed, redraftBatch, saveDraftEdit, skipTouch, enqueueJob, enqueueJobOnce, markBooked, rejectLeads, retryJob, retryTile, saveSetting, setOutcome, unapproveLeads } from "../lib/actions";
 import { SETTING_FIELDS, validSetting } from "../lib/settings";
 import { splitArgs } from "../lib/args";
 import { execFileSync } from "node:child_process";
@@ -147,8 +147,14 @@ await admin.from("coverage").delete().eq("metro", "TEST");
   check("skip cancels a drafted touch and refuses a sent one", (await tr(0)).status === "cancelled" && (await tr(5)).status === "sent");
   await markFailed(T.scheduled).catch(() => {});
   check("markFailed refuses a touch that is not sending", (await tr(3)).status === "scheduled");
+  await markSent(T.scheduled).catch(() => {});
+  check("markSent refuses a touch that is not sending", (await tr(3)).status === "scheduled");
   await markFailed(T.sending);
   check("markFailed returns a sending touch to approved", (await tr(4)).status === "approved");
+  await markSent(T.sending).catch(() => {});
+  check("markSent refuses an approved touch", (await tr(4)).status === "approved");
+  await unapproveTouches([T.sending]);
+  check("unapprove returns approved to drafted", (await tr(4)).status === "drafted" && (await tr(4)).approved_at === null);
   const j0 = (await admin.from("jobs").select("id", { count: "exact", head: true }).eq("kind", "redraft")).count;
   check("redraft refuses an empty instruction", (await throws(() => redraftBatch(rb!.id, "   "))) && (await admin.from("jobs").select("id", { count: "exact", head: true }).eq("kind", "redraft")).count === j0);
   await admin.from("jobs").delete().eq("kind", "redraft").contains("payload", { argv: ["--batch", rb!.id] });
