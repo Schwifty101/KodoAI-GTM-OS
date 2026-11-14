@@ -63,9 +63,9 @@ Google Places API data will NOT be stored (policy allows only place_id and lat/l
 
 Pilot plan and gates: `docs/NEXT-source-pilot.md` (Serper pilot, then the free Overture test).
 
-### (f) Google lat/lng cache: delete by 2026-12-14
+### (f) Google lat/lng: deleted 2026-11-14
 
-`docs/spikes/tile_verification.csv` and `docs/spikes/tile_verification.csv.cache.json` hold Google lat/lng, cacheable 30 days only. Delete both by 2026-12-14. Never commit them (`*.csv` is git-ignored; the cache JSON is listed in `.gitignore`). Results summary stays in `tile_verification.md` (1285 tiles checked, 14 real errors fixed, 8 accepted false positives).
+The Geocoding report and cache (`docs/spikes/tile_verification.csv`, `.cache.json`) held Google lat/lng, which Google lets you cache for 30 days only. The owner had both deleted on 2026-11-14; they were never committed. If `uv run python -m scripts.verify_tiles` is run again it recreates them: delete the outputs after reading them and never commit them (`*.csv` and the cache JSON are git-ignored). `tile_verification.md` keeps the summary (1285 tiles checked, 14 real errors fixed, 8 accepted false positives). `gtm/data/metros.csv` holds no coordinates.
 
 ### (g) Known risks and unverified items
 
