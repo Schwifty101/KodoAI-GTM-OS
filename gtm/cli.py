@@ -113,7 +113,7 @@ def cmd_send(a: argparse.Namespace) -> None:
             room = allowance(mb, date.today(), s.ramp_start, s.ramp_step, min(s.daily_cap, mb["daily_cap"]))
             print(f"{mb['address']}: paused={mb['paused']} allowance today={room}")
         sys.exit("Dry run only. Sending is a separate, explicit action: add --confirm to send due drafts.")
-    print(send_with_reply_check(db, gmail_service, complete_reply_json, date.today(), s))  # replies first, then send
+    print(send_with_reply_check(db, gmail_service, complete_reply_json, date.today(), s, anytime=a.anytime))  # replies first, then send
 
 
 def cmd_import_history(a: argparse.Namespace) -> None:
@@ -212,6 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.set_defaults(fn=cmd_replies)
     x2 = sub.add_parser("send", help="send due drafts (dry run unless --confirm)")
     x2.add_argument("--confirm", action="store_true")
+    x2.add_argument("--anytime", action="store_true", help="ignore the weekday/local-time window (for rehearsals)")
     x2.set_defaults(fn=cmd_send)
     w = sub.add_parser("worker", help="run queued jobs (poll the jobs table)")
     w.add_argument("--poll", type=int, default=15)
