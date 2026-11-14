@@ -35,12 +35,14 @@ export type Lead = {
   review_count: number | null;
   signal: SignalRecord | null;
   batch_id: string | null;
+  batch_no: number | null;
+  tz: string | null;
   created_at: string;
   batches: { name: string } | null;
 };
 
 export const LEAD_COLUMNS =
-  "id,name,city,state,domain,website,status,vector,signal_led,approved,owner_name,owner_title,owner_email,email_source,select_reason,reject_reason,rating,review_count,signal,batch_id,created_at,batches(name)";
+  "id,name,city,state,domain,website,status,vector,signal_led,approved,owner_name,owner_title,owner_email,email_source,select_reason,reject_reason,rating,review_count,signal,batch_id,batch_no,tz,created_at,batches(name)";
 
 export type Mailbox = { id: string; address: string; daily_cap: number; enabled_on: string | null; paused: boolean; paused_reason: string | null };
 export type Touch = {
@@ -63,3 +65,9 @@ export type Job = {
   started_at: string | null; finished_at: string | null; attempts: number; result: unknown; error: string | null; created_at: string;
 };
 export type SpendRow = { provider: string; units_today: number; usd_today: number; units_month: number; usd_month: number };
+
+export type Coverage = {
+  id: string; seq: number; metro_rank: number; metro: string; state: string; tile: string;
+  status: "pending" | "running" | "done" | "failed"; places_found: number | null; new_leads: number | null; saturated: boolean;
+  queries_run: number | null; scrape_batch_id: string | null; error: string | null; started_at: string | null; scraped_at: string | null;
+};

@@ -92,3 +92,24 @@ Then delete the `gtm-worker` service account if unused. Queued jobs stay in the 
 - The daily Apify cap ($2 default) needs a temporary raise for spikes only; restore it afterwards (delete the stored row).
 - Not verified: Gmail send from the VM (Plan 4).
 - If the VM's Python ever changes: empty `/opt/gtm/.venv` as `gtm` over ssh first, then redeploy (uv cannot remove it; `/opt/gtm` is root-owned).
+- Plan 3b pages `/scrape` and `/batches` built 2026-11-14, never opened in a browser: run the checklists below.
+
+## Manual browser checks for Plan 3b
+
+Scrape page (`/scrape`):
+1. Loads and shows "schedule off".
+2. Totals equal `select status, count(*) from coverage group by status`.
+3. Progress bar width = done / total.
+4. Manhattan expands to 1 done saturated tile with 80 places and 71 new leads.
+5. Tiles box rejects 0 and 21.
+6. `cap_apify_usd_day=0` shows blocked and disables Run (restore afterwards).
+7. "Run N tiles now" enqueues exactly one walk job (spends Apify money: only with the owner's yes).
+8. `walk_tiles_per_run` saves 4 and back; empty `walk_queries` and hour 24 are rejected.
+9. A hand-inserted failed TEST tile appears under Failed tiles and Retry turns it pending; the metro filter works.
+
+Batches page (`/batches`):
+1. n of 100 with the newest batch "open".
+2. Status columns sum to the lead count.
+3. Houston's 8 selected match `/review`; scrape runs agree with `/dashboard`.
+4. Retry later card shows Hunter and Prospeo today/cap; named count for Houston (plan expects 2: unverified).
+5. Retry button is disabled when named = 0; an enabled button shows the credit-spend confirm text. Cancel unless a real paid job is wanted.

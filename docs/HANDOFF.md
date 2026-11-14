@@ -1,4 +1,4 @@
-# HANDOFF: KodoAI GTM OS (updated 2026-11-13, branch `plan3-scrape-batches`; section 0 is the current state, sections 1-11 were written 2026-11-11 and patched where stale)
+# HANDOFF: KodoAI GTM OS (updated 2026-11-14, branch `plan3b-build`; section 0 is the current state, sections 1-11 were written 2026-11-11 and patched where stale)
 
 Read this first, then `CLAUDE.md`. Everything here was read from the repo or established in the building session; anything not checked is marked **unverified**.
 
@@ -21,7 +21,8 @@ Single "start here". Checked against `git log`, code and docs on 2026-11-12. The
 | Cloud runner (GCP VM, Secret Manager) | **Plan 2 built 2026-11-12** (branch `plan2-cloud-runner`): VM `gtm-worker` (e2-micro, us-west1-b) runs the worker under systemd; migration 0009 applied. Runbook: `docs/runbooks/cloud-runner.md`. Verified: smoke test, kill -9 and VM reset recovery. **Not verified:** a real unattended pass and RAM peak under it (being finished 2026-11-12, see (f)), Gmail send from the VM (Plan 4) |
 | **Plan 3a (scrape and batches, backend): BUILT 2026-11-13** on branch `plan3-scrape-batches` (Tasks 1-7; PR to be opened by the coordinator) | Migration 0010 applied to the real project (`coverage` table, `leads.batch_no`, `leads.tz`). Coverage seeded: 1285 tiles, 201 metros (`gtm/data/metros.csv`, Census-ranked via a Wikipedia list; tile names for added metros written from memory, not checked against Google Maps; Houston, Sugar Land, The Woodlands marked done by hand). `tz-backfill` set tz on 59 of 60 leads (one has no city/state). Passes `walk`, `seed-coverage`, `tz-backfill`; `select` numbers batches of 100. Defaults from `docs/spikes/tile_tuning.md`: `walk_queries='med spa,aesthetics clinic'`, `walk_max_places=40`, `walk_escalate_at=0.8` (dense tiles saturate the cap of 40; deeper caps untested). Fetch fallback: `docs/spikes/fetch_fallback.md` |
 | First live tile (VM worker, 2026-11-13) | New York / Manhattan, 2 queries, 80 places, 71 new leads, 9 already known, saturated; clean kept 48, rejected 23 (15 category, 3 duplicate domain, 2 closed, 2 no website, 1 chain); 69 of 71 have a tz; $0.4004 (2 apify rows); no duplicate place ids; job `done`, worker unchanged |
-| Plan 3b (Scrape & Coverage and Batches pages) | Not started. Plans 4-6 not written, not built |
+| **Plan 3b (Scrape & Coverage `/scrape` and Batches `/batches` pages): BUILT 2026-11-14** on branch `plan3b-build` | Migration 0012 applied to the real project. `enrich --retry-no-buyer --named-only` (retries only `no_buyer` leads whose owner is already named; `--retry-no-buyer` also processes cleaned leads). `batch_no_spend` view is empty until enrich/LLM calls log a lead_id. Pages typecheck/build and have verify scripts (`web/scripts/verify_scrape.mts`, `verify_batches.mts`) but were **not opened in a browser**: manual checklists are in `docs/runbooks/cloud-runner.md` (Manual browser checks for Plan 3b). Plans 4-6 not written, not built |
+| Map data source (decision 2026-11-14) | Google Places data will **not** be stored (Google terms). `gtm/places.py` (9d3e6f3) is parked and unused. Under evaluation: OpenStreetMap Overpass, Geoapify, Apify, Serper (`docs/spikes/maps_sources.md`, `google_maps_terms.md`; Serper /maps live test numbers in `maps_sources.md`). Tile names checked with the Geocoding API: 1285 tiles, 14 real errors fixed, 8 accepted false positives (`docs/spikes/tile_verification.md`); a Geocoding-only key (free tier) exists in the old GCP project and local `.env` only |
 | Email copy and angle strategy | **Parked**: `docs/NEXT-email-strategy.md` |
 
 ### (b) Houston batch e11d97b6-41a0-4957-8d3d-6b1728f74d90 (as of the 2026-11-11 measurement; **unverified**: not re-queried)
@@ -55,7 +56,7 @@ Plan 1 (branch `gtm-os-build`) was **merged to `main` by the owner as PR #1** (`
 | `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` | Six plans; order 1, then 2 and 3, then 4, then 5 and 6 (5 can move earlier) |
 | `docs/superpowers/plans/2026-11-12-plan1-foundation.md` | **BUILT**, commits `0c53f4b..4d67ceb` |
 | `docs/superpowers/plans/2026-11-12-plan2-cloud-runner.md` | **BUILT** 2026-11-12 (branch `plan2-cloud-runner`): VM `gtm-worker` live, Secret Manager, `Restart=always`, heartbeat lease (migration 0009 applied). Only the first real unattended pass and the budget alert are still being finished: see (f). Free-trial decision made (below) |
-| Plan 3 scrape and batches | **3a BUILT 2026-11-13** (coverage walk, batches of 100, time zones, fetch fallback; branch `plan3-scrape-batches`). 3b open: Scrape & Coverage and Batches pages; retry-later job not built |
+| Plan 3 scrape and batches | **3a BUILT 2026-11-13** (coverage walk, batches of 100, time zones, fetch fallback; branch `plan3-scrape-batches`). **3b BUILT 2026-11-14** (`/scrape`, `/batches`, `--named-only` retry button, migration 0012; branch `plan3b-build`) |
 | Plan 4 drafts and sending | Drafts in the database, bulk edit, send scheduler, Pending follow-ups, send via the Gmail API. Candidate (proposal, undecided): positive-reply assistant that drafts a reply for the owner to approve |
 | Plan 5 sheet import and manual queue | Color rule, Manual queue tab |
 | Plan 6 metrics, Home, Replies | History, Home, Replies pages |
@@ -117,9 +118,10 @@ Per-route owner-finding numbers: `docs/spikes/owner_routes.md`. Budget table (20
 - The VM runs Python 3.14.10 (pinned by `UV_PYTHON=3.14` in `deploy/deploy.sh`), like the Mac. Changing the VM's Python needs `/opt/gtm/.venv` emptied by hand first as `gtm` (root-owned parent, uv cannot remove it).
 - A wrongly suppressed lead (including a wrong `not-interested`) can only be fixed in the database.
 - The `weekly_target=200` row in `settings` equals the default (f7).
+- Plan 3b: pages never opened in a browser (see runbook checklists); Run N tiles now and Retry later spend money, check only with the owner's yes.
 - Plan 3a: full suite was 573 passed, 1 failed before the review fixes (`tests/test_jobs.py::test_enqueue_then_claim_returns_the_job_running`; passes alone 3 of 3; probable cause the live VM worker claiming the test job between enqueue and claim, **unverified**); not re-run after the fixes. Review fixes: suburb time zones, leads stranded uncleaned after a mid-tile budget block, tiles left running after a block, tests polluting `cost_log`, `test_schedule` jobs a live worker could claim (now `run_after` +10 years), `InvalidURL` crash in `fetch_page`.
 - Gmail send (including from the VM), thread/bounce reading and a heavy unattended pass (enrich, signals) on the worker are unproven live (only a no-op `clean` has run).
-- Deferred minors, accepted: `setting("typo")` raises a bare KeyError; unused `now` parameter in `credit_remaining_usd`; paid-mode check ignores the pending amount (can overshoot a cap by one call); `require` is check-then-act with no reservation; `llm.py` reads prices after the paid Gemini call (a failed read drops the cost row); `researcher.py` param `budget=150` shadows the module; the settings page keeps its own copy of the default values (`web/lib/settings.ts`); `verify.mts` leaves a queued `clean` TEST job and `q.length === 1` is brittle; worker: an exception in `finish` kills the loop, `enqueue` does not reject unknown kinds, no test for `cmd_enqueue` `--` stripping; `tests/test_worker.py` lacks `pytestmark db`; no boundary tests for budget.
+- Deferred minors, accepted: `setting("typo")` raises a bare KeyError; unused `now` parameter in `credit_remaining_usd`; paid-mode check ignores the pending amount (can overshoot a cap by one call); `require` is check-then-act with no reservation; `llm.py` reads prices after the paid Gemini call (a failed read drops the cost row); `researcher.py` param `budget=150` shadows the module; `verify.mts` leaves a queued `clean` TEST job and `q.length === 1` is brittle; worker: an exception in `finish` kills the loop, `enqueue` does not reject unknown kinds, no test for `cmd_enqueue` `--` stripping; `tests/test_worker.py` lacks `pytestmark db`; no boundary tests for budget.
 
 ### (k) Working agreements with the owner
 
@@ -127,9 +129,9 @@ Concise answers; no assumptions; verify before claiming; one question at a time 
 
 ### (l) First steps for the next session, in order
 
-1. Merge the Plan 2 PR if still open, and the Plan 3a PR once the coordinator opens it. Read `docs/runbooks/cloud-runner.md` open items.
+1. Merge the Plan 2 PR if still open, the Plan 3a PR and the Plan 3b branch (`plan3b-build`). Walk the Plan 3b manual browser checklists (runbook). Read `docs/runbooks/cloud-runner.md` open items.
 2. First real small send of the 8 selected Houston leads: still NOT done. Needs owner approval of each paid or send step: Review-page approval, `draft`, reading every draft in Gmail, `send` dry run, then `send --confirm` small.
-3. Then Plan 3b (Scrape & Coverage and Batches pages), or turn on the daily walk schedule.
+3. Pick the map data source (OSM/Geoapify/Apify/Serper), then Plan 4. The daily walk schedule stays OFF.
 
 The graphify graph was refreshed 2026-11-12 with deep doc extraction (`graphify-out/`, git-ignored); `/graphify . --update` only after further changes.
 

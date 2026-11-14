@@ -4,22 +4,20 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
 import type { Job, SpendRow } from "@/lib/types";
-import { cancelJob, enqueueJob, retryJob, saveSetting } from "@/lib/actions";
+import Link from "next/link";
+import { cancelJob, enqueueJob, retryJob } from "@/lib/actions";
+import { useSettings } from "@/lib/useSettings";
+import { SettingInput } from "@/components/SettingInput";
 import { splitArgs } from "@/lib/args";
-import { SETTING_FIELDS, type SettingField } from "@/lib/settings";
+import { SETTING_FIELDS } from "@/lib/settings";
 
-// Defaults mirror gtm/settings_store.py so an unset key shows what the worker will use.
-const DEFAULTS: Record<string, unknown> = {
-  monthly_budget_pkr: 25000, pkr_per_usd: 276, weekly_target: 200, allow_paid_gemini: false, paid_gemini_monthly_cap_usd: 0,
-  credit_end_date: "2027-02-09", credit_balance_usd: 298, credit_balance_as_of: "2026-11-12",
-  gemini_input_usd_per_m: 1.5, gemini_output_usd_per_m: 9.0,
-  gemini_lite_input_usd_per_m: 0.25, gemini_lite_output_usd_per_m: 1.5,
-  cap_apify_usd_day: 2.0, cap_serper_queries_day: 700, cap_gemini_usd_day: 5.0,
-  cap_hunter_credits_day: 100, cap_prospeo_credits_day: 20, cap_harvest_usd_day: 0.5,
-  walk_schedule_enabled: false, walk_hour_utc: 13, walk_tiles_per_run: 3, walk_queries: "med spa,aesthetics clinic",
-  walk_max_places: 40, walk_escalate_at: 0.8, fetch_fallback: true,
-};
-const GROUPS = ["Budget", "Google credit", "API prices", "Daily caps", "Metro walk"];
+const GROUPS: [string, string][] = [
+  ["Budget", "Monthly budget and exchange rate used in the cost views."],
+  ["Google credit", "Free-trial credit: it ends on the date below unless the full account is activated first."],
+  ["API prices", "Third-party prices, unconfirmed; they only change what the cost views show."],
+  ["Daily caps", "Each cap is in the provider's own unit and is checked before every paid call; 0 blocks the provider."],
+  ["Page fetching", ""],
+];
 // Spend meter: provider, its daily cap key, and which spend column that cap counts.
 const METER: [string, string, "usd" | "units"][] = [
   ["apify", "cap_apify_usd_day", "usd"], ["serper", "cap_serper_queries_day", "units"], ["gemini", "cap_gemini_usd_day", "usd"],
@@ -29,7 +27,7 @@ const JOB_KINDS = ["scrape", "clean", "enrich", "signals", "select", "draft", "f
 
 export default function Settings() {
   const ready = useRequireSession();
-  const [vals, setVals] = useState<Record<string, unknown>>(DEFAULTS);
+  const { vals, reload, save, err: setErr0 } = useSettings(ready);
   const [spend, setSpend] = useState<SpendRow[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [kind, setKind] = useState("clean");
@@ -38,47 +36,34 @@ export default function Settings() {
 
   const load = useCallback(async () => {
     try {
-      const [s, sp, j] = await Promise.all([
-        supabase.from("settings").select("key,value"),
+      const [sp, j] = await Promise.all([
         supabase.from("spend_summary").select("*"),
         supabase.from("jobs").select("*").order("created_at", { ascending: false }).limit(50),
       ]);
-      for (const r of [s, sp, j]) if (r.error) throw new Error(r.error.message);
+      for (const r of [sp, j]) if (r.error) throw new Error(r.error.message);
       setErr("");
-      setVals({ ...DEFAULTS, ...Object.fromEntries((s.data ?? []).map((r) => [r.key, r.value])) });
       setSpend((sp.data ?? []) as SpendRow[]); setJobs((j.data ?? []) as Job[]);
     } catch (e) { setErr((e as Error).message); }
   }, []);
   useEffect(() => { if (ready) load(); }, [ready, load]);
   if (!ready) return null;
 
-  const act = async (fn: () => Promise<void>) => { try { await fn(); await load(); } catch (e) { setErr((e as Error).message); } };
-  const save = (f: SettingField, raw: string | boolean) =>
-    act(() => saveSetting(f.key, f.type === "int" || f.type === "float" ? (raw === "" ? NaN : Number(raw)) : raw));
-  const field = (f: SettingField) => (
-    <label className="card" key={f.key}>
-      <div className="muted">{f.label}</div>
-      {f.type === "bool" ? (
-        <input type="checkbox" checked={vals[f.key] === true} onChange={(e) => save(f, e.target.checked)} />
-      ) : (
-        // key remounts the uncontrolled input after a save so it shows the stored value
-        <input key={String(vals[f.key])} type={f.type === "date" ? "date" : f.type === "text" ? "text" : "number"} step={f.type === "float" ? "any" : 1}
-          defaultValue={String(vals[f.key])} onBlur={(e) => e.target.value !== String(vals[f.key]) && save(f, e.target.value)} />
-      )}
-    </label>
-  );
+  const act = async (fn: () => Promise<void>) => { try { await fn(); await load(); await reload(); } catch (e) { setErr((e as Error).message); } };
   const gemini = vals.allow_paid_gemini === true;
 
   return (
     <>
       <h1>Settings</h1>
-      {err && <p className="err">{err}</p>}
-      <p className="muted">Paid Gemini is {gemini ? <span className="pill bad">allowed</span> : <span className="pill ok">off</span>}: while the free Google credit lasts the LLM passes (signals, select, draft, replies) use Gemini; once it ends or runs out they use Groq unless paid Gemini is allowed, and only the owner-research step of enrich, which needs Gemini, stops and pauses the job.</p>
+      {(err || setErr0) && <p className="err">{err || setErr0}</p>}
+      <p className="muted">Values shown are what the worker uses right now; a key you have never saved shows its built-in default. Changes apply within a minute.</p>
+      <p className="muted">Paid Gemini is {gemini ? <span className="pill bad">allowed</span> : <span className="pill ok">off</span>}: with it off, the model passes (signals, select, draft, replies) use Groq once the Google credit ends; owner research in enrich needs Gemini and stops and pauses its job. Replies are classified with Gemini Flash-Lite, priced by the two Lite settings.</p>
+      <p className="muted">The scrape walk settings (schedule, tiles, search terms) live on the <Link href="/scrape">Scrape &amp; Coverage</Link> page.</p>
 
-      {GROUPS.map((g) => (
+      {GROUPS.map(([g, hint]) => (
         <div key={g}>
           <h2>{g}</h2>
-          <div className="grid">{SETTING_FIELDS.filter((f) => f.group === g).map(field)}</div>
+          {hint && <p className="muted">{hint}</p>}
+          <div className="grid">{SETTING_FIELDS.filter((f) => f.group === g).map((f) => <SettingInput key={f.key} f={f} vals={vals} save={save} />)}</div>
         </div>
       ))}
 

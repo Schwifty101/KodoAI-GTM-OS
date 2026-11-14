@@ -73,7 +73,7 @@ def cmd_enrich(a: argparse.Namespace) -> None:
         "hunter": hunter_domain_finder(pool),  # Hunter Domain Search
     }
     finders = [available[n] for n in a.finders.split(",")]
-    print(run_enrich(get_db(), finders, a.batch, a.limit, a.retry_no_buyer))
+    print(run_enrich(get_db(), finders, a.batch, a.limit, a.retry_no_buyer, a.named_only))
 
 
 def cmd_signals(a: argparse.Namespace) -> None:
@@ -179,6 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--harvest-budget", type=float, default=1.0, help="USD cap on HarvestAPI spend this run")
     e.add_argument("--research-budget", type=int, default=150, help="max Serper searches the research finder may spend this run")
     e.add_argument("--retry-no-buyer", action="store_true", help="also re-run leads already marked no_buyer (spends credits again)")
+    e.add_argument("--named-only", action="store_true", help="with --retry-no-buyer: only leads whose owner name is already known (spends credits only on them)")
     e.set_defaults(fn=cmd_enrich)
     g = sub.add_parser("signals")
     g.add_argument("--batch", required=True)
