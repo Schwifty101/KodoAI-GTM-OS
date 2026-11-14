@@ -18,6 +18,38 @@
 - Test runs: `mkdir /tmp/gtm-pytest.lock` before pytest, `rmdir` after; one pytest process at a time (db tests share rows and clean up `TEST_%` leads). Manual or acceptance rows use the prefix `REHEARSAL_`, never `TEST_`. Apply a migration only with the owner's yes.
 - Python style: ponytail (shortest working diff, no speculative abstractions). Each code task commits on its own.
 
+## Execution model (parallel agents, sub-agents, ponytail, graphify)
+
+Method: `superpowers:subagent-driven-development`. The main session is the **orchestrator**: it dispatches agents, never edits product code itself, and owns merges, the migration, the full suite and the PR.
+
+**Every agent starts with the same preamble** (copy it into each dispatch prompt):
+1. Invoke `ponytail:ponytail` (shortest working diff; no speculative abstractions; one runnable check per non-trivial rule) and `superpowers:test-driven-development`.
+2. `graphify-out/` exists: follow the `graphify` skill. Read `graphify-out/GRAPH_REPORT.md` and query the graph before grepping for callers, signatures or file relationships; after structural changes follow the skill's update step so the next agent sees the new code.
+3. Read the spec, this plan's Global Constraints, Review Focus and your own tasks only. Do not edit files outside your task's `Files` list; if a needed change is outside it, stop and report.
+4. Report: diff summary, test output, decisions, anything unverified. Never commit to `main`; never print keys.
+
+**Waves**
+
+| Wave | Who | Work | Gate |
+|---|---|---|---|
+| 0 | orchestrator | Task 1 (migration needs the owner's yes) | migration applied, settings test green |
+| 1 | three agents in ONE dispatch, each in its own git worktree and branch (`plan4-a`, `plan4-b`, `plan4-c`) | **A**: Tasks 2 then 3 and 4. **B**: Tasks 5, 6, 7, 8 in order (all in `gtm/send.py`). **C**: Task 9 then 10 and 11 | each task passes its own tests and a fresh reviewer |
+| 1.5 | orchestrator | merge `plan4-a`, then `plan4-b`, then `plan4-c` into `plan4-build`; resolve the small `cli.py`/`worker.py` overlaps; full suite | suite green |
+| 2 | orchestrator with the owner | Task 12 (docs, browser check, live rehearsal, VM deploy) | owner approves each send step |
+
+**Sub-agents inside a wave.** An agent may spawn its own sub-agents, one level deep, only where its tasks are independent: A spawns one each for Task 3 and Task 4 after Task 2 lands; C spawns one each for Task 10 and Task 11 after Task 9 lands; B stays sequential because Tasks 5-8 share `gtm/send.py`. Sub-agents inherit this preamble.
+
+**Review per task.** After each task a fresh reviewer agent reads that task's text and its diff and reports spec gaps, then a `ponytail:ponytail-review` pass for needless code. Fix findings before the next task starts. After the merge, one whole-branch reviewer (`code-review` skill) runs over `plan4-build`.
+
+**Shared-resource rules (these broke earlier parallel runs)**
+- One pytest process at a time across ALL agents. Take the lock with `until mkdir /tmp/gtm-pytest.lock 2>/dev/null; do sleep 10; done` and `rmdir` it when done. Run only your own test files, never the whole suite, until Wave 1.5.
+- Test and acceptance rows use a per-group prefix: `REHEARSAL_A_`, `REHEARSAL_B_`, `REHEARSAL_C_`. Never `TEST_` for hand-made rows (existing test cleanup deletes every `TEST_%` lead).
+- The dev server (`npm run dev`, port 3000) is started by one agent (C) only. Browser checks of Tasks 10 and 11 run one at a time.
+
+**Hard gates (stop and ask the owner):** applying the migration; any real send or any send outside a `REHEARSAL_` lead; deploying to the VM (queue idle first); merging to `main`. Agents open no PRs: the orchestrator opens one PR from `plan4-build`.
+
+---
+
 ## Review Focus
 
 1. The owner edits a draft that is already `scheduled`/`sending`/`sent`: the edit must be refused, never change a claimed touch (Task 8 test, Task 9 verify).
