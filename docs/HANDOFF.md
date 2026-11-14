@@ -61,7 +61,7 @@ Google Places API data will NOT be stored (policy allows only place_id and lat/l
 | Serper /maps | Cheaper pilot next. Live test: 3 credits per call of 20 places; `ChIJ` place ids present; website 77 of 80; categories (types list), rating, ratingCount; address (city/state to parse); page 2 needs an `ll` param; `ll` bias is weak, so express tiles as query text with several wordings. 5 queries (15 credits) found 78 unique Manhattan places, 63 kept by the clean rule, 54 new to our DB. USD per Serper credit NOT verified (`docs/spikes/maps_sources.md`) |
 | OSM Overpass, Geoapify, Overture Maps | Free storable supplements. OSM probe (`docs/spikes/osm_probe.md`): 8 strict med-spa matches in Manhattan vs 71 from Apify, about half of candidates have a website, no ratings, reviews or Google ids, 7 percent overlap with Apify's set. Geoapify: `docs/spikes/geoapify.md` |
 
-Pilot plan and gates: `docs/NEXT-source-pilot.md` (written by another agent; if missing, the plan is: Serper pilot, then free Overture test).
+Pilot plan and gates: `docs/NEXT-source-pilot.md` (Serper pilot, then the free Overture test).
 
 ### (f) Google lat/lng cache: delete by 2026-12-14
 
