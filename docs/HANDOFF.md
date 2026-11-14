@@ -187,7 +187,7 @@ All Python is run as `uv run python -m gtm.cli <pass>` from the repo root. Lead 
 | `gtm/researcher.py` | `research` finder: Gemini function-calling loop (web_search via Serper, fetch_page), then `validate` code guard, then Hunter Email Finder |
 | `gtm/prospeo.py` | `prospeo` finder: Enrich Person by name + company website, verified emails only |
 | `gtm/harvest.py` | `harvest` finder (opt-in): HarvestAPI LinkedIn profile lookup, USD budget cap |
-| `gtm/llm.py` | `complete_json`: Vertex Gemini `gemini-3.5-flash` primary (retries 429/503), Groq `gpt-oss-120b` fallback (token-per-minute `Throttle`) |
+| `gtm/llm.py` | `complete_json`: Vertex Gemini `gemini-3.5-flash` primary; replies use `REPLY_MODEL` `gemini-3.1-flash-lite` via `complete_reply_json`, priced by `gemini_lite_*` settings (model id and prices unverified) (retries 429/503), Groq `gpt-oss-120b` fallback (token-per-minute `Throttle`) |
 | `gtm/signals.py` | `fetch_evidence` (13 site paths, booking platform detection), `validate_signal`, `judge_to_signal`, `run_signals` |
 | `gtm/select.py` | `select_decision`, `blocked_reason`, `_blocklists`, `run_select` (model writes only the one-line reason, with a code fallback) |
 | `gtm/mailboxes.py` | `assign_mailbox` (sticky, least-loaded, optional restriction) |
@@ -363,7 +363,7 @@ Ledger source: `.superpowers/sdd/2026-11-09-kodoai-gtm-os/progress.md` (git-igno
 | Owner-name lever | Site scrape 5/45 names (11%); Serper+Groq 24/45 (53%) names; verified emails 4/45 (9%) after Email Finder (7 emails, 3 accept-all) | `owner_lever.md` |
 | Plan sizing | Hunter-only at 200/week needs ~2,200 domains, ~930 credits/week (~4,000/month): Growth ($149/mo); Starter ($49/mo, 2,000 credits) covers ~100/week. Apify ~$21/week at that volume. Pricing read 2026-11-10 | `funnel.md`, `hunter.md` |
 | Sending capacity | 200 leads/week x 3 touches ~ 600 emails/week ~ 85-120/day, about 3 mailboxes at 40/day | `funnel.md` |
-| LLM (current) | Primary: Vertex Gemini `gemini-3.5-flash` (endpoint aiplatform.googleapis.com, billed to the owner's Google Cloud credit). Fallback: Groq `gpt-oss-120b`. `gemini-3.8-flash` also works (similar quality, slower in one run), not used. AI Studio key prepaid credit depleted, unused. Groq Developer tier was unavailable when tried. The two rows below are the older free-tier spike and predate this change | session facts 2026-11-11; `llm.md` is stale on primary/fallback |
+| LLM (current) | Primary: Vertex Gemini `gemini-3.5-flash`; reply classification uses `gemini-3.1-flash-lite` (`REPLY_MODEL`, `complete_reply_json`, `gemini_lite_*` prices; model id and prices unverified) (endpoint aiplatform.googleapis.com, billed to the owner's Google Cloud credit). Fallback: Groq `gpt-oss-120b`. `gemini-3.8-flash` also works (similar quality, slower in one run), not used. AI Studio key prepaid credit depleted, unused. Groq Developer tier was unavailable when tried. The two rows below are the older free-tier spike and predate this change | session facts 2026-11-11; `llm.md` is stale on primary/fallback |
 | Groq | `openai/gpt-oss-120b` 20/20 valid JSON, ~1 s; limits 30 RPM, 1K RPD, 8K TPM, 200K TPD (free-tier status of these numbers unconfirmed); ~50-60 evidence-heavy leads/day | `llm.md` |
 | Gemini (free AI Studio tier, old) | `gemini-3.5-flash` only 10/20 valid (429/503), median 32 s; grounding 429. Superseded by the Vertex key above | `llm.md` |
 | Signals | Website-only: 0 of 6 dated current signals; 5 of 6 relevance-led with handoff, all `conversion_recovery` | `signals_dry_run.md` |
