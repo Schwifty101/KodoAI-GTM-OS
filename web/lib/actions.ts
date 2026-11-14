@@ -79,7 +79,7 @@ export const unapproveTouches = (ids: string[]) =>
   ok(supabase.from("touches").update({ status: "drafted", approved_at: null }).in("id", ids).eq("status", "approved"));
 
 export const skipTouch = (id: string) =>
-  one(supabase.from("touches").update({ status: "cancelled" }).eq("id", id).in("status", ["drafted", "held", "edited", "approved"]).select("id"));
+  one(supabase.from("touches").update({ status: "cancelled" }).eq("id", id).in("status", ["drafted", "held", "edited", "approved", "scheduled"]).select("id"));
 
 /** For a touch stranded in `sending` after a crash: the owner checked Gmail and decides. */
 export async function markSent(id: string) {
