@@ -57,6 +57,7 @@ def test_touch_1_under_45_words_fails():
     (GOOD.replace("front desk coordinator", "3 front desk coordinators"), "number"),
     (GOOD.replace("Is reducing", "Can we set up a demo? Is reducing"), "offer"),
     (GOOD.replace("Dana,\n\n", ""), "missing_greeting"),
+    (GOOD.replace("\n\nGlow", " Glow").replace("\n\nWe build", " We build").replace("\n\nIs reducing", " Is reducing"), "paragraphs"),
 ])
 def test_touch_1_rule_violations_are_flagged(bad, problem):
     assert problem in check_draft(bad, 1)

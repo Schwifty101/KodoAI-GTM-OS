@@ -59,6 +59,8 @@ def check_draft(text: str, touch_no: int = 1) -> list[str]:
         problems.append("too_short")
     if n > hi:
         problems.append("too_long")
+    if touch_no == 1 and len(body) < 3:
+        problems.append("paragraphs")  # credibility line, observation + offer, question: never one block
     sentences = [s for s in re.split(r"(?<=[.?!])\s+", body_text) if s]
     if touch_no == 1 and not 5 <= len(sentences) <= 8:
         problems.append("sentence_count")
