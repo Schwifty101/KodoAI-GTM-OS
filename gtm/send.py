@@ -157,9 +157,9 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
         return {"off": 1}
     out: dict = {"replies": run_replies(db, gmail_for, llm, **fetchers), "scheduled": 0, "send": Counter()}
     for mb in db.table("mailboxes").select("*").execute().data:
-        db.table("mailboxes").update({"replies_checked_at": now.isoformat()}).eq("id", mb["id"]).execute()
         if mb["paused"]:
             continue
+        db.table("mailboxes").update({"replies_checked_at": now.isoformat()}).eq("id", mb["id"]).execute()
         if _auto_pause(db, mb, now, s):
             out["paused"] = out.get("paused", 0) + 1
             continue
