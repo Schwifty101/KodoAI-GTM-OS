@@ -151,6 +151,14 @@ def _auto_pause(db, mailbox: dict, now: datetime, s: Settings) -> bool:
     return True
 
 
+def _is_auth_failure(e: Exception) -> bool:
+    """A token problem the owner must fix (re-authorise): pause. Anything else (LLM, 5xx, timeout, DB) is transient."""
+    from google.auth.exceptions import RefreshError
+    from googleapiclient.errors import HttpError
+
+    return isinstance(e, RefreshError) or (isinstance(e, HttpError) and e.resp.status in (401, 403)) or (isinstance(e, RuntimeError) and str(e).startswith("Gmail token"))
+
+
 def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Settings | None = None, force: bool = False, anytime: bool = False, mailbox_id: str | None = None, **fetchers) -> dict:
     """One scheduler pass: read replies and bounces first (a lead who said stop is cancelled before it can send), then per unpaused mailbox auto-pause, schedule, send. Does nothing while sending is off unless forced (terminal `send --confirm`)."""
     s, now = settings or get_settings(), (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -168,7 +176,11 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
             if force or not last or datetime.fromisoformat(last) <= now - timedelta(minutes=REPLIES_EVERY_MINUTES):
                 out["replies"].update(run_replies(db, gmail_for, llm, mailbox_id=mb["id"], **fetchers))
                 db.table("mailboxes").update({"replies_checked_at": now.isoformat()}).eq("id", mb["id"]).execute()
-        except Exception as e:  # spec 5.4: a failing Gmail token or API pauses this mailbox and says why; sending_on is untouched
+        except Exception as e:
+            if not _is_auth_failure(e):  # transient: skip this mailbox this tick (no sending on unread replies), try again next tick
+                print(f"send tick: {mb['address']}: replies read failed: {type(e).__name__}: {e}")
+                continue
+            # spec 5.4: a failing Gmail token pauses this mailbox and says why; sending_on is untouched
             db.table("mailboxes").update({"paused": True, "paused_reason": f"gmail: {type(e).__name__}: {str(e)[:120]}"}).eq("id", mb["id"]).execute()
             out["paused"] = out.get("paused", 0) + 1
             continue

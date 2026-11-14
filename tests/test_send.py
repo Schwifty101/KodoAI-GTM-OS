@@ -409,31 +409,58 @@ def test_force_reads_replies_even_when_recently_checked(world):
     assert "t-f" in seen
 
 
-@pytest.mark.db
-@pytest.mark.parametrize("broken", ["service", "replies"])
-def test_a_gmail_failure_pauses_that_mailbox_with_the_reason(world, broken):
-    db, bid, mb = world
-    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
-    make_leads(db, bid, mb, 1, status="sent", touch_status="sent", offset=60, prefix="REHEARSAL_F_", sent_at="2026-11-07T12:00:00+00:00", tkw={"gmail_thread_id": "t-g"})
+def _auth_error(kind):
+    from types import SimpleNamespace
+
+    from google.auth.exceptions import RefreshError
+    from googleapiclient.errors import HttpError
+
+    return {"token": RuntimeError("Gmail token missing or invalid for x: re-authorise on the Mac"), "refresh": RefreshError("x" * 300),
+            "http403": HttpError(SimpleNamespace(status=403, reason="x" * 300), b"")}[kind]
+
+
+def _broken_tick(db, mb, exc, where):
     gm = Gmail()
 
     def gmail_for(addr):
-        if broken == "service":
-            raise RuntimeError("Gmail token missing or invalid for " + addr + ": re-authorise on the Mac")
+        if where == "service":
+            raise exc
         return gm
 
     def tm(svc, tid):
-        raise ConnectionError("x" * 300)
+        raise exc
 
     import gtm.send as send
 
     send.setting = lambda key, db=None: True
     out = send_tick(db, gmail_for, lambda s, p: {"kind": "other"}, settings=SETTINGS, now=NOW, mailbox_id=mb["id"], thread_messages=tm, recent_bounces=lambda svc: [])
-    row = db.table("mailboxes").select("*").eq("id", mb["id"]).execute().data[0]
+    return out, gm, db.table("mailboxes").select("*").eq("id", mb["id"]).execute().data[0]
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("kind,where", [("token", "service"), ("refresh", "replies"), ("http403", "replies")])
+def test_a_gmail_auth_failure_pauses_that_mailbox_with_the_reason(world, kind, where):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    make_leads(db, bid, mb, 1, status="sent", touch_status="sent", offset=60, prefix="REHEARSAL_F_", sent_at="2026-11-07T12:00:00+00:00", tkw={"gmail_thread_id": "t-g"})
+    exc = _auth_error(kind)
+    out, gm, row = _broken_tick(db, mb, exc, where)
     assert out["paused"] == 1 and gm.sent == [] and row["paused"] is True
-    want = "gmail: RuntimeError: Gmail token missing" if broken == "service" else "gmail: ConnectionError: " + "x" * 120
-    assert row["paused_reason"].startswith(want) and len(row["paused_reason"]) <= len("gmail: ConnectionError: ") + 120
+    name = type(exc).__name__
+    assert row["paused_reason"].startswith(f"gmail: {name}: ") and len(row["paused_reason"]) <= len(f"gmail: {name}: ") + 120
     assert touch(db, l["id"])["status"] == "scheduled"
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("exc", [ConnectionError("llm down"), TimeoutError("5xx")])
+def test_a_non_auth_failure_skips_that_mailbox_this_tick_without_pausing(world, exc, capsys):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    make_leads(db, bid, mb, 1, status="sent", touch_status="sent", offset=60, prefix="REHEARSAL_F_", sent_at="2026-11-07T12:00:00+00:00", tkw={"gmail_thread_id": "t-g"})
+    out, gm, row = _broken_tick(db, mb, exc, "replies")
+    assert "paused" not in out and row["paused"] is False and row["replies_checked_at"] is None  # not stamped: the next tick reads again
+    assert gm.sent == [] and touch(db, l["id"])["status"] == "scheduled"  # no sending on unread replies
+    assert type(exc).__name__ in capsys.readouterr().out
 
 
 @pytest.mark.db
