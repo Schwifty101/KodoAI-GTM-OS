@@ -32,8 +32,8 @@ class Settings:
     google_oauth_client_file: str = ""
     # Sending. Defaults are placeholders until the Task 7 gate sets them.
     daily_cap: int = 40
-    ramp_start: int = 10
-    ramp_step: int = 5
+    ramp_start: int = 20
+    ramp_step: int = 3
     pause_bounce_rate: float = 0.03
     pause_min_sends: int = 20
     # 0 = not set. Task 11 reads MedSpa/ for the real value and refuses to run on 0.
