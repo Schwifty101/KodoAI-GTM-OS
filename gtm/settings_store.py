@@ -20,6 +20,7 @@ DEFAULTS: dict[str, bool | int | float | str] = {
     "walk_schedule_enabled": False, "walk_hour_utc": 13, "walk_tiles_per_run": 3,
     "walk_queries": "med spa,aesthetics clinic", "walk_max_places": 40, "walk_escalate_at": 0.8,
     "fetch_fallback": True,
+    "sending_on": False,  # Plan 4: Start sending turns it on, Pause or an auto-pause turns it off
 }
 TTL = 60
 _cache: dict[str, tuple[float, Any]] = {}
