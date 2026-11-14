@@ -103,9 +103,11 @@ def _classify_for(m: dict, llm, lead_id: str) -> str:
         return classify_reply(m, llm)
 
 
-def run_replies(db, gmail_for, llm, thread_messages=thread_messages, recent_bounces=recent_bounces) -> dict[str, int]:
+def run_replies(db, gmail_for, llm, thread_messages=thread_messages, recent_bounces=recent_bounces, mailbox_id: str | None = None) -> dict[str, int]:
     counts: Counter = Counter()
     for mb in db.table("mailboxes").select("*").execute().data:
+        if mailbox_id and mb["id"] != mailbox_id:
+            continue
         svc = gmail_for(mb["address"])
         active = {l["id"]: l for l in fetch_all(lambda: db.table("leads").select("id,owner_email").eq("mailbox_id", mb["id"]).eq("status", Status.SENT.value).order("id"))}
         for lead_id in list(active):

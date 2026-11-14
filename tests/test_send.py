@@ -369,6 +369,33 @@ def test_tick_reads_replies_before_sending(world):
     assert touch(db, l["id"], 2)["status"] == "cancelled" and lead(db, l["id"])["status"] == "unsubscribed"
 
 
+def _checked(db, mb, ago_min):
+    db.table("mailboxes").update({"replies_checked_at": (NOW - timedelta(minutes=ago_min)).isoformat()}).eq("id", mb["id"]).execute()
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("ago,reads", [(1, False), (11, True), (None, True)])
+def test_replies_are_read_at_most_every_ten_minutes_but_sending_happens_every_tick(world, ago, reads):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
+    (h,) = make_leads(db, bid, mb, 1, status="sent", touch_status="sent", offset=50, prefix="REHEARSAL_F_", sent_at="2026-11-07T12:00:00+00:00", tkw={"gmail_thread_id": "t-h"})
+    if ago is not None:
+        _checked(db, mb, ago)
+    seen = []
+    out = _tick(db, Gmail(), thread_messages=lambda svc, tid: seen.append(tid) or [])
+    assert ("t-h" in seen) is reads and out["send"]["sent"] == 1
+
+
+@pytest.mark.db
+def test_force_reads_replies_even_when_recently_checked(world):
+    db, bid, mb = world
+    make_leads(db, bid, mb, 1, status="sent", touch_status="sent", prefix="REHEARSAL_F_", sent_at="2026-11-07T12:00:00+00:00", tkw={"gmail_thread_id": "t-f"})
+    _checked(db, mb, 1)
+    seen = []
+    _tick(db, Gmail(), force=True, thread_messages=lambda svc, tid: seen.append(tid) or [])
+    assert "t-f" in seen
+
+
 def test_sending_lives_only_in_send_py_so_drafting_can_never_send():
     assert "send_draft" not in Path("gtm/draft.py").read_text()
 
@@ -411,6 +438,7 @@ def world():
     db.table("leads").delete().like("place_id", "TEST_%").execute()
     db.table("leads").delete().like("place_id", "PYB_%").execute()
     db.table("leads").delete().like("place_id", "REHEARSAL_B_%").execute()
+    db.table("leads").delete().like("place_id", "REHEARSAL_F_%").execute()
     db.table("mailboxes").delete().like("address", "pytest-send%").execute()
     db.table("batches").delete().eq("id", bid).execute()
 

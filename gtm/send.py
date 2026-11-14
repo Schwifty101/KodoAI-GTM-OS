@@ -16,6 +16,7 @@ from gtm.settings_store import clear_cache, setting
 from gtm.status import Status
 
 STOPPED = {Status.REPLIED.value, Status.BOUNCED.value, Status.UNSUBSCRIBED.value, Status.SUPPRESSED.value, Status.BOOKED.value}
+REPLIES_EVERY_MINUTES = 10  # replies are read per mailbox at most this often: one threads.get per sent lead per read
 WINDOW_DAYS = 7  # bounce rate is judged over the last week of sends
 SEND_START, SEND_END = 9, 16  # local hours, Mon-Fri: design spec section 15 (owner guess, "9 to 4"); a lead with no tz uses Chicago
 
@@ -155,15 +156,19 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
     clear_cache()  # Pause must bite now, not after the settings cache expires
     if not (force or setting("sending_on", db)):
         return {"off": 1}
-    out: dict = {"replies": run_replies(db, gmail_for, llm, **fetchers), "scheduled": 0, "send": Counter()}
+    out: dict = {"replies": Counter(), "scheduled": 0, "send": Counter()}
     for mb in db.table("mailboxes").select("*").execute().data:
         if mb["paused"]:
             continue
-        db.table("mailboxes").update({"replies_checked_at": now.isoformat()}).eq("id", mb["id"]).execute()
+        last = mb.get("replies_checked_at")
+        # A reply or bounce that lands inside the 10-minute window is seen at the next read: accepted, a stop still beats the next Touch by minutes.
+        if force or not last or datetime.fromisoformat(last) <= now - timedelta(minutes=REPLIES_EVERY_MINUTES):
+            out["replies"].update(run_replies(db, gmail_for, llm, mailbox_id=mb["id"], **fetchers))
+            db.table("mailboxes").update({"replies_checked_at": now.isoformat()}).eq("id", mb["id"]).execute()
         if _auto_pause(db, mb, now, s):
             out["paused"] = out.get("paused", 0) + 1
             continue
         out["scheduled"] += schedule_approved(db, mb, now, s, anytime=anytime)
         out["send"].update(send_scheduled(db, gmail_for, mb, now, s, anytime=anytime))
-    out["send"] = dict(out["send"])
+    out["replies"], out["send"] = dict(out["replies"]), dict(out["send"])
     return out
