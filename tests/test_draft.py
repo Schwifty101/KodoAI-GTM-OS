@@ -260,6 +260,17 @@ def test_followup_needs_no_gmail(world):
 
 
 @pytest.mark.db
+def test_a_cancelled_touch_2_does_not_strand_touch_3(world):
+    db, bid, mbs = world
+    lid = lead_row(db, 0)["id"]
+    sent_touch1(db, lid, mbs[0]["id"], "2026-11-10")
+    assert run_followups(db, date(2026, 11, 13)) == 1
+    db.table("touches").update({"status": "cancelled"}).eq("lead_id", lid).eq("touch_no", 2).execute()  # skipped by the owner
+    assert run_followups(db, date(2026, 11, 17)) == 1
+    assert db.table("touches").select("touch_no").eq("lead_id", lid).eq("touch_no", 3).execute().data
+
+
+@pytest.mark.db
 @pytest.mark.parametrize("stopper", ["replied", "bounced", "unsubscribed", "suppressed"])
 def test_a_reply_bounce_or_opt_out_stops_the_sequence(world, stopper):
     db, bid, mbs = world

@@ -190,7 +190,7 @@ def run_followups(db, today: date) -> int:
         t1 = touches.get(1)
         if not t1 or t1["status"] != "sent" or not t1.get("sent_at"):
             continue
-        n = 2 if 2 not in touches else 3 if 3 not in touches and touches[2]["status"] == "sent" else None
+        n = 2 if 2 not in touches else 3 if 3 not in touches and touches[2]["status"] in ("sent", "cancelled") else None  # a skipped or cancelled Touch 2 must not strand Touch 3
         if n is None or today < touch_date(date.fromisoformat(t1["sent_at"][:10]), n):
             continue
         if blocked_reason(lead, suppressed, set()):
