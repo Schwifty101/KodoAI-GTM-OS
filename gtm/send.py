@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from gtm.config import Settings, get_settings
 from gtm.db import fetch_all
@@ -14,6 +15,12 @@ from gtm.status import Status
 
 STOPPED = {Status.REPLIED.value, Status.BOUNCED.value, Status.UNSUBSCRIBED.value, Status.SUPPRESSED.value, Status.BOOKED.value}
 WINDOW_DAYS = 7  # bounce rate is judged over the last week of sends
+SEND_START, SEND_END = 9, 16  # local hours, Mon-Fri: design spec section 15 (owner guess, "9 to 4"); a lead with no tz uses Chicago
+
+
+def in_window(now: datetime, tz: str | None) -> bool:
+    local = now.astimezone(ZoneInfo(tz or "America/Chicago"))
+    return local.weekday() < 5 and SEND_START <= local.hour < SEND_END
 
 
 def allowance(mailbox: dict, today: date, ramp_start: int, ramp_step: int, cap: int) -> int:
@@ -32,9 +39,10 @@ def _day(ts: str | None) -> str:
     return (ts or "")[:10]
 
 
-def send_due(db, gmail_for, today: date, settings: Settings | None = None) -> dict[str, int]:
-    """Send due drafts mailbox by mailbox. Follow-ups go before new leads. Returns counts."""
+def send_due(db, gmail_for, today: date, settings: Settings | None = None, now: datetime | None = None, anytime: bool = False) -> dict[str, int]:
+    """Send due drafts mailbox by mailbox. Follow-ups go before new leads. A draft outside its lead's weekday window stays a draft (`deferred`) unless anytime. Returns counts."""
     s = settings or get_settings()
+    now = now or datetime.now(timezone.utc)
     out: Counter = Counter()
     suppressed, contacted = _blocklists(db)
     for mb in db.table("mailboxes").select("*").execute().data:
@@ -73,7 +81,7 @@ def send_due(db, gmail_for, today: date, settings: Settings | None = None) -> di
             if blocked:
                 out["held"] += 1  # already emailed this company: left as a draft for the operator to decide
                 continue
-            if room <= 0:
+            if room <= 0 or not (anytime or in_window(now, lead.get("tz"))):
                 out["deferred"] += 1
                 continue
             try:
@@ -90,7 +98,7 @@ def send_due(db, gmail_for, today: date, settings: Settings | None = None) -> di
     return dict(out)
 
 
-def send_with_reply_check(db, gmail_for, llm, today: date, settings: Settings | None = None, **fetchers) -> dict:
+def send_with_reply_check(db, gmail_for, llm, today: date, settings: Settings | None = None, now: datetime | None = None, anytime: bool = False, **fetchers) -> dict:
     """Read replies and bounces first, so a lead who said stop on Day 2 is `unsubscribed` (and its Touch 2 cancelled) before Day 3 sends."""
     replies = run_replies(db, gmail_for, llm, **fetchers)
-    return {"replies": replies, "send": send_due(db, gmail_for, today, settings)}
+    return {"replies": replies, "send": send_due(db, gmail_for, today, settings, now, anytime)}

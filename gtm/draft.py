@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -59,6 +60,8 @@ def check_draft(text: str, touch_no: int = 1) -> list[str]:
         problems.append("too_short")
     if n > hi:
         problems.append("too_long")
+    if touch_no == 1 and len(body) < 3:
+        problems.append("paragraphs")  # credibility line, observation + offer, question: never one block
     sentences = [s for s in re.split(r"(?<=[.?!])\s+", body_text) if s]
     if touch_no == 1 and not 5 <= len(sentences) <= 8:
         problems.append("sentence_count")
@@ -115,7 +118,8 @@ def _prompt(lead: dict, problems: list[str]) -> str:
     return facts
 
 
-def draft_touch1(llm, lead: dict, attempts: int = 3) -> dict | None:
+def draft_touch1(llm, lead: dict, attempts: int = 3, why: list[str] | None = None) -> dict | None:
+    """`why`, when given, receives the last attempt's problem codes if every attempt fails."""
     problems: list[str] = []
     for _ in range(attempts):
         ans = llm(SYSTEM, _prompt(lead, problems))
@@ -127,6 +131,8 @@ def draft_touch1(llm, lead: dict, attempts: int = 3) -> dict | None:
             problems.append("no_objective")
         if not problems:
             return {"subject": subject, "body": body, "objective": objective}
+    if why is not None:
+        why.extend(problems)
     return None
 
 
@@ -141,6 +147,10 @@ def _store(db, gmail_for, lead: dict, mailbox_id: str, touch_no: int, subject: s
                                 "subject": subject, "body": body, "objective": objective, "scheduled_for": today.isoformat()}).execute()
 
 
+def _skip(lead: dict, why: str) -> None:
+    print(f"skipped {lead.get('name')}: {why}", file=sys.stderr)
+
+
 def run_draft(db, llm, gmail_for, batch_id: str, today: date, only_mailboxes: set[str] | None = None) -> int:
     rows = db.table("leads").select("*").eq("batch_id", batch_id).eq("status", Status.SELECTED.value).eq("approved", True).execute().data
     suppressed, contacted = _blocklists(db)
@@ -150,12 +160,15 @@ def run_draft(db, llm, gmail_for, batch_id: str, today: date, only_mailboxes: se
         if blocked:
             db.table("leads").update({"status": Status.SUPPRESSED.value, "reject_reason": blocked} if blocked == "suppressed" else {"reject_reason": blocked}).eq("id", lead["id"]).execute()
             continue
+        why: list[str] = []
         try:
             with spend_context(batch_id=batch_id, lead_id=lead["id"]):
-                d = draft_touch1(llm, lead)
-        except Exception:
+                d = draft_touch1(llm, lead, why=why)
+        except Exception as e:
+            _skip(lead, f"{type(e).__name__}: {str(e)[:120]}")
             continue  # stays `selected`, retried next run
         if not d:
+            _skip(lead, "failed checks 3 times: " + ", ".join(why))
             continue
         mailbox_id = assign_mailbox(db, lead["id"], today, only_mailboxes)
         _store(db, gmail_for, lead, mailbox_id, 1, d["subject"], _with_footer(d["body"]), d["objective"], today)

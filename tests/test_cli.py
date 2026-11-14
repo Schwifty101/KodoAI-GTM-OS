@@ -25,6 +25,6 @@ def test_reply_checks_use_reply_model(monkeypatch, command):
     monkeypatch.setattr(cli, "get_settings", lambda: object())
     monkeypatch.setattr(cli, "run_replies", lambda db, gmail, llm: seen.append(llm))
     monkeypatch.setattr(cli, "run_followups", lambda *args: 0)
-    monkeypatch.setattr(cli, "send_with_reply_check", lambda db, gmail, llm, *args: seen.append(llm))
-    getattr(cli, f"cmd_{command}")(argparse.Namespace(confirm=True))
+    monkeypatch.setattr(cli, "send_with_reply_check", lambda db, gmail, llm, *args, **kw: seen.append(llm))
+    getattr(cli, f"cmd_{command}")(argparse.Namespace(confirm=True, anytime=False))
     assert seen == [cli.complete_reply_json]

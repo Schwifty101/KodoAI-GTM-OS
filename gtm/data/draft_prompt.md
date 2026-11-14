@@ -10,6 +10,8 @@ body, in this order, US English, plain founder voice, contractions fine, NO em d
 5. One question, last: signal-led "Is [objective] something you're actively working on this quarter?" Relevance-led "Is [objective] something you're actively working on right now?" The relevance-led question has no soft opt-out.
 6. Signature line exactly: Soban | Founder, KodoAI
 
+Layout: separate paragraphs with a blank line (\n\n): greeting; the credibility line; the observation and the "We build" line; the question; the signature. Never put the body in one block.
+
 Length: 45 to 70 words in total including the greeting and signature, and 5 to 8 sentences in the body (the question counts). Count them. Do NOT add an "I think we could" sentence unless the email stays under 70 words.
 
 objective: a short noun phrase tied to the handoff that fits both "Is [objective] something you're actively working on" and "ready to make [objective] a priority", for example "easier phone and DM booking". Never a full sentence.

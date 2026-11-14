@@ -57,6 +57,7 @@ def test_touch_1_under_45_words_fails():
     (GOOD.replace("front desk coordinator", "3 front desk coordinators"), "number"),
     (GOOD.replace("Is reducing", "Can we set up a demo? Is reducing"), "offer"),
     (GOOD.replace("Dana,\n\n", ""), "missing_greeting"),
+    (GOOD.replace("\n\nGlow", " Glow").replace("\n\nWe build", " We build").replace("\n\nIs reducing", " Is reducing"), "paragraphs"),
 ])
 def test_touch_1_rule_violations_are_flagged(bad, problem):
     assert problem in check_draft(bad, 1)
@@ -270,3 +271,18 @@ def test_a_reply_bounce_or_opt_out_stops_the_sequence(world, stopper):
     sent_touch1(db, lid, mbs[0]["id"], "2026-11-10")
     db.table("leads").update({"status": stopper}).eq("id", lid).execute()
     assert run_followups(db, lambda m: Fake(), date(2026, 11, 20), thread_messages=T1) == 0
+
+
+@pytest.mark.db
+def test_run_draft_says_why_a_lead_was_skipped(world, capsys):
+    db, bid, mbs = world
+    only = {m["id"] for m in mbs}
+
+    def boom(system, prompt):
+        raise ValueError("vertex down")
+
+    assert run_draft(db, boom, lambda mailbox: Fake(), bid, date(2026, 11, 10), only_mailboxes=only) == 0
+    assert "skipped Glow Med Spa: ValueError: vertex down" in capsys.readouterr().err
+    bad = {"subject": "Glow Med Spa / booking", "body": "too short", "objective": OBJ}
+    assert run_draft(db, llm_returning(bad), lambda mailbox: Fake(), bid, date(2026, 11, 10), only_mailboxes=only) == 0
+    assert "failed checks 3 times: " in (err := capsys.readouterr().err) and "too_short" in err
