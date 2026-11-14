@@ -12,6 +12,7 @@ class BudgetExceeded(RuntimeError):
 CAP_KEYS = {
     "apify": "cap_apify_usd_day", "serper": "cap_serper_queries_day", "gemini": "cap_gemini_usd_day",
     "hunter": "cap_hunter_credits_day", "prospeo": "cap_prospeo_credits_day", "harvest": "cap_harvest_usd_day",
+    "serper_maps": "cap_serper_maps_credits_day",
 }
 USD = {"apify", "gemini", "harvest"}
 

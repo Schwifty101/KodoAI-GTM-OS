@@ -14,6 +14,8 @@ DEFAULTS: dict[str, bool | int | float | str] = {
     # proposed daily caps, owner adjusts
     "cap_apify_usd_day": 2.0, "cap_serper_queries_day": 700, "cap_gemini_usd_day": 5.0,
     "cap_hunter_credits_day": 100, "cap_prospeo_credits_day": 20, "cap_harvest_usd_day": 0.5,
+    "cap_serper_maps_credits_day": 300,  # about 100 Maps calls of 3 credits
+    "scrape_provider": "apify",  # apify | serper
     # metro walk (set from docs/spikes/tile_tuning.md); walk_queries is ordered, comma separated
     "walk_schedule_enabled": False, "walk_hour_utc": 13, "walk_tiles_per_run": 3,
     "walk_queries": "med spa,aesthetics clinic", "walk_max_places": 40, "walk_escalate_at": 0.8,
@@ -34,6 +36,8 @@ def _ok(key: str, v: Any) -> bool:
             return isinstance(v, str) and bool(date.fromisoformat(v))
         except ValueError:
             return False
+    if key == "scrape_provider":
+        return v in ("apify", "serper")
     return isinstance(v, type(d))
 
 
