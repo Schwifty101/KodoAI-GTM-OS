@@ -1,139 +1,104 @@
-# HANDOFF: KodoAI GTM OS (updated 2026-11-14, branch `plan3b-build`; section 0 is the current state, sections 1-11 were written 2026-11-11 and patched where stale)
+# HANDOFF: KodoAI GTM OS (updated 2026-11-14, on `main` at 08c33dd)
 
-Read this first, then `CLAUDE.md`. Everything here was read from the repo or established in the building session; anything not checked is marked **unverified**.
+Read section 0, then `CLAUDE.md`. Section 0 is the current state and is enough to continue. Sections 1-11 are reference (written 2026-11-11, patched 2026-11-14). Anything not checked is marked **unverified**.
 
-## 0. Where things stand (end of session 2026-11-12)
-
-Single "start here". Checked against `git log`, code and docs on 2026-11-12. The 509-test figure comes from the coordinator's last full run and was not re-run for this doc. Nothing was queried from the database for this section; DB-dependent numbers are marked unverified.
+## 0. Where things stand (2026-11-14)
 
 ### (a) Status
 
 | Area | Status |
 |---|---|
-| Passes scrape, clean, enrich, signals, select | Built; ran live on the Houston batch (2026-11-11) |
-| Finders `site`, `search`, `research`, `prospeo` (default); `hunter`, `harvest` (opt-in) | Built; measured live (`docs/spikes/owner_routes.md`) |
-| LLM: Vertex Gemini primary, Groq fallback | Built; Gemini ran the Houston batch. Fallback behavior when the Google credit ends: **never run live** |
-| **Plan 1 (foundation): FINISHED and merged to `main` (PR #1)**, task reviews, whole-branch final review, fix wave `e23cb15` plus scoped re-review, minors waves `4add850` and `fb8bd7f` | Built. Settings store (`gtm/settings_store.py`), budget caps and paid-Gemini gate (`gtm/budget.py`), `jobs` table + worker (`gtm/jobs.py`, `gtm/worker.py`), Settings page, batch+lead on every `cost_log` row, `spend_summary` view; migrations 0007 and 0008 applied to the real project. Full suite **509 passed** (~5-6 min, hits the real Supabase project) |
-| Local reply classifier (`gtm/replies.py`, `a9be7dc..4d67ceb`) | Built, unit-tested; never run on real replies. See (c) |
-| UI: Leads, Review, Outreach, Dashboard, Login, Settings | Built; `verify.mts` checks write actions under RLS |
-| Worker against a real queue | Runs on the VM (smoke test: a `send` job drained and failed as designed; kill -9 and VM reset recovery). A real `clean` job ran on the VM 2026-11-12 (a no-op on the already-cleaned Houston batch, no restarts). A heavy pass (enrich, signals) has not run there, so RAM under load is **unverified** |
-| Pass `draft`, `followups`, `send`, `replies` | Built, **not run live**: no draft created, Gmail `send_draft`, thread and bounce reading in a real batch, Touch 2/3 threading unverified |
-| Cloud runner (GCP VM, Secret Manager) | **Plan 2 built 2026-11-12** (branch `plan2-cloud-runner`): VM `gtm-worker` (e2-micro, us-west1-b) runs the worker under systemd; migration 0009 applied. Runbook: `docs/runbooks/cloud-runner.md`. Verified: smoke test, kill -9 and VM reset recovery. **Not verified:** a real unattended pass and RAM peak under it (being finished 2026-11-12, see (f)), Gmail send from the VM (Plan 4) |
-| **Plan 3a (scrape and batches, backend): BUILT 2026-11-13** on branch `plan3-scrape-batches` (Tasks 1-7; PR to be opened by the coordinator) | Migration 0010 applied to the real project (`coverage` table, `leads.batch_no`, `leads.tz`). Coverage seeded: 1285 tiles, 201 metros (`gtm/data/metros.csv`, Census-ranked via a Wikipedia list; tile names for added metros written from memory, not checked against Google Maps; Houston, Sugar Land, The Woodlands marked done by hand). `tz-backfill` set tz on 59 of 60 leads (one has no city/state). Passes `walk`, `seed-coverage`, `tz-backfill`; `select` numbers batches of 100. Defaults from `docs/spikes/tile_tuning.md`: `walk_queries='med spa,aesthetics clinic'`, `walk_max_places=40`, `walk_escalate_at=0.8` (dense tiles saturate the cap of 40; deeper caps untested). Fetch fallback: `docs/spikes/fetch_fallback.md` |
-| First live tile (VM worker, 2026-11-13) | New York / Manhattan, 2 queries, 80 places, 71 new leads, 9 already known, saturated; clean kept 48, rejected 23 (15 category, 3 duplicate domain, 2 closed, 2 no website, 1 chain); 69 of 71 have a tz; $0.4004 (2 apify rows); no duplicate place ids; job `done`, worker unchanged |
-| **Plan 3b (Scrape & Coverage `/scrape` and Batches `/batches` pages): BUILT 2026-11-14** on branch `plan3b-build` | Migration 0012 applied to the real project. `enrich --retry-no-buyer --named-only` (retries only `no_buyer` leads whose owner is already named; `--retry-no-buyer` also processes cleaned leads). `batch_no_spend` view is empty until enrich/LLM calls log a lead_id. Pages typecheck/build and have verify scripts (`web/scripts/verify_scrape.mts`, `verify_batches.mts`) but were **not opened in a browser**: manual checklists are in `docs/runbooks/cloud-runner.md` (Manual browser checks for Plan 3b). Plans 4-6 not written, not built |
-| Map data source (decision 2026-11-14) | Google Places data will **not** be stored (Google terms). `gtm/places.py` (9d3e6f3) is parked and unused. Under evaluation: OpenStreetMap Overpass, Geoapify, Apify, Serper (`docs/spikes/maps_sources.md`, `google_maps_terms.md`; Serper /maps live test numbers in `maps_sources.md`). Tile names checked with the Geocoding API: 1285 tiles, 14 real errors fixed, 8 accepted false positives (`docs/spikes/tile_verification.md`); a Geocoding-only key (free tier) exists in the old GCP project and local `.env` only |
-| Email copy and angle strategy | **Parked**: `docs/NEXT-email-strategy.md` |
+| Plan 1 foundation (settings, budget caps, jobs queue, worker, Settings page, reply classifier) | BUILT, merged |
+| Plan 2 cloud runner (GCP VM worker, Secret Manager, heartbeat lease) | BUILT, merged |
+| Plan 3a scrape and batches backend (coverage walk, batches of 100, time zones, fetch fallback) | BUILT, merged |
+| Plan 3b `/scrape` and `/batches` pages, `--named-only` retry, `batch_no_spend` view | BUILT, merged (PR #6, 08c33dd). Browser run caught 4 bugs, fixed (`8f167b3`) |
+| Plan 4 drafts in the database, bulk edit, send scheduler, Pending follow-ups, send via Gmail API | NOT written |
+| Plan 5 sheet import and manual queue | NOT written |
+| Plan 6 metrics, Home, Replies pages | NOT written |
+| Email copy and angle strategy | PARKED: `docs/NEXT-email-strategy.md` |
+| Passes `draft`, `followups`, `send`, `replies` | Built, never run live |
 
-### (b) Houston batch e11d97b6-41a0-4957-8d3d-6b1728f74d90 (as of the 2026-11-11 measurement; **unverified**: not re-queried)
+Plans: `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` (six-plan roadmap), `...plan1-foundation.md`, `...plan2-cloud-runner.md`, `...plan3a-scrape-batches.md`, `2026-11-14-plan3b-pages.md`. Design: `docs/superpowers/specs/2026-11-12-gtm-os-operating-layer-design.md`.
 
-60 scraped ($0.30), 52 cleaned (87%), 9 enriched, 8 signalled and **selected, awaiting owner approval on the Review page**; nothing drafted or sent. Names found for ~62% of cleaned; verified owners ~15-17%. Owner-confirmed corrections: the researcher's name for Miliv Med Spa was wrong (cleared); Jamie Marcelle (joinskindeep.com) and Isam Balat (myplazawellness.com) are the right owners but no email passed the rule (kept `no_buyer` with saved names). The first real send of the 8 selected leads has NOT happened.
+### (b) What runs where
 
-### (c) Local reply classifier (owner request; `gtm/replies.py`)
-
-| Item | Behavior |
+| Piece | Where |
 |---|---|
-| Order | Rules first: bounce, auto-reply (headers/subject), explicit opt-out ("don't call me" counts). Then `local_kind`. Then the model (Gemini, Groq fallback) |
-| `local_kind` negative | ONLY a bare decline of at most 6 words matching the allow-list `NEG_FULL` ("No", "Not interested", "No thanks", "We're all set", ...). Anything longer or mixed goes to the model |
-| `local_kind` positive | Clear interest cue (`POS_CUE`) with no decline cue and no deferral cue; otherwise None |
-| Negative outcome | Suppression rows (lead email, replier address, business domain unless free-mail) with reason `not-interested`; lead stays `replied`, touch outcome `negative` |
-| Priority | A later positive in the same thread outranks an earlier negative (`PRIORITY` negative 2.5) |
-| Signature stripping | Tried and DELETED (`4d67ceb`): a decline plus "Sent from my iPhone" goes to the model, which is safe |
-| Cost | Reply-classification model calls carry the lead id in `cost_log` (`spend_context`) |
-| Why so conservative | 5 fix rounds: a wrong "negative" suppresses a lead permanently |
-| NOT built | Gemini continuing the conversation with positive replies (positives are only flagged). A drafted reply for owner approval is a **proposed** Plan 4 addition (not decided) |
-| NOT built | UI to remove a wrongly suppressed row: today it is a **database edit** (delete the `suppression` rows, reset the lead status by hand) |
-| Accepted quirk | The greeting name slot in `NEG_FULL` takes any single word, so "Hello maybe no" counts as a bare decline (harmless) |
+| UI | Local: `cd web && npm run dev`; login = email link to the operator address. No send button: sending is `uv run python -m gtm.cli send --confirm` |
+| Worker | GCP VM `gtm-worker` (us-west1-b), under systemd, deployed from main 08c33dd, Python 3.14.10 |
+| Deploy | `bash deploy/deploy.sh gtm-worker us-west1-b`, ONLY when the queue is idle: a deploy cancels a running job |
+| Runbook | `docs/runbooks/cloud-runner.md` (includes Plan 3b manual browser checks) |
 
-### (d) Branch and merge state
+### (c) Infrastructure
 
-Plan 1 (branch `gtm-os-build`) was **merged to `main` by the owner as PR #1** (`ce73579`); `main` is pulled locally. Plan 2 lives on branch `plan2-cloud-runner` (commits `5f42a4f..54e4497`: heartbeat, systemd unit and secret loader, bootstrap and deploy scripts, latency script, deploy fixes, runbook, handoff). It is being pushed for a PR; whether that PR is open or merged is **unverified**. Uncommitted `web/next-env.d.ts` and `web/tsconfig.tsbuildinfo` are regenerated by `next dev`: ignore or `git checkout` them.
-
-### (e) Plan set and what is next
-
-| Doc | Status |
+| Item | Fact |
 |---|---|
-| `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` | Six plans; order 1, then 2 and 3, then 4, then 5 and 6 (5 can move earlier) |
-| `docs/superpowers/plans/2026-11-12-plan1-foundation.md` | **BUILT**, commits `0c53f4b..4d67ceb` |
-| `docs/superpowers/plans/2026-11-12-plan2-cloud-runner.md` | **BUILT** 2026-11-12 (branch `plan2-cloud-runner`): VM `gtm-worker` live, Secret Manager, `Restart=always`, heartbeat lease (migration 0009 applied). Only the first real unattended pass and the budget alert are still being finished: see (f). Free-trial decision made (below) |
-| Plan 3 scrape and batches | **3a BUILT 2026-11-13** (coverage walk, batches of 100, time zones, fetch fallback; branch `plan3-scrape-batches`). **3b BUILT 2026-11-14** (`/scrape`, `/batches`, `--named-only` retry button, migration 0012; branch `plan3b-build`) |
-| Plan 4 drafts and sending | Drafts in the database, bulk edit, send scheduler, Pending follow-ups, send via the Gmail API. Candidate (proposal, undecided): positive-reply assistant that drafts a reply for the owner to approve |
-| Plan 5 sheet import and manual queue | Color rule, Manual queue tab |
-| Plan 6 metrics, Home, Replies | History, Home, Replies pages |
+| Supabase | Project KodoAI-GTM-OS, id `alvxsbnfthvaiquhytig`, Tokyo. Migrations 0001-0012 all applied: 0009 job heartbeat, 0010 `coverage` + `leads.batch_no` + `leads.tz`, 0011 `claim_job(include_test)` (a live worker never claims test-marked jobs), 0012 `batch_no_spend` view |
+| GCP | Project `gen-lang-client-0603350481`, full pay-as-you-go account (upgraded before 2027-02-09, nothing is deleted). Budget alert "GTM OS monthly" $20 USD at 50/90/100 percent (warns, does not cap). `allow_paid_gemini` (off by default) is the only Gemini spend guard |
+| GCP APIs enabled | compute, secretmanager, cloudbilling, apikeys, billingbudgets, geocoding-backend (plus pre-existing iap) |
+| Secrets | 15 in Secret Manager. A Geocoding-only API key (id `fcae7e6c-cd9b-47f6-a984-f8f59201220c`) is in git-ignored `.env` as `GOOGLE_MAPS_API_KEY`, NOT in Secret Manager |
+| gcloud | 593 installed on the Mac, logged in as the owner account |
+| VM cost | External IPv4 about $3.65/month; VM itself free tier |
 
-**Google Cloud free-trial decision: DECIDED 2026-11-12.** The owner upgraded the account to full pay-as-you-go before the trial end (2027-02-09), so nothing is marked for deletion. Budget alert created 2026-11-12: "GTM OS monthly", $20 USD, alerts at 50, 90 and 100 percent (alerts warn, they do not cap). `allow_paid_gemini` (off by default) stays the only Gemini spend guard. Costs: external IPv4 about $3.65/month; the VM itself is free tier (no end date, Google may change it with 30 days notice); see the runbook.
+### (d) Data and money
 
-### (f) Open items for the owner
-
-| # | Item |
+| Item | State |
 |---|---|
-| 1 | Done 2026-11-12: budget alert, full-account upgrade, merge menu, trial decision (row kept so item numbers stay stable) |
-| 2 | First real unattended pass on the VM (runbook open items; suggested `clean` on the Houston batch, no paid API; record the RAM peak). Done 2026-11-12 for `clean` (no-op, no restarts); a heavy pass and its RAM peak are still **unverified** |
-| 3 | Approve the 8 selected Houston leads on the Review page, then approve each paid/send step of the first real send |
-| 4 | Hunter plan (buy only when the OS can safely run a campaign) |
-| 5 | Re-pull Notion Batch03 and `import-history` before each batch |
-| 6 | Prospeo (83 credits) and Apify free credit renew/end 2026-11-24; no paid Apify top-up without asking. Apify balances left 2026-11-13: about $4.7 and $4.68; month spend so far about $5.8 |
-| 9 | **Owner decision 2026-11-13: the daily schedule (`walk_schedule_enabled`) stays OFF until the owner says to turn it on.** The owner will add Apify credit when the free credit runs out (ends 2026-11-24) or when the OS is completely built and ready to start campaigns, not before. Until then scraping is manual (`walk --tiles N` through the worker); do not turn the schedule on and do not top up Apify without asking. The daily Apify cap ($2 default, no stored row) was raised temporarily for the spike, the live tile and the fallback test, and restored each time |
-| 7 | Live `weekly_target=200` row in the `settings` table equals the default (left by an old unguarded test upsert): delete if the owner never set it |
-| 8 | Brainstorm visual-companion server dir `.superpowers/brainstorm/36501-1794413655/state/` had `server-stopped` at last check; if a server runs, stop it with the brainstorming skill's `scripts/stop-server.sh` |
+| Coverage | 1285 tiles, 201 metros, 4 done: Manhattan NY (80 places, 71 new leads, 48 cleaned, $0.40) and Houston, Sugar Land, The Woodlands (marked done by hand) |
+| Houston batch `e11d97b6-41a0-4957-8d3d-6b1728f74d90` | 60 scraped, 52 cleaned, 10 enriched earlier, 8 selected with `batch_no` 1 awaiting the owner's approval on `/review`; 31 named but no verified email; 10 no owner found. Nothing drafted or sent. Counts from the owner's session, not re-queried |
+| Walk defaults (tuned, `docs/spikes/tile_tuning.md`) | queries `med spa,aesthetics clinic`, cap 40, escalate at 0.8 |
+| Spend so far | Apify month about $5.8; tile tuning spike $3.13; Serper about 33 credits in tests; Geocoding about 1,300 requests (free tier) |
+| Apify | Free credit ends 2026-11-24; balances about $4.7 and $4.7 on 2026-11-13. Daily cap default $2 (no stored row); a spike needs a temporary raise to 4.5 with the stored row deleted afterwards |
+| Schedule | `walk_schedule_enabled` is OFF by owner decision and stays off until the owner says so. The owner adds Apify credit only when the free credit runs out or when the OS is fully built and ready to start campaigns |
 
-### (g) Owner decisions, all 2026-11-12 (design sections 15 and 16; section 15 items are assistant calls the owner has not individually confirmed)
+### (e) OWNER DECISION 2026-11-14: data sources
 
-- UI: Home plus tabs; pages Home, Batches, Scrape & Coverage, Leads, Review, Drafts, Send, Replies, Manual queue, Metrics, Settings.
-- Batches of 100 verified, selected owners, filling over several days; a lead's batch is fixed once assigned.
-- **Daily scrape schedule OFF (owner, 2026-11-13):** turn `walk_schedule_enabled` on only when the owner says so. The owner adds Apify credit when the free credit runs out or when the OS is fully built and ready to start campaigns.
-- Runner: worker on an always-on Google Cloud VM, us-west1 (created 2026-11-12; latency to Tokyo DB median 162 ms from the VM vs 230 ms from the Mac). UI and schedule add jobs; keys and Gmail login go to Secret Manager.
-- Sending: weekdays, recipient-local US time, random times in a window (assumed 9 to 4), start 20 a day and ramp +5 a day to 40 per mailbox (RAMP_STEP=5; the design-doc typo was fixed in `aa4d0f0`). Cadence Day 0/3/7. Auto-pause at >5% bounce over >=40 sends.
-- Follow-ups drafted automatically but each approved by the owner in a **Pending follow-ups** list on the Send page; replied/bounced leads skipped and listed as flagged.
-- Sheet import (Plan 5): any green cell in a row = sent (suppress), any red = dropped, uncolored = potential lead; plus a **Manual queue** tab for ContactOut lookups (about 5 a day).
-- Retry-later job for named-but-no-email leads when credits reset. Metrics history by day, week, month, quarter; budget meter.
-- **Budget: 25,000 to 30,000 PKR a month at 276 PKR per USD is a hard constraint.** Weekly target 200 verified owners while the Google credit lasts, then sized to the budget; both are settings.
-- Google Cloud credit: $298 of $300 left on 2026-11-12, ends **2027-02-09**. **No paid Gemini spend without the owner confirming** (Settings switch "Allow paid Gemini", off by default; Groq fallback otherwise).
-- Hunter plan: buy only when the OS can safely run a campaign. Second mailbox: after Batch04 or when there is enough data. Workspace plan is paid.
-- Email copy and angle strategy PARKED: `docs/NEXT-email-strategy.md`.
-- Sending change (design 15.1, assistant call): Plan 4 sends the stored draft text via the Gmail API. **Until Plan 4 lands, "edit drafts in Gmail; the Gmail draft is what goes out" is true.**
+Google Places API data will NOT be stored (policy allows only place_id and lat/lng for 30 days; ban risk). `gtm/places.py` (Places API provider, 13 tests) is PARKED and unused. Terms findings: `docs/spikes/google_maps_terms.md`.
 
-### (h) Rulings made while executing Plan 1 (the ledger was deleted after the final review; git history is the record)
-
-| # | Ruling |
+| Source | Status |
 |---|---|
-| R1 | Parallel implementers in one tree with path-scoped commits and a DB-test lock (`/tmp/gtm-pytest.lock`) |
-| R2 | `tests/conftest.py` autouse patches `gtm.budget._cost_rows` and `setting` so unit tests never hit the DB |
-| R3 | Stay on `gtm-os-build`, no worktree |
-| R4 | Migration 0007 applied to the real project via MCP (new tables only) |
-| R5 | Sonnet for implementers and reviewers, opus for the final review |
-| R6 | Wave C dispatched while Task 3's review was in flight |
-| R7 | Credit counts as ended ON 2027-02-09 (`today < credit_end_date`), fail closed (cost if wrong: Gemini falls back to Groq one day early) |
-| R8 | `run_enrich` lets `BudgetExceeded` propagate; CLI `main()` prints "budget cap reached" and exits non-zero; the worker maps it to `paused_budget` |
-| Later (git messages) | Stale-job requeue fails a job after 3 attempts and Ctrl-C marks it `cancelled` (`e23cb15`); `cmd_scrape` checks the budget before creating a batch, `finish()` only ends `running` jobs, `claim_job` has a fixed `search_path` (migration 0008) (`fb8bd7f`); local negative is an allow-list, signature stripping deleted (`2752d08`, `4d67ceb`) |
+| Apify | Current |
+| Serper /maps | Cheaper pilot next. Live test: 3 credits per call of 20 places; `ChIJ` place ids present; website 77 of 80; categories (types list), rating, ratingCount; address (city/state to parse); page 2 needs an `ll` param; `ll` bias is weak, so express tiles as query text with several wordings. 5 queries (15 credits) found 78 unique Manhattan places, 63 kept by the clean rule, 54 new to our DB. USD per Serper credit NOT verified (`docs/spikes/maps_sources.md`) |
+| OSM Overpass, Geoapify, Overture Maps | Free storable supplements. OSM probe (`docs/spikes/osm_probe.md`): 8 strict med-spa matches in Manhattan vs 71 from Apify, about half of candidates have a website, no ratings, reviews or Google ids, 7 percent overlap with Apify's set. Geoapify: `docs/spikes/geoapify.md` |
 
-### (i) Measured economics
+Pilot plan and gates: `docs/NEXT-source-pilot.md` (written by another agent; if missing, the plan is: Serper pilot, then free Overture test).
 
-Per-route owner-finding numbers: `docs/spikes/owner_routes.md`. Budget table (200 owners a week: about $124-190 a month, or about $104 while Gemini is free; about 70-130 owners a week fit the budget once the credit ends): design doc section 12. Its third-party prices and the 15% yield are unconfirmed.
+### (f) Google lat/lng cache: delete by 2026-12-14
 
-### (j) Known risks
+`docs/spikes/tile_verification.csv` and `docs/spikes/tile_verification.csv.cache.json` hold Google lat/lng, cacheable 30 days only. Delete both by 2026-12-14. Never commit them (`*.csv` is git-ignored; the cache JSON is listed in `.gitignore`). Results summary stays in `tile_verification.md` (1285 tiles checked, 14 real errors fixed, 8 accepted false positives).
 
-- Heartbeat lease (migration 0009) replaced the 60-minute stale rule: a job with no heartbeat for 5 minutes is requeued, so the one-worker caveat is gone.
-- Restarting the worker (`deploy.sh`) while a job runs marks it `cancelled`, not requeued: deploy only when the queue is idle.
-- The VM runs Python 3.14.10 (pinned by `UV_PYTHON=3.14` in `deploy/deploy.sh`), like the Mac. Changing the VM's Python needs `/opt/gtm/.venv` emptied by hand first as `gtm` (root-owned parent, uv cannot remove it).
+### (g) Known risks and unverified items
+
+- Retry-later and Run-N-tiles buttons never click-tested (they spend credits: need the owner's yes).
+- `--retry-no-buyer` also processes cleaned leads; `--named-only` filters only the `no_buyer` set.
+- `batch_no_spend` is empty until enrich, signals, select and draft run with `spend_context`: none of the 986 existing `cost_log` rows has a `lead_id`.
+- Flash-Lite model id `gemini-3.1-flash-lite` and prices 0.25/1.5 per million tokens are unverified.
+- "City of X" / "X Township" tile names untested against Apify's `locationQuery`.
+- RAM peak of a heavy pass (enrich, signals) on the 1 GB VM unverified; only `clean` and `walk` have run there.
+- Gmail `send_draft`, thread and bounce reading, Touch 2/3 threading are unproven live. Vertex-to-Groq fallback when credit ends never run live.
+- Full suite: 621 passed, 0 failed, 0 skipped (8m24s). It hits the real Supabase project: one pytest process at a time (`mkdir /tmp/gtm-pytest.lock`).
+- `settings` table has a stray `weekly_target` row (200) equal to the default: delete if the owner never set it.
+- Local noise files `web/tsconfig.tsbuildinfo` and `web/next-env.d.ts`: ignore.
 - A wrongly suppressed lead (including a wrong `not-interested`) can only be fixed in the database.
-- The `weekly_target=200` row in `settings` equals the default (f7).
-- Plan 3b: pages never opened in a browser (see runbook checklists); Run N tiles now and Retry later spend money, check only with the owner's yes.
-- Plan 3a: full suite was 573 passed, 1 failed before the review fixes (`tests/test_jobs.py::test_enqueue_then_claim_returns_the_job_running`; passes alone 3 of 3; probable cause the live VM worker claiming the test job between enqueue and claim, **unverified**); not re-run after the fixes. Review fixes: suburb time zones, leads stranded uncleaned after a mid-tile budget block, tiles left running after a block, tests polluting `cost_log`, `test_schedule` jobs a live worker could claim (now `run_after` +10 years), `InvalidURL` crash in `fetch_page`.
-- Gmail send (including from the VM), thread/bounce reading and a heavy unattended pass (enrich, signals) on the worker are unproven live (only a no-op `clean` has run).
-- Deferred minors, accepted: `setting("typo")` raises a bare KeyError; unused `now` parameter in `credit_remaining_usd`; paid-mode check ignores the pending amount (can overshoot a cap by one call); `require` is check-then-act with no reservation; `llm.py` reads prices after the paid Gemini call (a failed read drops the cost row); `researcher.py` param `budget=150` shadows the module; `verify.mts` leaves a queued `clean` TEST job and `q.length === 1` is brittle; worker: an exception in `finish` kills the loop, `enqueue` does not reject unknown kinds, no test for `cmd_enqueue` `--` stripping; `tests/test_worker.py` lacks `pytestmark db`; no boundary tests for budget.
+- Deferred Plan 1 minors: `setting("typo")` raises a bare KeyError; paid-mode check ignores the pending amount (can overshoot a cap by one call); `require` is check-then-act; `llm.py` reads prices after the paid call; worker exception in `finish` kills the loop; `enqueue` does not reject unknown kinds; no budget boundary tests.
 
-### (k) Working agreements with the owner
+### (h) Owner's working agreements
 
-Concise answers; no assumptions; verify before claiming; one question at a time when brainstorming; confirm any cost before spending; never print keys. Parallel agents for independent work. Ponytail together with superpowers for coding. **The owner dislikes over-engineering and rabbit holes (the signature-stripping detour): prefer deleting code to patching it.** Keep the graphify graph updated (`graphify-out/` is git-ignored). One pytest process at a time against the real Supabase project (`mkdir /tmp/gtm-pytest.lock`).
+Concise answers; no assumptions; verify before claiming; one question at a time when brainstorming; confirm any cost before spending; never print keys. Parallel agents for independent work, each with ponytail + superpowers + graphify. Prefer deleting code to patching; no over-engineering. Subagent-driven development as in Plans 2-3. Open pages in a real browser before calling UI verified: the Plan 3b browser run caught 4 bugs the build and database checks missed.
 
-### (l) First steps for the next session, in order
+### (i) First steps for the next session, in order
 
-1. Merge the Plan 2 PR if still open, the Plan 3a PR and the Plan 3b branch (`plan3b-build`). Walk the Plan 3b manual browser checklists (runbook). Read `docs/runbooks/cloud-runner.md` open items.
-2. First real small send of the 8 selected Houston leads: still NOT done. Needs owner approval of each paid or send step: Review-page approval, `draft`, reading every draft in Gmail, `send` dry run, then `send --confirm` small.
-3. Pick the map data source (OSM/Geoapify/Apify/Serper), then Plan 4. The daily walk schedule stays OFF.
+1. Read `docs/NEXT-source-pilot.md`; run the Serper pilot and the free Overture test as the owner agreed (order and gates are in that file).
+2. First real small send of the 8 Houston leads (still not done): Review-page approval, `draft`, read every draft in Gmail, `send` dry run, then `send --confirm` small. Owner approves each step.
+3. Plan 4 (drafts in the database, bulk edit, send scheduler, pending follow-ups) via `superpowers:writing-plans`; then Plans 5 and 6.
+4. Fund Apify when the owner decides.
 
-The graphify graph was refreshed 2026-11-12 with deep doc extraction (`graphify-out/`, git-ignored); `/graphify . --update` only after further changes.
+Local reply classifier (`gtm/replies.py`): rules first (bounce, auto-reply, opt-out), then `local_kind` (bare decline of at most 6 words from allow-list `NEG_FULL`, or a clear positive cue), then the model. A bare decline suppresses the lead email, replier and business domain with reason `not-interested`. Positives are only flagged; a Gemini auto-conversation is not built.
+
+Owner decisions still in force (design sections 15-16): batches of 100 verified selected owners; sending weekdays in recipient-local time, start 20 a day, ramp +5 to 40 per mailbox, cadence Day 0/3/7, auto-pause at over 5% bounce over 40 sends; follow-ups drafted automatically but approved in a Pending follow-ups list; budget 25,000-30,000 PKR a month (hard); Google credit ends 2027-02-09; Hunter plan only when the OS can safely run a campaign; second mailbox after Batch04; "edit drafts in Gmail; the Gmail draft is what goes out" holds until Plan 4.
+
+Rulings R1-R8 from Plan 1 (parallel path-scoped commits, `tests/conftest.py` patches budget reads so unit tests skip the DB, credit ends ON 2027-02-09 fail closed, `BudgetExceeded` maps to `paused_budget`) are in git history.
+
 
 ## 1. What this is and where things stand
 
@@ -142,9 +107,9 @@ A personal "GTM OS" for med spa cold email, for one operator: Soban (KodoAI foun
 | Box | Items |
 |---|---|
 | **Built** | (+ Plan 1 foundation and the local reply classifier, see section 0) All 19 plan tasks: scrape, clean, enrich, signals, select, draft, follow-ups, send, replies, mailboxes, Notion history import, web UI (Leads, Review, Outreach, Dashboard, Login), `batch_metrics` view, 6 migrations, final Opus code review with fixes |
-| **Verified live** | Supabase project `alvxsbnfthvaiquhytig`, migrations 0001-0009 applied (0007-0009 added 2026-11-12). RLS restricts every table to operator soban@kodoai.xyz (proved with a throwaway non-operator user: reads 0 rows, cannot write). Gmail OAuth (Desktop client, Internal; scopes `gmail.compose` + `gmail.readonly`) and a test draft created in Drafts. Apify actor `compass~crawler-google-places` (price measured). Hunter free keys (credit behaviour measured). Groq `openai/gpt-oss-120b` reliable. Serper works (key replaced and re-tested 2026-11-10; session fact). Vertex Gemini `gemini-3.5-flash` is the primary LLM and ran the Houston batch (2026-11-11). Operator mailbox row registered (cap 40, enabled 2026-11-10). Suppression holds 434 imported rows |
-| **Not yet verified live** | Gmail `send_draft`; reading threads and bounces (`thread_messages`, `recent_bounces`); Touch 2/3 threading with In-Reply-To headers; a heavy pass (enrich, signals) on the VM (only `clean` and one `walk` tile have run there); deeper walk caps; sub-tiling saturated tiles; the walk on the daily schedule unattended; Vertex fallback behavior when the credit ends. No real end-to-end batch has run. Prospeo and other finders were measured on saved names (section 7, `docs/spikes/owner_routes.md`). The suite is 509 tests, ~5-6 min, hits the real Supabase project (coordinator's count 2026-11-12; not re-run for this doc) |
-| **Blocked / waiting** | Nothing technically blocked. Waiting on owner: Hunter plan decision; first real send; whether to turn on the daily walk schedule; no paid Apify top-up without asking (free credit ends 2026-11-24). Done: Notion Batch03 re-pulled 2026-11-10 (32 rows, nothing new); Supabase signups disabled by owner 2026-11-10 |
+| **Verified live** | Supabase project `alvxsbnfthvaiquhytig`, migrations 0001-0012 applied. RLS restricts every table to operator soban@kodoai.xyz (proved with a throwaway non-operator user: reads 0 rows, cannot write). Gmail OAuth (Desktop client, Internal; scopes `gmail.compose` + `gmail.readonly`) and a test draft created in Drafts. Apify actor `compass~crawler-google-places` (price measured). Hunter free keys (credit behaviour measured). Groq `openai/gpt-oss-120b` reliable. Serper works (key replaced and re-tested 2026-11-10; session fact). Vertex Gemini `gemini-3.5-flash` is the primary LLM and ran the Houston batch (2026-11-11). Operator mailbox row registered (cap 40, enabled 2026-11-10). Suppression holds 434 imported rows |
+| **Not yet verified live** | Gmail `send_draft`; reading threads and bounces (`thread_messages`, `recent_bounces`); Touch 2/3 threading with In-Reply-To headers; a heavy pass (enrich, signals) on the VM (only `clean` and `walk` tiles have run there); deeper walk caps; sub-tiling saturated tiles; the walk on the daily schedule unattended; Vertex fallback behavior when the credit ends. No real end-to-end batch has run. Prospeo and other finders were measured on saved names (section 7, `docs/spikes/owner_routes.md`). The suite is 621 tests, ~8.5 min, hits the real Supabase project |
+| **Blocked / waiting** | Nothing technically blocked. Waiting on owner: Hunter plan decision; first real send; data-source pilot (section 0 (e)); the daily walk schedule stays OFF; no paid Apify top-up without asking (free credit ends 2026-11-24). Done: Notion Batch03 re-pulled 2026-11-10 (32 rows, nothing new); Supabase signups disabled by owner 2026-11-10 |
 
 Funnel reality (Houston, small samples): clean keeps ~63-87% (87% on the 2026-11-11 batch, 52 of 60); names are found for ~62% of cleaned leads but most fail at name > verified email, so enriched is ~17% (9 of 52, 2026-11-11 batch, after the `ovme.com` chain was dropped); website-only evidence gave 0 of 6 dated signals, so most leads will be **relevance-led with thin personalisation**. Target 100-200 emailable leads a week needs on the order of 1,000+ scraped places a week at ~15-20% yield (unverified projection) and Hunter/Prospeo credits are the real limit (section 7).
 
@@ -157,7 +122,7 @@ Prerequisites: macOS, `uv` (Python; pyproject says `>=3.12`, venv resolved to 3.
 ```
 cd "/Users/sobanahmad/Work/KodoAI/Sales & Outreach/KodoAI-GTM-OS"
 uv sync
-uv run pytest -q                     # ~5-6 min, HITS THE REAL SUPABASE PROJECT. One pytest process at a time
+uv run pytest -q                     # ~8.5 min, HITS THE REAL SUPABASE PROJECT. One pytest process at a time
 cd web && npm install && npm run dev # UI on http://localhost:3000; login = emailed magic link to the operator address
 cd web && npx tsc --noEmit           # typecheck
 cd web && node --env-file=.env.local --env-file=../.env --import tsx scripts/verify.mts        # UI write actions under RLS (seeds then deletes TEST rows)
@@ -214,6 +179,9 @@ All Python is run as `uv run python -m gtm.cli <pass>` from the repo root. Lead 
 | `0007_jobs_settings.sql` | `settings` and `jobs` tables, `claim_job`, `spend_summary` view |
 | `0008_claim_job_search_path.sql` | `claim_job` gets a fixed `search_path` |
 | `0009_job_heartbeat.sql` | `jobs.heartbeat_at`; `claim_job` sets it |
+| `0010` / `0011` / `0012` | `coverage` table, `leads.batch_no`, `leads.tz`; `claim_job(include_test)`; `batch_no_spend` view |
+| `gtm/coverage.py` etc. | Plan 3a: walk, coverage seeding, time zones, fetch fallback (`gtm/data/metros.csv`); `gtm/places.py` is PARKED (section 0 (e)) |
+| `web/app/scrape/page.tsx`, `web/app/batches/page.tsx` | Plan 3b: Scrape & Coverage (tiles, run N tiles, retry) and Batches (spend per batch of 100, retry-later) |
 | `web/app/{page,layout,globals.css}` | Shell |
 | `web/app/login/page.tsx` | Email-link login (shouldCreateUser false), optional password |
 | `web/app/leads/page.tsx` | Filters (status, batch, city, state, vector, has email), sort, row detail with evidence |
@@ -226,7 +194,7 @@ All Python is run as `uv run python -m gtm.cli <pass>` from the repo root. Lead 
 | `web/lib/{supabase,actions,fetchAll,types,useRequireSession,settings}.ts` | Browser client (publishable key + operator session), the write actions, paging, types, session guard |
 | `web/scripts/verify.mts`, `rls_intruder.mts` | Live verification scripts (use the secret key from `../.env`; never bundled) |
 | `scripts/*.py` | One-off spikes and measurement scripts (spike_apify*, spike_hunter*, spike_llm, measure_*, capture_owner_names). Not part of the app |
-| `tests/` | `test_clean, config, costs, draft, enrich, gmail, harvest, hunter, import_history, llm, metrics, packaging, paging, prospeo, replies, researcher, scrape, search, search_owner, select, send, signals, sitescrape` plus Plan 1 files `test_budget, cli, jobs, settings_store, worker`, with `support.py` and `conftest.py` (509 tests total, 2026-11-12) |
+| `tests/` | `test_clean, config, costs, draft, enrich, gmail, harvest, hunter, import_history, llm, metrics, packaging, paging, prospeo, replies, researcher, scrape, search, search_owner, select, send, signals, sitescrape` plus Plan 1 files `test_budget, cli, jobs, settings_store, worker`, with `support.py` and `conftest.py` (621 tests total, 2026-11-14) |
 | `MedSpa/` | Owner's outreach rules (section 11) |
 | `docs/spikes/` | Measurements (section 7) |
 | `docs/handoffs/` | **STALE**: three handoffs from the deleted Pakistan scraper era (Houston/Hunter keys/ICP). Not about this OS; historical only |
@@ -247,7 +215,7 @@ Status flow: `scraped` > `cleaned` | `rejected` > `enriched` | `no_buyer` > `sig
 
 All via `uv run python -m gtm.cli ...`. "Batch" = batch UUID printed by `scrape`.
 
-Jobs: `enqueue <kind> -- <pass flags>` queues a pass (the Settings jobs panel does the same); `worker [--poll 15]` runs queued jobs (everything except `send`). Several workers are safe since migration 0009 (heartbeat lease); in practice one runs on the VM. A capped enrich job ends `paused_budget`; Ctrl-C marks a job `cancelled`.
+Jobs: `enqueue <kind> -- <pass flags>` queues a pass (the Settings jobs panel does the same); `worker [--poll 15]` runs queued jobs (everything except `send`). Several workers are safe since migration 0009 (heartbeat lease); in practice one runs on the VM. `walk`, `seed-coverage`, `tz-backfill` also exist; `enrich --named-only` limits a retry to `no_buyer` leads with a named owner. A capped enrich job ends `paused_budget`; Ctrl-C marks a job `cancelled`.
 
 | Command | Flags | Cost / effect |
 |---|---|---|
@@ -299,7 +267,7 @@ Ledger source: `.superpowers/sdd/2026-11-09-kodoai-gtm-os/progress.md` (git-igno
 
 | # | Ruling | Cost if wrong |
 |---|---|---|
-| Setup | Work on branch `gtm-os-build` in place, not a worktree (`.env` is git-ignored; user chose native execution) | None, branch is local |
+| Setup | Work on a branch in place, not a worktree (`.env` is git-ignored; user chose native execution). Branches since merged to main | None |
 | Pre-flight | Settings also gets `pause_bounce_rate` (0.03) and `pause_min_sends` (20) because thresholds were to be "in config" | None stated (later recalibrated to 0.05/40 in `.env`) |
 | Pre-flight | Add `list_replies(svc, since)` to gmail.py in T15 | None stated (became `thread_messages`/`recent_bounces`) |
 | Pre-flight | T13/14/15 take `gmail_for: Callable[[str], Resource]` because there are many mailboxes | None stated |
@@ -405,18 +373,18 @@ Measurement record for the 2026-11-11 owner-finding experiments: `docs/spikes/ow
 | 6 | Confirm Workspace plan (paid vs trial) for kodoai.xyz send limits | Owner |
 | 7 | Add mailboxes (each needs warm-up and DNS check) for 200/week | Owner |
 | 8 | Richer signal sources (Instagram/Facebook posts, Google Business updates, job boards, news; not measured) | Owner decides; assistant measures |
-| 9 | Deferred Minor review findings (below; Plan 1 minors are in section 0 (j)) | Assistant, when relevant |
+| 9 | Deferred Minor review findings (below; Plan 1 minors are in section 0 (g)) | Assistant, when relevant |
 | 10 | Stale docs: bannered 2026-11-12 (`docs/handoffs/*`, `docs/spikes/llm.md`, `docs/spikes/funnel.md`); do not use them as current | Done |
 | 11 | **Parked:** finalise the email drafting instructions and the angle strategy once the Batch03 strategy is settled: see `docs/NEXT-email-strategy.md` | Owner + assistant |
-| 12 | Plans 1 and 2 are built; Plans 3-6 next (roadmap): see section 0 (d), (e), (l) | Owner, then assistant |
+| 12 | Plans 1-3b are built; Plans 4-6 not written (roadmap): see section 0 (i) | Owner, then assistant |
 | Done | Supabase signups disabled (owner, 2026-11-10); `.env.example` updated (Serper, Gemini, Prospeo, Harvest names); CLAUDE.md pass list updated | |
 
 **Minor (deferred), copied from the ledger:** clean.py `seen` excludes operator-rejected domains; same owner_email across different domains in one run; bounce substring match (ajo@ vs jo@); quote-cut regex can cut an opt-out that starts "On..."; HTML-only replies collapse to one line so quoted history is not stripped; bare "Stop." with no object goes to the model; `sent_at` uses local date with UTC time and Outreach page uses UTC date; Touch 3 can follow Touch 2 by a day after deferral; leads with no reachable pages are never re-judged; `reason_to_respond` shown unlabeled; groq/serper costs have no batch_id so those dashboard columns are 0; Serper out of credits stops the whole enrich run; `test_sending_lives_only_in_send_py` greps one file only.
 
 ## 10. Known gotchas and traps
 
-- Worker leases: migration 0009 heartbeat replaced the 60-minute stale rule, so a second worker no longer re-runs a live job. A restart (`deploy.sh`, `systemctl stop`) cancels a running job: deploy only when the queue is idle (section 0 (j)).
-- The suite is 509 tests now (earlier figures of 348 and 389 are stale).
+- Worker leases: migration 0009 heartbeat replaced the 60-minute stale rule, so a second worker no longer re-runs a live job. A restart (`deploy.sh`, `systemctl stop`) cancels a running job: deploy only when the queue is idle (section 0 (b)).
+- The suite is 621 tests now (earlier figures are stale).
 - DB tests (`-m db`, most of them) hit the **real** Supabase project. One pytest process at a time. They must delete only their own rows (`tests/support.py purge_test_suppression`); an earlier cleanup keyed on reason alone deleted real suppression rows.
 - Supabase MCP destructive SQL asks for a confirmation that expires after 2 minutes; the user must approve promptly (the 0005 migration expired twice). Two Supabase MCP servers exist (`mcp__supabase__` needed re-auth; `mcp__plugin_supabase_supabase__` worked).
 - PostgREST bulk inserts need identical keys on every row. The API caps reads at 1000 rows: always use `gtm.db.fetch_all`.
@@ -429,7 +397,7 @@ Measurement record for the 2026-11-11 owner-finding experiments: `docs/spikes/ow
 - Notion history is a snapshot; the OS cannot see anything sent from Notion until re-imported. Batch03 is still running there.
 - `uv run` must be executed from the repo root here (pyproject is at root). The root `CLAUDE.md` is the short OS version; the old Pakistan-scraper CLAUDE.md is gone.
 - Postal address, ad-disclosure and opt-out line are blank on purpose; do not "fix" them.
-- The suite is 509 tests and ~5-6 min; it hits the real Supabase project. Do not run it casually.
+- The suite is 621 tests and ~8.5 min; it hits the real Supabase project. Do not run it casually.
 - A wrong owner name is the main enrich risk: never trust a model-reported name without the code guard, and check a name's company before accepting (LinkedIn name-only matches can be a different person).
 
 ## 11. Where the owner's outreach rules live
