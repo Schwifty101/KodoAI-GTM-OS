@@ -113,3 +113,16 @@ def test_create_draft_passes_the_reply_header_through():
     svc = FakeGmail()
     create_draft(svc, "a@b.com", "Re: s", "b", thread_id="t", in_reply_to="<m1@x>")
     assert _decode(svc.calls[0][1]["body"]["message"]["raw"])["In-Reply-To"] == "<m1@x>"
+
+
+def test_headless_gmail_service_without_a_usable_token_raises_instead_of_opening_a_browser(monkeypatch, tmp_path):
+    import sys
+
+    import pytest
+
+    from gtm import gmail
+
+    monkeypatch.setattr(gmail, "SECRETS", tmp_path)  # no token file here
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    with pytest.raises(RuntimeError, match="Gmail token missing or invalid for a@b.com: re-authorise on the Mac"):
+        gmail.gmail_service("a@b.com")
