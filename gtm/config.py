@@ -28,6 +28,7 @@ class Settings:
     serper_api_key: str = ""  # env SERP_API_KEY (SERP_PROVIDER=serper)
     harvest_api_key: str = ""
     prospeo_api_key: str = ""
+    google_maps_api_key: str = ""  # env GOOGLE_MAPS_API_KEY (scripts/verify_tiles.py only)
     google_oauth_client_file: str = ""
     # Sending. Defaults are placeholders until the Task 7 gate sets them.
     daily_cap: int = 40
@@ -62,6 +63,7 @@ class Settings:
             serper_api_key=s("SERP_API_KEY"),
             harvest_api_key=s("HARVEST_API_KEY"),
             prospeo_api_key=s("PROSPEO_API_KEY"),
+            google_maps_api_key=s("GOOGLE_MAPS_API_KEY"),
             google_oauth_client_file=s("GOOGLE_OAUTH_CLIENT_FILE"),
             daily_cap=n("DAILY_CAP", d.daily_cap),
             ramp_start=n("RAMP_START", d.ramp_start),
