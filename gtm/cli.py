@@ -29,7 +29,7 @@ from gtm.draft import run_draft, run_followups
 from gtm.gmail import gmail_service
 from gtm.replies import run_replies
 from gtm.select import run_select
-from gtm.send import allowance, send_with_reply_check
+from gtm.send import allowance, send_with_reply_check, sending_days
 from gtm.signals import fetch_evidence, run_signals
 from gtm.scrape import DEFAULT_QUERIES, new_batch, scrape_city
 
@@ -110,7 +110,7 @@ def cmd_send(a: argparse.Namespace) -> None:
     db, s = get_db(), get_settings()
     if not a.confirm:
         for mb in db.table("mailboxes").select("*").execute().data:
-            room = allowance(mb, date.today(), s.ramp_start, s.ramp_step, min(s.daily_cap, mb["daily_cap"]))
+            room = allowance(mb, sending_days(db, mb["id"], date.today()), s.ramp_start, s.ramp_step, min(s.daily_cap, mb["daily_cap"]))
             print(f"{mb['address']}: paused={mb['paused']} allowance today={room}")
         sys.exit("Dry run only. Sending is a separate, explicit action: add --confirm to send due drafts.")
     print(send_with_reply_check(db, gmail_service, complete_reply_json, date.today(), s, anytime=a.anytime))  # replies first, then send

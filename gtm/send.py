@@ -23,11 +23,22 @@ def in_window(now: datetime, tz: str | None) -> bool:
     return local.weekday() < 5 and SEND_START <= local.hour < SEND_END
 
 
-def allowance(mailbox: dict, today: date, ramp_start: int, ramp_step: int, cap: int) -> int:
-    if not mailbox.get("enabled_on"):
+def is_test_lead(place_id: str) -> bool:
+    return place_id.startswith(("TEST_", "REHEARSAL_"))
+
+
+def sending_days(db, mailbox_id: str, before: date) -> int:
+    """Distinct UTC days before `before` (and on or after the mailbox's ramp_from) on which it sent to a real lead: the ramp counts these, not calendar days."""
+    start = db.table("mailboxes").select("ramp_from").eq("id", mailbox_id).execute().data[0]["ramp_from"] or ""
+    rows = fetch_all(lambda: db.table("touches").select("sent_at,leads!inner(place_id)").eq("status", "sent").eq("leads.mailbox_id", mailbox_id).lt("sent_at", before.isoformat()).order("id"))
+    days = {_day(r["sent_at"]) for r in rows if not is_test_lead(r["leads"]["place_id"])}
+    return sum(d >= start for d in days)
+
+
+def allowance(mailbox: dict, days_sent: int, ramp_start: int, ramp_step: int, cap: int) -> int:
+    if not mailbox.get("enabled_on") or mailbox.get("paused"):
         return 0
-    days = (today - date.fromisoformat(mailbox["enabled_on"])).days
-    return 0 if days < 0 else min(cap, ramp_start + ramp_step * days)
+    return min(cap, ramp_start + ramp_step * days_sent)
 
 
 def should_pause(sent: int, bounced: int, complaints: int, *, rate: float = 0.03, min_sends: int = 20) -> bool:
@@ -61,7 +72,7 @@ def send_due(db, gmail_for, today: date, settings: Settings | None = None, now: 
             out["paused"] += 1
             continue
         sent_today = sum(1 for t in touches if t["status"] == "sent" and _day(t["sent_at"]) == today.isoformat())
-        room = allowance(mb, today, s.ramp_start, s.ramp_step, min(s.daily_cap, mb["daily_cap"])) - sent_today
+        room = allowance(mb, sending_days(db, mb["id"], today), s.ramp_start, s.ramp_step, min(s.daily_cap, mb["daily_cap"])) - sent_today
         due = sorted((t for t in touches if t["status"] == "drafted" and (t["scheduled_for"] or "") <= today.isoformat()),
                      key=lambda t: (-t["touch_no"], t["scheduled_for"] or ""))
         for t in due:

@@ -7,26 +7,78 @@ from support import purge_test_suppression
 from gtm.config import Settings
 from gtm.db import get_db
 from gtm.scrape import new_batch, place_to_lead
-from gtm.send import allowance, in_window, send_due, send_with_reply_check, should_pause
+from gtm.send import allowance, in_window, is_test_lead, send_due, send_with_reply_check, sending_days, should_pause
 
 TODAY = date(2026, 11, 10)
 NOW = datetime(2026, 11, 10, 18, 0, tzinfo=timezone.utc)  # Tuesday 12:00 in Texas, inside the window
 SETTINGS = Settings.from_env({"RAMP_START": "2", "RAMP_STEP": "1", "DAILY_CAP": "40", "PAUSE_BOUNCE_RATE": "0.03", "PAUSE_MIN_SENDS": "20"})
 
 
-def test_allowance_ramps_then_caps():
-    mb = {"enabled_on": "2026-11-10"}
-    got = [allowance(mb, TODAY + timedelta(days=n), 10, 5, 40) for n in (0, 1, 2, 6, 7, 30)]
-    assert got == [10, 15, 20, 40, 40, 40]
+def test_allowance_ramps_by_sending_days_then_caps():
+    mb = {"enabled_on": "2026-11-10", "paused": False}
+    assert [allowance(mb, n, 20, 3, 40) for n in (0, 1, 2, 6, 7, 30)] == [20, 23, 26, 38, 40, 40]
 
 
-def test_allowance_is_zero_before_the_mailbox_is_enabled_or_when_never_enabled():
-    assert allowance({"enabled_on": "2026-11-11"}, TODAY, 10, 5, 40) == 0
-    assert allowance({"enabled_on": None}, TODAY, 10, 5, 40) == 0
+def test_allowance_is_zero_when_never_enabled_or_paused():
+    assert allowance({"enabled_on": None, "paused": False}, 5, 20, 3, 40) == 0
+    assert allowance({"enabled_on": "2026-11-10", "paused": True}, 5, 20, 3, 40) == 0
 
 
 def test_a_lower_per_mailbox_cap_wins():
-    assert allowance({"enabled_on": "2026-01-01"}, TODAY, 10, 5, 25) == 25
+    assert allowance({"enabled_on": "2026-01-01", "paused": False}, 30, 10, 5, 25) == 25
+
+
+def test_is_test_lead_prefixes():
+    assert is_test_lead("TEST_001") and is_test_lead("REHEARSAL_B_1") and not is_test_lead("ChIJabc")
+
+
+def _sent_days(db, bid, mb, days, prefix="PYB_", offset=0):
+    for k, d in enumerate(days):
+        at = datetime.combine(TODAY - timedelta(days=d), time(12), tzinfo=timezone.utc).isoformat()
+        make_leads(db, bid, mb, 1, status="sent", touch_status="sent", offset=offset + k, prefix=prefix, sent_at=at)
+
+
+@pytest.mark.db
+def test_first_real_send_day_allows_ramp_start(world):
+    db, bid, mb = world
+    assert allowance(mb, sending_days(db, mb["id"], TODAY), 20, 3, 40) == 20
+
+
+@pytest.mark.db
+def test_second_sending_day_allows_23(world):
+    db, bid, mb = world
+    _sent_days(db, bid, mb, [1])
+    assert allowance(mb, sending_days(db, mb["id"], TODAY), 20, 3, 40) == 23
+
+
+@pytest.mark.db
+def test_a_gap_day_does_not_advance_the_ramp(world):
+    db, bid, mb = world
+    _sent_days(db, bid, mb, [3, 1, 1], offset=0)  # two sending days with a gap, two sends on one of them
+    assert sending_days(db, mb["id"], TODAY) == 2
+
+
+@pytest.mark.db
+def test_today_and_later_sends_are_not_counted(world):
+    db, bid, mb = world
+    _sent_days(db, bid, mb, [0])
+    assert sending_days(db, mb["id"], TODAY) == 0
+
+
+@pytest.mark.db
+def test_rehearsal_sends_do_not_advance_the_ramp(world):
+    db, bid, mb = world
+    _sent_days(db, bid, mb, [2], prefix="TEST_")
+    _sent_days(db, bid, mb, [1], prefix="REHEARSAL_B_", offset=5)
+    assert sending_days(db, mb["id"], TODAY) == 0
+
+
+@pytest.mark.db
+def test_ramp_restarts_after_ramp_from(world):
+    db, bid, mb = world
+    _sent_days(db, bid, mb, [5, 4, 1])
+    db.table("mailboxes").update({"ramp_from": (TODAY - timedelta(days=2)).isoformat()}).eq("id", mb["id"]).execute()
+    assert sending_days(db, mb["id"], TODAY) == 1
 
 
 @pytest.mark.parametrize("sent,bounced,complaints,expected", [
@@ -94,17 +146,19 @@ def world():
     db.table("suppression").delete().like("reason", "pytest%").execute()
     purge_test_suppression(db)  # written by apply_reply in the reply-check test; only the tests' own addresses
     db.table("leads").delete().like("place_id", "TEST_%").execute()
+    db.table("leads").delete().like("place_id", "PYB_%").execute()
+    db.table("leads").delete().like("place_id", "REHEARSAL_B_%").execute()
     db.table("mailboxes").delete().like("address", "pytest-send%").execute()
     db.table("batches").delete().eq("id", bid).execute()
 
 
-def make_leads(db, bid, mb, n, status="drafted", touch_no=1, touch_status="drafted", offset=0, **lead_kw):
-    items = [{"placeId": f"TEST_{offset + i:03d}", "title": f"Spa {i}", "website": f"https://glow{offset + i}.com", "categories": ["Medical spa"], "state": "Texas"} for i in range(n)]
+def make_leads(db, bid, mb, n, status="drafted", touch_no=1, touch_status="drafted", offset=0, prefix="TEST_", sent_at=None, **lead_kw):
+    items = [{"placeId": f"{prefix}{offset + i:03d}", "title": f"Spa {i}", "website": f"https://glow{offset + i}.com", "categories": ["Medical spa"], "state": "Texas"} for i in range(n)]
     rows = [{**place_to_lead(it, bid), "status": status, "owner_name": "Dana W", "owner_email": f"dana@glow{offset + i}.com", "email_verified": True,
              "mailbox_id": mb["id"], **lead_kw} for i, it in enumerate(items)]
     leads = db.table("leads").insert(rows).execute().data
     db.table("touches").insert([{"lead_id": l["id"], "touch_no": touch_no, "status": touch_status, "gmail_draft_id": f"d{l['place_id']}", "subject": "s", "body": "b",
-                                 "scheduled_for": TODAY.isoformat()} for l in leads]).execute()
+                                 "scheduled_for": TODAY.isoformat(), "sent_at": sent_at} for l in leads]).execute()
     return leads
 
 
