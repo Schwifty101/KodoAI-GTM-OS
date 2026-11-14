@@ -59,10 +59,15 @@ def new_batch(db, city: str, state: str, queries: list[str]) -> str:
     return db.table("batches").insert(row).execute().data[0]["id"]
 
 
-def scrape_city(db, run_actor, city: str, state: str, queries: list[str], batch_id: str, max_places: int = 40) -> tuple[int, int]:
+def scrape_city(db, run_actor, city: str, state: str, queries: list[str], batch_id: str, max_places: int = 40, provider: str = "apify") -> tuple[int, int]:
     """Returns (new, already_known). run_actor(run_input) -> (items, usd)."""
     items, usd = run_actor(scrape_input(city, state, queries, max_places))
-    log_cost("apify", len(items), usd, batch_id=batch_id)
+    if provider == "serper":
+        from gtm.serper_maps import CREDITS_PER_CALL  # local: serper_maps imports budget, which imports the db
+
+        log_cost("serper_maps", CREDITS_PER_CALL, None, batch_id=batch_id, note=queries[0][:80])
+    else:
+        log_cost("apify", len(items), usd, batch_id=batch_id)
     leads = {}
     for it in items:
         if it.get("placeId") and it["placeId"] not in leads:

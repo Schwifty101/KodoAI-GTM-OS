@@ -20,6 +20,8 @@ export const SETTING_FIELDS: SettingField[] = [
   { key: "cap_hunter_credits_day", label: "Hunter credits per day", type: "int", group: "Daily caps", def: 100 },
   { key: "cap_prospeo_credits_day", label: "Prospeo credits per day", type: "int", group: "Daily caps", def: 20 },
   { key: "cap_harvest_usd_day", label: "Harvest USD per day", type: "float", group: "Daily caps", def: 0.5 },
+  { key: "cap_serper_maps_credits_day", label: "Serper Maps credits per day", type: "int", group: "Daily caps", def: 300 },
+  { key: "scrape_provider", label: "Scrape provider (apify or serper)", type: "text", group: "Scrape walk", def: "apify" },
   { key: "walk_schedule_enabled", label: "Run daily schedule", type: "bool", group: "Scrape walk", def: false },
   { key: "walk_hour_utc", label: "Schedule hour (UTC, 0-23)", type: "int", group: "Scrape walk", def: 13, min: 0, max: 23 },
   { key: "walk_tiles_per_run", label: "Tiles per run", type: "int", group: "Scrape walk", def: 3, min: 1, max: 20 },

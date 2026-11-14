@@ -49,6 +49,11 @@ def cmd_walk(a: argparse.Namespace) -> None:
     from gtm.coverage import run_walk
     from gtm.settings_store import setting
 
+    if setting("scrape_provider") == "serper":
+        from gtm.serper_maps import run_serper
+
+        print(run_walk(get_db(), run_serper, a.tiles or setting("walk_tiles_per_run"), provider="serper"))
+        return
     print(run_walk(get_db(), lambda inp: run_places(inp, MIN_CAP), a.tiles or setting("walk_tiles_per_run")))
 
 

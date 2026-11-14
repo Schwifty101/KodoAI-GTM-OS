@@ -6,6 +6,7 @@ from gtm import budget
 from gtm.apify import MIN_CAP
 from gtm.clean import run_clean
 from gtm.db import fetch_all
+from gtm.serper_maps import PLACES_PER_CALL, QUERIES
 from gtm.scrape import new_batch, scrape_city
 from gtm.settings_store import setting
 
@@ -48,9 +49,13 @@ def reset_stale(db, hours: int = 2) -> int:
     return len(db.table("coverage").update({"status": "pending"}).eq("status", "running").lt("started_at", cutoff).execute().data)
 
 
-def run_walk(db, run_actor, tiles: int, queries: list[str] | None = None, max_places: int | None = None, escalate_at: float | None = None) -> dict:
+def run_walk(db, run_actor, tiles: int, queries: list[str] | None = None, max_places: int | None = None, escalate_at: float | None = None, provider: str = "apify") -> dict:
     """Scrape and clean the next uncovered tiles. A query is followed by the next one only while it filled its cap
     (items returned >= escalate_at * max_places, counted before dedupe); the last query also filling it flags the tile saturated."""
+    serper = provider == "serper"
+    gate, floor = ("serper_maps", 3) if serper else ("apify", MIN_CAP)
+    if serper:  # one call returns at most 20 places and the wordings are fixed (docs/NEXT-source-pilot.md)
+        queries, max_places = queries or QUERIES, min(max_places or PLACES_PER_CALL, PLACES_PER_CALL)
     queries = queries or [q.strip() for q in setting("walk_queries").split(",") if q.strip()]
     max_places = max_places or setting("walk_max_places")
     escalate_at = setting("walk_escalate_at") if escalate_at is None else escalate_at
@@ -63,7 +68,7 @@ def run_walk(db, run_actor, tiles: int, queries: list[str] | None = None, max_pl
         t = got[0]
         batch, n, found, new, known, ran = None, 0, 0, 0, 0, 0
         try:
-            budget.require("apify", MIN_CAP)  # before new_batch: a blocked tile leaves no empty batch
+            budget.require(gate, floor)  # before new_batch: a blocked tile leaves no empty batch
             batch = new_batch(db, t["tile"], t["state"], [queries[0]])
 
             def counted(inp):
@@ -75,8 +80,8 @@ def run_walk(db, run_actor, tiles: int, queries: list[str] | None = None, max_pl
             full = True
             for q in queries:
                 if ran:
-                    budget.require("apify", MIN_CAP)
-                a, b = scrape_city(db, counted, t["tile"], t["state"], [q], batch, max_places)
+                    budget.require(gate, floor)
+                a, b = scrape_city(db, counted, t["tile"], t["state"], [q], batch, max_places, provider)
                 ran, found, new, known = ran + 1, found + n, new + a, known + b
                 full = n >= escalate_at * max_places
                 if not full:

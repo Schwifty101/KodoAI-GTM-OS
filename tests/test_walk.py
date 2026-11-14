@@ -167,3 +167,16 @@ def test_walk_failure_marks_failed_and_continues(db):
 def test_walk_is_job_runnable():
     assert "walk" in ALLOWED
     assert build_parser().parse_args(["walk", "--tiles", "1"]).tiles == 1
+
+
+@pytest.mark.db
+def test_serper_provider_uses_own_gate_and_logs_credits(db, monkeypatch):
+    gates = []
+    monkeypatch.setattr("gtm.coverage.budget.require", lambda p, n=1, **k: gates.append((p, n)))
+    f = fake([4])
+    r = run_walk(db, f, 1, provider="serper")
+    assert r["queries"] == 1 and gates == [("serper_maps", 3)]
+    assert f.seen[0]["searchStringsArray"] == ["med spa"]  # fixed Serper wording list, not walk_queries
+    b = tile(db)["scrape_batch_id"]
+    rows = db.table("cost_log").select("provider,units,usd").eq("batch_id", b).execute().data
+    assert rows == [{"provider": "serper_maps", "units": 3, "usd": None}]
