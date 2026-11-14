@@ -5,7 +5,7 @@ import pytest
 
 from gtm.config import Settings
 from gtm.db import get_db
-from gtm.draft import APPROVED_CLIENTS, build_followup, check_draft, draft_touch1, footer, run_draft, run_followups, touch_date
+from gtm.draft import APPROVED_CLIENTS, build_followup, check_draft, check_subject, strip_footer,draft_touch1, footer, run_draft, run_followups, touch_date
 from gtm.mailboxes import assign_mailbox
 from gtm.scrape import new_batch, place_to_lead
 
@@ -106,23 +106,6 @@ def test_footer_appends_only_configured_values():
     assert footer(s) == "This is an advertisement.\nReply stop.\n1 Main St"
 
 
-class Fake:
-    """Fake Gmail service: records drafts; plays the part of gmail_for(mailbox)."""
-
-    def __init__(self):
-        self.calls = []
-
-    def users(self):
-        return self
-
-    def drafts(self):
-        return self
-
-    def create(self, **kw):
-        self.calls.append(kw)
-        return type("E", (), {"execute": lambda s: {"id": f"draft-{len(self.calls)}"}})()
-
-
 def llm_returning(*answers):
     seq = list(answers)
     calls = []
@@ -143,19 +126,33 @@ def test_draft_touch_1_retries_with_the_problems_and_returns_the_clean_draft():
     bad = {"subject": "Glow Med Spa / booking", "body": GOOD.replace("front desk", "front desk —"), "objective": OBJ}
     good = {"subject": "Glow Med Spa / booking handoff", "body": GOOD, "objective": OBJ}
     llm = llm_returning(bad, good)
-    assert draft_touch1(llm, LEAD) == good
+    assert draft_touch1(llm, LEAD) == {**good, "problems": []}
     assert len(llm.calls) == 2 and "em_dash" in llm.calls[1]
 
 
-def test_draft_touch_1_gives_up_after_three_bad_attempts():
+def test_draft_touch_1_gives_up_after_three_bad_attempts_and_returns_the_last_problems():
     bad = {"subject": "Glow Med Spa / booking", "body": "too short", "objective": OBJ}
     llm = llm_returning(bad)
-    assert draft_touch1(llm, LEAD) is None and len(llm.calls) == 3
+    d = draft_touch1(llm, LEAD)
+    assert len(llm.calls) == 3 and d["body"] == "too short" and "too_short" in d["problems"]
 
 
-def test_a_draft_with_a_subject_missing_the_company_slash_pattern_is_rejected():
+def test_a_draft_with_a_subject_missing_the_company_slash_pattern_is_flagged():
     bad = {"subject": "Quick hello", "body": GOOD, "objective": OBJ}
-    assert draft_touch1(llm_returning(bad), LEAD) is None
+    assert "bad_subject" in draft_touch1(llm_returning(bad), LEAD)["problems"]
+
+
+def test_instruction_reaches_the_prompt():
+    good = {"subject": "Glow Med Spa / booking", "body": GOOD, "objective": OBJ}
+    llm = llm_returning(good)
+    draft_touch1(llm, LEAD, instruction="warmer opener")
+    assert "Owner instruction for this batch: warmer opener" in llm.calls[0]
+
+
+def test_empty_model_answer_is_held_not_a_crash():
+    d = draft_touch1(llm_returning({}), LEAD)
+    assert d["subject"] == d["body"] == d["objective"] == "" and {"bad_subject", "no_objective"} <= set(d["problems"])
+    assert draft_touch1(llm_returning(None), LEAD)["problems"]
 
 
 @pytest.fixture
@@ -200,19 +197,16 @@ def test_assign_mailbox_ignores_paused_and_not_yet_enabled_mailboxes(world):
 
 
 @pytest.mark.db
-def test_run_draft_creates_a_gmail_draft_a_touch_row_and_marks_the_lead_drafted(world):
+def test_clean_draft_is_stored_without_gmail(world):
     db, bid, mbs = world
-    svc = Fake()
     good = {"subject": "Glow Med Spa / phone and DM booking", "body": GOOD, "objective": OBJ}
-    n = run_draft(db, llm_returning(good), lambda mailbox: svc, bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs})
+    n = run_draft(db, llm_returning(good), bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs})
     assert n == 2  # the unapproved lead is not drafted
     a, c = lead_row(db, 0), lead_row(db, 2)
     assert a["status"] == "drafted" and a["mailbox_id"] in {m["id"] for m in mbs} and c["status"] == "selected"
     t = db.table("touches").select("*").eq("lead_id", a["id"]).execute().data[0]
-    assert (t["touch_no"], t["status"], t["subject"], t["objective"], t["scheduled_for"]) == (1, "drafted", good["subject"], OBJ, "2026-11-10")
-    assert t["gmail_draft_id"].startswith("draft-") and t["body"].startswith("Dana,")
-    sent_to = {call["body"]["message"]["raw"] for call in svc.calls}
-    assert len(svc.calls) == 2 and len(sent_to) == 2  # nothing was sent: only drafts.create was called
+    assert (t["touch_no"], t["status"], t["subject"], t["objective"], t["scheduled_for"], t["problems"]) == (1, "drafted", good["subject"], OBJ, "2026-11-10", [])
+    assert t["gmail_draft_id"] is None and t["gmail_thread_id"] is None and t["body"].startswith("Dana,")
 
 
 @pytest.mark.db
@@ -220,19 +214,26 @@ def test_run_draft_skips_a_suppressed_lead_and_marks_it_suppressed(world):
     db, bid, mbs = world
     db.table("suppression").insert({"domain": "glow0.com", "reason": "pytest"}).execute()
     good = {"subject": "Glow Med Spa / phone and DM booking", "body": GOOD, "objective": OBJ}
-    assert run_draft(db, llm_returning(good), lambda m: Fake(), bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs}) == 1
+    assert run_draft(db, llm_returning(good), bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs}) == 1
     assert lead_row(db, 0)["status"] == "suppressed" and lead_row(db, 1)["status"] == "drafted"
 
 
 @pytest.mark.db
-def test_run_draft_leaves_the_lead_selected_when_the_model_cannot_produce_a_clean_draft(world):
+def test_failed_draft_is_stored_held_with_problems(world):
     db, bid, mbs = world
     bad = {"subject": "x", "body": "nope", "objective": OBJ}
-    assert run_draft(db, llm_returning(bad), lambda m: Fake(), bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs}) == 0
-    assert lead_row(db, 0)["status"] == "selected" and db.table("touches").select("id").execute().data == []
+    assert run_draft(db, llm_returning(bad), bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs}) == 2
+    assert lead_row(db, 0)["status"] == "drafted"
+    t = db.table("touches").select("*").eq("lead_id", lead_row(db, 0)["id"]).execute().data[0]
+    assert t["status"] == "held" and "too_short" in t["problems"] and t["gmail_draft_id"] is None and t["body"] == "nope"
 
 
-T1 = lambda svc, tid: [{"from": "Soban <s@kodoai.xyz>", "subject": "s", "headers": {"message-id": "<touch1@mail.gmail.com>"}, "body": ""}]  # noqa: E731
+@pytest.mark.db
+def test_empty_model_answer_in_run_draft_is_held(world):
+    db, bid, mbs = world
+    assert run_draft(db, llm_returning({}), bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs}) == 2
+    t = db.table("touches").select("*").eq("lead_id", lead_row(db, 0)["id"]).execute().data[0]
+    assert t["status"] == "held" and t["body"] == "" and t["problems"]
 
 
 def sent_touch1(db, lead_id, mailbox_id, sent_on):
@@ -242,25 +243,20 @@ def sent_touch1(db, lead_id, mailbox_id, sent_on):
 
 
 @pytest.mark.db
-def test_run_followups_drafts_touch_2_in_the_same_thread_on_day_3_and_touch_3_on_day_7(world):
+def test_followup_needs_no_gmail(world):
     db, bid, mbs = world
     lid = lead_row(db, 0)["id"]
     sent_touch1(db, lid, mbs[0]["id"], "2026-11-10")
-    svc = Fake()
-    assert run_followups(db, lambda m: svc, date(2026, 11, 12), thread_messages=T1) == 0  # day 2: not due
-    assert run_followups(db, lambda m: svc, date(2026, 11, 13), thread_messages=T1) == 1  # day 3
+    assert run_followups(db, date(2026, 11, 12)) == 0  # day 2: not due
+    assert run_followups(db, date(2026, 11, 13)) == 1  # day 3
     t2 = db.table("touches").select("*").eq("lead_id", lid).eq("touch_no", 2).execute().data[0]
     assert t2["subject"] == "Re: Glow Med Spa / booking" and t2["scheduled_for"] == "2026-11-13" and "or is it not a priority?" in t2["body"]
-    assert svc.calls[0]["body"]["message"]["threadId"] == "thread-1"
-    import base64
-    from email import message_from_bytes
-    raw = message_from_bytes(base64.urlsafe_b64decode(svc.calls[0]["body"]["message"]["raw"]))
-    assert raw["In-Reply-To"] == "<touch1@mail.gmail.com>" and raw["References"] == "<touch1@mail.gmail.com>"
-    assert run_followups(db, lambda m: svc, date(2026, 11, 13), thread_messages=T1) == 0  # not drafted twice
+    assert (t2["status"], t2["gmail_thread_id"], t2["gmail_draft_id"]) == ("drafted", "thread-1", None)
+    assert run_followups(db, date(2026, 11, 13)) == 0  # not drafted twice
     db.table("touches").update({"status": "sent"}).eq("id", t2["id"]).execute()
-    assert run_followups(db, lambda m: svc, date(2026, 11, 17), thread_messages=T1) == 1  # day 7 from Touch 1
+    assert run_followups(db, date(2026, 11, 17)) == 1  # day 7 from Touch 1
     t3 = db.table("touches").select("*").eq("lead_id", lid).eq("touch_no", 3).execute().data[0]
-    assert "partners" in t3["body"] and run_followups(db, lambda m: svc, date(2026, 12, 30), thread_messages=T1) == 0  # there is no Touch 4
+    assert "partners" in t3["body"] and run_followups(db, date(2026, 12, 30)) == 0  # there is no Touch 4
 
 
 @pytest.mark.db
@@ -270,19 +266,28 @@ def test_a_reply_bounce_or_opt_out_stops_the_sequence(world, stopper):
     lid = lead_row(db, 0)["id"]
     sent_touch1(db, lid, mbs[0]["id"], "2026-11-10")
     db.table("leads").update({"status": stopper}).eq("id", lid).execute()
-    assert run_followups(db, lambda m: Fake(), date(2026, 11, 20), thread_messages=T1) == 0
+    assert run_followups(db, date(2026, 11, 20)) == 0
 
 
 @pytest.mark.db
 def test_run_draft_says_why_a_lead_was_skipped(world, capsys):
     db, bid, mbs = world
-    only = {m["id"] for m in mbs}
 
     def boom(system, prompt):
         raise ValueError("vertex down")
 
-    assert run_draft(db, boom, lambda mailbox: Fake(), bid, date(2026, 11, 10), only_mailboxes=only) == 0
+    assert run_draft(db, boom, bid, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs}) == 0
     assert "skipped Glow Med Spa: ValueError: vertex down" in capsys.readouterr().err
-    bad = {"subject": "Glow Med Spa / booking", "body": "too short", "objective": OBJ}
-    assert run_draft(db, llm_returning(bad), lambda mailbox: Fake(), bid, date(2026, 11, 10), only_mailboxes=only) == 0
-    assert "failed checks 3 times: " in (err := capsys.readouterr().err) and "too_short" in err
+    assert lead_row(db, 0)["status"] == "selected"
+
+
+def test_check_subject_applies_to_touch_1_only():
+    assert check_subject("Glow Med Spa / booking", 1) == [] and check_subject("Quick hello", 1) == ["bad_subject"] and check_subject("", 1) == ["bad_subject"]
+    assert check_subject("Re: Glow Med Spa", 2) == []
+
+
+def test_strip_footer_removes_a_configured_footer_only(monkeypatch):
+    monkeypatch.setattr("gtm.draft.get_settings", lambda: Settings.from_env({"OPT_OUT_LINE": "Reply stop."}))
+    assert strip_footer("Hi\n\nSoban\n\nReply stop.") == "Hi\n\nSoban" and strip_footer("Hi\n\nSoban") == "Hi\n\nSoban"
+    monkeypatch.setattr("gtm.draft.get_settings", lambda: Settings.from_env({}))
+    assert strip_footer("Hi\n\nSoban") == "Hi\n\nSoban"

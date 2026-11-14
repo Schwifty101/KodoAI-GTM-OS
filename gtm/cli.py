@@ -26,6 +26,8 @@ from gtm.researcher import gemini_step, research_owner_finder
 from gtm.search import serper_search
 from gtm.sitescrape import fetch_with_fallback
 from gtm.draft import run_draft, run_followups
+from gtm.draftcheck import run_check_drafts
+from gtm.redraft import run_redraft
 from gtm.gmail import gmail_service
 from gtm.replies import run_replies
 from gtm.select import run_select
@@ -97,13 +99,13 @@ def cmd_select(a: argparse.Namespace) -> None:
 def cmd_draft(a: argparse.Namespace) -> None:
     db = get_db()
     only = {m["id"] for m in db.table("mailboxes").select("id,address").in_("address", a.mailbox).execute().data} if a.mailbox else None
-    print(f"drafted {run_draft(db, complete_json, gmail_service, a.batch, date.today(), only)} Touch 1 emails in Gmail Drafts (nothing sent)")
+    print(f"drafted {run_draft(db, complete_json, a.batch, date.today(), only)} Touch 1 drafts stored (nothing sent)")
 
 
 def cmd_followups(a: argparse.Namespace) -> None:
     db = get_db()
     run_replies(db, gmail_service, complete_reply_json)  # a lead who already said stop gets no follow-up draft
-    print(f"drafted {run_followups(db, gmail_service, date.today())} follow-ups in Gmail Drafts (nothing sent)")
+    print(f"drafted {run_followups(db, date.today())} follow-ups stored (nothing sent)")
 
 
 def cmd_send(a: argparse.Namespace) -> None:
@@ -119,6 +121,14 @@ def cmd_send(a: argparse.Namespace) -> None:
 def cmd_import_history(a: argparse.Namespace) -> None:
     recs = [parse_line(l) for l in open(a.file) if l.strip()]
     print(f"read {len(recs)} history rows;", run_import(get_db(), recs), "suppression rows added")
+
+
+def cmd_check_drafts(a: argparse.Namespace) -> None:
+    print(f"re-checked {run_check_drafts(get_db())} edited drafts")
+
+
+def cmd_redraft(a: argparse.Namespace) -> None:
+    print(f"redrafted {run_redraft(get_db(), complete_json, a.batch, a.instruction, date.today())} Touch 1 drafts")
 
 
 def cmd_replies(a: argparse.Namespace) -> None:
@@ -208,6 +218,12 @@ def build_parser() -> argparse.ArgumentParser:
     h = sub.add_parser("import-history", help="load Notion history lines (email|website|status|reply|DNC) into suppression")
     h.add_argument("file")
     h.set_defaults(fn=cmd_import_history)
+    c = sub.add_parser("check-drafts", help="re-run the draft rules on drafts edited in the UI")
+    c.set_defaults(fn=cmd_check_drafts)
+    rd = sub.add_parser("redraft", help="regenerate a batch's unsent Touch 1 drafts with an owner instruction")
+    rd.add_argument("--batch", required=True)
+    rd.add_argument("--instruction", required=True)
+    rd.set_defaults(fn=cmd_redraft)
     r = sub.add_parser("replies", help="read replies and bounces; stop sequences; honour opt-outs")
     r.set_defaults(fn=cmd_replies)
     x2 = sub.add_parser("send", help="send due drafts (dry run unless --confirm)")
