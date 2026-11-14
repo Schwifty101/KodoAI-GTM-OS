@@ -186,6 +186,15 @@ def state(db, lead):
 
 
 @pytest.mark.db
+@pytest.mark.parametrize("open_status", ["drafted", "held", "edited", "approved", "scheduled"])
+def test_a_reply_cancels_every_open_unsent_touch(world, open_status):
+    db, leads, mb = world
+    db.table("touches").update({"status": open_status}).eq("lead_id", leads[0]["id"]).eq("touch_no", 2).execute()
+    apply_reply(db, leads[0]["id"], "negative")
+    assert state(db, leads[0])[1][2]["status"] == "cancelled"
+
+
+@pytest.mark.db
 def test_opt_out_suppresses_address_and_business_domain_and_cancels_touches(world):
     db, leads, _ = world
     apply_reply(db, leads[0]["id"], "opt_out")
