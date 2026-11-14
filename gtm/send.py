@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from gtm.config import Settings, get_settings
 from gtm.db import fetch_all
@@ -22,8 +22,20 @@ WINDOW_DAYS = 7  # bounce rate is judged over the last week of sends
 SEND_START, SEND_END = 9, 16  # local hours, Mon-Fri: design spec section 15 (owner guess, "9 to 4"); a lead with no tz uses Chicago
 
 
+_bad_tz = 0  # invalid tz strings met so far; send_tick reports the change per tick
+
+
+def _zone(tz: str | None) -> ZoneInfo:
+    global _bad_tz
+    try:
+        return ZoneInfo(tz or "America/Chicago")
+    except (ZoneInfoNotFoundError, ValueError):  # one bad lead must not abort the mailbox's tick
+        _bad_tz += 1
+        return ZoneInfo("America/Chicago")
+
+
 def in_window(now: datetime, tz: str | None) -> bool:
-    local = now.astimezone(ZoneInfo(tz or "America/Chicago"))
+    local = now.astimezone(_zone(tz))
     return local.weekday() < 5 and SEND_START <= local.hour < SEND_END
 
 
@@ -46,7 +58,7 @@ def allowance(mailbox: dict, days_sent: int, ramp_start: int, ramp_step: int, ca
 
 
 def window_end(now: datetime, tz: str | None) -> datetime:
-    z = ZoneInfo(tz or "America/Chicago")
+    z = _zone(tz)
     d = now.astimezone(z)
     return datetime(d.year, d.month, d.day, SEND_END, tzinfo=z)
 
@@ -176,6 +188,7 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
     clear_cache()  # Pause must bite now, not after the settings cache expires
     if not (force or setting("sending_on", db)):
         return {"off": 1}
+    bad0 = _bad_tz
     out: dict = {"replies": Counter(), "scheduled": 0, "send": Counter()}
     for mb in db.table("mailboxes").select("*").execute().data:
         if mb["paused"] or (mailbox_id and mb["id"] != mailbox_id):
@@ -202,4 +215,5 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
         out["scheduled"] += schedule_approved(db, mb, now, s, anytime=anytime, immediate=force)
         out["send"].update(send_scheduled(db, lambda _: svc, mb, now, s, anytime=anytime))
     out["replies"], out["send"] = dict(out["replies"]), dict(out["send"])
+    out["bad_tz"] = _bad_tz - bad0
     return out

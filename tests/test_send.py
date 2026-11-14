@@ -325,6 +325,15 @@ def test_touch_2_without_a_message_id_still_sends_with_only_the_thread_id(world,
 
 
 @pytest.mark.db
+def test_an_invalid_tz_falls_back_to_chicago_and_does_not_abort_the_tick(world):
+    db, bid, mb = world
+    (bad,) = make_leads(db, bid, mb, 1, touch_status="approved", tz="Not/AZone")
+    (good,) = make_leads(db, bid, mb, 1, touch_status="approved", offset=1)
+    out = _tick(db, Gmail(), mailbox_id=mb["id"])
+    assert out["scheduled"] == 2 and out["bad_tz"] >= 1 and touch(db, bad["id"])["status"] == "scheduled" and touch(db, good["id"])["status"] == "scheduled"
+
+
+@pytest.mark.db
 def test_tick_does_nothing_when_sending_off(world):
     db, bid, mb = world
     (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
