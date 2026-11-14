@@ -118,7 +118,7 @@ export default function Drafts() {
             <span className={`pill ${cur.leads.signal_led ? "ok" : ""}`}>{cur.leads.signal_led ? "signal-led" : "relevance-led"}</span>
             {cur.status === "edited" && <span className="pill">checking...</span>}
             {cur.status === "held" && <span className="pill bad">held: {cur.problems.join(", ")}</span>}
-            {cur.status === "approved" && <span className="pill ok">approved</span>}
+            {["approved", "scheduled", "sending", "sent"].includes(cur.status) && <span className="pill ok">{cur.status}</span>}
           </div>
           {editing === cur.id ? editor(cur) : (
             <>
@@ -126,7 +126,7 @@ export default function Drafts() {
               <pre className="draft">{cur.body}</pre>
               <div className="bar">
                 <button className="primary" disabled={pos >= sample.length - 1} onClick={() => setPos(pos + 1)}>Looks good</button>
-                <button onClick={() => startEdit(cur)}>Edit</button>
+                {["drafted", "held", "edited", "approved"].includes(cur.status) && <button onClick={() => startEdit(cur)}>Edit</button>}
                 <button className={flagged.has(cur.id) ? "danger" : ""} onClick={() => setFlagged((f) => new Set(f).add(cur.id))}>Flag a problem</button>
                 <button disabled={pos === 0} onClick={() => setPos(pos - 1)}>Back</button>
               </div>

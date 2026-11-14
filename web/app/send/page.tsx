@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
-import { approveTouches, checkDrafts, clearPause, markFailed, markSent, pauseSending, saveDraftEdit, skipTouch, startSending } from "@/lib/actions";
+import { approveTouches, checkDrafts, clearPause, markFailed, markSent, pauseSending, saveDraftEdit, skipTouch, startSending, unapproveTouches } from "@/lib/actions";
 import { fetchAll } from "@/lib/fetchAll";
 import type { Mailbox, Touch } from "@/lib/types";
 
@@ -60,7 +60,7 @@ export default function Send() {
   const bounced = wk.filter((t) => t.leads.status === "bounced").length;
   const q = (s: string) => open.filter((t) => t.status === s);
   const next = q("scheduled").map((t) => t.send_at).filter(Boolean).sort()[0];
-  const follow = open.filter((t) => t.touch_no > 1 && ["drafted", "held", "edited"].includes(t.status));
+  const follow = open.filter((t) => t.touch_no > 1 && ["drafted", "held", "edited", "approved", "scheduled"].includes(t.status));
   const ready1 = follow.filter((t) => t.status === "drafted").map((t) => t.id);
   const t1 = (leadId: string) => sent.find((t) => t.lead_id === leadId && t.touch_no === 1);
 
@@ -125,6 +125,7 @@ export default function Send() {
                   <strong>{t.leads.name}</strong><span className="muted">{t.leads.owner_name}</span><span className="pill">Touch {t.touch_no}</span>
                   <span className="muted">{first ? `${ago(first.sent_at)} days since Touch 1` : "Touch 1 not found"}{first?.outcome ? ` · outcome ${first.outcome}` : ""}</span>
                   {overdue && <span className="pill bad">overdue</span>}
+                  {["approved", "scheduled"].includes(t.status) && <span className="pill ok">{t.status}</span>}
                   {t.status === "edited" && <span className="pill">checking...</span>}
                   {t.status === "held" && <span className="pill bad">held: {t.problems.join(", ")}</span>}
                   {t.send_at && <span className="muted">planned {new Date(t.send_at).toLocaleString()}</span>}
@@ -140,9 +141,11 @@ export default function Send() {
                   <>
                     <strong>{t.subject}</strong><pre className="draft">{t.body}</pre>
                     <div className="bar">
-                      <button className="primary" disabled={t.status !== "drafted"} onClick={() => act(() => approveTouches([t.id]), "Approved")}>Approve</button>
-                      <button onClick={() => startEdit(t)}>Edit</button>
-                      <button className="danger" onClick={() => act(() => skipTouch(t.id), "Skipped")}>Skip</button>
+                      {t.status === "approved"
+                        ? <button onClick={() => act(() => unapproveTouches([t.id]), "Unapproved")}>Unapprove</button>
+                        : <button className="primary" disabled={t.status !== "drafted"} onClick={() => act(() => approveTouches([t.id]), "Approved")}>Approve</button>}
+                      {t.status !== "scheduled" && <><button onClick={() => startEdit(t)}>Edit</button>
+                      <button className="danger" onClick={() => act(() => skipTouch(t.id), "Skipped")}>Skip</button></>}
                     </div>
                   </>
                 )}
