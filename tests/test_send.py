@@ -1,13 +1,15 @@
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
+import random
+
 import pytest
 
 from support import purge_test_suppression
 from gtm.config import Settings
 from gtm.db import get_db
 from gtm.scrape import new_batch, place_to_lead
-from gtm.send import allowance, in_window, is_test_lead, send_due, send_with_reply_check, sending_days, should_pause
+from gtm.send import allowance, in_window, is_test_lead, pick_send_at, schedule_approved, send_due, send_with_reply_check, sending_days, should_pause, window_end
 
 TODAY = date(2026, 11, 10)
 NOW = datetime(2026, 11, 10, 18, 0, tzinfo=timezone.utc)  # Tuesday 12:00 in Texas, inside the window
@@ -118,6 +120,74 @@ def test_outside_the_window_the_draft_stays_drafted_and_sends_later(world):
     assert send_due(db, lambda addr: gm, TODAY, SETTINGS, NOW)["sent"] == 1  # inside the window it sends
 
 
+@pytest.mark.parametrize("tz", [None, "America/Chicago", "America/Los_Angeles", "America/New_York"])
+@pytest.mark.parametrize("now", [
+    datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc),  # Tue 09:00 Chicago, the first minute of the window
+    datetime(2026, 11, 10, 21, 59, tzinfo=timezone.utc),  # Tue 15:59 Chicago, the last minute
+    datetime(2026, 11, 2, 18, 0, tzinfo=timezone.utc),    # Mon after the DST end (Nov 1)
+    datetime(2026, 3, 9, 18, 0, tzinfo=timezone.utc),     # Mon after the DST start (Mar 8)
+])
+def test_every_send_at_is_inside_the_leads_window(now, tz):
+    for seed in range(50):
+        at = pick_send_at(now, tz, random.Random(seed))
+        if in_window(now, tz):
+            assert now <= at < window_end(now, tz) and in_window(at, tz)
+        else:
+            assert at is None
+
+
+def test_sixteen_oclock_edge_is_excluded():
+    four = datetime(2026, 11, 10, 22, 0, tzinfo=timezone.utc)  # Tue 16:00 Chicago
+    assert pick_send_at(four, "America/Chicago", random.Random(1)) is None
+    assert pick_send_at(four - timedelta(minutes=1), "America/Chicago", random.Random(1)) < four
+
+
+def test_null_tz_window_ends_at_sixteen_chicago():
+    assert window_end(NOW, None) == datetime(2026, 11, 10, 22, 0, tzinfo=timezone.utc)
+
+
+def _status(db, lead_id, n=1):
+    return touch(db, lead_id, n)["status"]
+
+
+@pytest.mark.db
+def test_follow_ups_are_scheduled_before_new_leads(world):
+    db, bid, mb = world
+    new = make_leads(db, bid, mb, 2, touch_status="approved", tkw={"approved_at": "2026-11-10T10:00:00+00:00"})
+    (fu,) = make_leads(db, bid, mb, 1, status="sent", touch_no=2, touch_status="approved", offset=50)
+    assert schedule_approved(db, mb, NOW, SETTINGS, random.Random(1)) == 2  # allowance 2
+    assert _status(db, fu["id"], 2) == "scheduled" and touch(db, fu["id"], 2)["send_at"]
+    assert sorted(_status(db, l["id"]) for l in new) == ["approved", "scheduled"]
+
+
+@pytest.mark.db
+def test_stranded_sending_counts_against_room(world):
+    db, bid, mb = world
+    make_leads(db, bid, mb, 1, touch_status="sending", offset=60)
+    fresh = make_leads(db, bid, mb, 2, touch_status="approved")
+    assert schedule_approved(db, mb, NOW, SETTINGS, random.Random(1)) == 1
+    assert sorted(_status(db, l["id"]) for l in fresh) == ["approved", "scheduled"]
+
+
+@pytest.mark.db
+def test_outside_window_stays_approved_unless_anytime(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="approved", tz="America/Chicago")
+    saturday = datetime(2026, 11, 14, 18, 0, tzinfo=timezone.utc)
+    assert schedule_approved(db, mb, saturday, SETTINGS, random.Random(1)) == 0 and _status(db, l["id"]) == "approved"
+    assert schedule_approved(db, mb, saturday, SETTINGS, random.Random(1), anytime=True) == 1
+
+
+@pytest.mark.db
+def test_stopped_and_blocked_leads_are_not_scheduled(world):
+    db, bid, mb = world
+    (a,) = make_leads(db, bid, mb, 1, status="replied", touch_status="approved", offset=70)
+    (b,) = make_leads(db, bid, mb, 1, touch_status="approved", offset=71)
+    db.table("suppression").insert({"domain": "glow71.com", "reason": "pytest"}).execute()
+    assert schedule_approved(db, mb, NOW, SETTINGS, random.Random(1)) == 0
+    assert _status(db, a["id"]) == "approved" and _status(db, b["id"]) == "approved"
+
+
 def test_sending_lives_only_in_send_py_so_drafting_can_never_send():
     assert "send_draft" not in Path("gtm/draft.py").read_text()
 
@@ -152,13 +222,13 @@ def world():
     db.table("batches").delete().eq("id", bid).execute()
 
 
-def make_leads(db, bid, mb, n, status="drafted", touch_no=1, touch_status="drafted", offset=0, prefix="TEST_", sent_at=None, **lead_kw):
+def make_leads(db, bid, mb, n, status="drafted", touch_no=1, touch_status="drafted", offset=0, prefix="TEST_", sent_at=None, tkw=None, **lead_kw):
     items = [{"placeId": f"{prefix}{offset + i:03d}", "title": f"Spa {i}", "website": f"https://glow{offset + i}.com", "categories": ["Medical spa"], "state": "Texas"} for i in range(n)]
     rows = [{**place_to_lead(it, bid), "status": status, "owner_name": "Dana W", "owner_email": f"dana@glow{offset + i}.com", "email_verified": True,
              "mailbox_id": mb["id"], **lead_kw} for i, it in enumerate(items)]
     leads = db.table("leads").insert(rows).execute().data
     db.table("touches").insert([{"lead_id": l["id"], "touch_no": touch_no, "status": touch_status, "gmail_draft_id": f"d{l['place_id']}", "subject": "s", "body": "b",
-                                 "scheduled_for": TODAY.isoformat(), "sent_at": sent_at} for l in leads]).execute()
+                                 "scheduled_for": TODAY.isoformat(), "sent_at": sent_at, **(tkw or {})} for l in leads]).execute()
     return leads
 
 

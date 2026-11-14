@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -39,6 +40,48 @@ def allowance(mailbox: dict, days_sent: int, ramp_start: int, ramp_step: int, ca
     if not mailbox.get("enabled_on") or mailbox.get("paused"):
         return 0
     return min(cap, ramp_start + ramp_step * days_sent)
+
+
+def window_end(now: datetime, tz: str | None) -> datetime:
+    z = ZoneInfo(tz or "America/Chicago")
+    d = now.astimezone(z)
+    return datetime(d.year, d.month, d.day, SEND_END, tzinfo=z)
+
+
+def pick_send_at(now: datetime, tz: str | None, rng: random.Random) -> datetime | None:
+    """A random instant in [now, 16:00 local), or None when `now` is outside the lead's window."""
+    return now + (window_end(now, tz) - now) * rng.random() if in_window(now, tz) else None
+
+
+def _touches(db, mailbox_id: str, status: str, since: str | None = None) -> list[dict]:
+    """The mailbox's touches in one status, each with its lead's fields under `leads`."""
+    def q():
+        r = db.table("touches").select("*,leads!inner(status,tz,owner_email,domain)").eq("leads.mailbox_id", mailbox_id).eq("status", status)
+        return (r.gte("sent_at", since) if since else r).order("id")
+    return fetch_all(q)
+
+
+def schedule_approved(db, mailbox: dict, now: datetime, settings: Settings, rng: random.Random | None = None, anytime: bool = False) -> int:
+    """Approved -> scheduled with a random send_at in the lead's window today, while today's allowance has room. Follow-ups first."""
+    rng, now = rng or random.Random(), now.astimezone(timezone.utc)
+    mb = mailbox["id"]
+    taken = len(_touches(db, mb, "scheduled")) + len(_touches(db, mb, "sending")) + len(_touches(db, mb, "sent", now.date().isoformat()))
+    room = allowance(mailbox, sending_days(db, mb, now.date()), settings.ramp_start, settings.ramp_step, min(settings.daily_cap, mailbox["daily_cap"])) - taken
+    suppressed, contacted = _blocklists(db)
+    n = 0
+    for t in sorted(_touches(db, mb, "approved"), key=lambda t: (-t["touch_no"], t["approved_at"] or "")):
+        if room <= 0:
+            break
+        lead = t["leads"]
+        if lead["status"] != (Status.DRAFTED.value if t["touch_no"] == 1 else Status.SENT.value) or blocked_reason(lead, suppressed, contacted if t["touch_no"] == 1 else set()):
+            continue
+        at = now if anytime else pick_send_at(now, lead.get("tz"), rng)
+        if at is None:
+            continue  # outside its window now: stays approved, a later tick picks it up
+        if db.table("touches").update({"status": "scheduled", "send_at": at.astimezone(timezone.utc).isoformat()}).eq("id", t["id"]).eq("status", "approved").execute().data:
+            room -= 1
+            n += 1
+    return n
 
 
 def should_pause(sent: int, bounced: int, complaints: int, *, rate: float = 0.03, min_sends: int = 20) -> bool:
