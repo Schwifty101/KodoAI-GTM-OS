@@ -226,7 +226,7 @@ def build_parser() -> argparse.ArgumentParser:
     rd.set_defaults(fn=cmd_redraft)
     r = sub.add_parser("replies", help="read replies and bounces; stop sequences; honour opt-outs")
     r.set_defaults(fn=cmd_replies)
-    x2 = sub.add_parser("send", help="send due drafts (dry run unless --confirm)")
+    x2 = sub.add_parser("send", help="send due drafts (dry run unless --confirm). With --confirm, approved drafts are sent now (within the allowance and the send window), not at a random time later")
     x2.add_argument("--confirm", action="store_true")
     x2.add_argument("--anytime", action="store_true", help="ignore the weekday/local-time window (for rehearsals)")
     x2.set_defaults(fn=cmd_send)

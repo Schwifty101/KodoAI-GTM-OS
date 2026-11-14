@@ -334,6 +334,15 @@ def test_tick_schedules_and_sends_an_approved_touch(world):
 
 
 @pytest.mark.db
+def test_force_sends_an_approved_touch_now_not_at_a_random_time_later(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="approved")
+    gm = Gmail()
+    out = _tick(db, gm, mailbox_id=mb["id"], force=True)  # NOW is inside the window; no anytime
+    assert out["send"]["sent"] == 1 and touch(db, l["id"])["status"] == "sent"
+
+
+@pytest.mark.db
 def test_tick_does_nothing_when_mailbox_paused(world):
     db, bid, mb = world
     (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})

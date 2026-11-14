@@ -64,7 +64,7 @@ def _touches(db, mailbox_id: str, status: str, since: str | None = None) -> list
     return fetch_all(q)
 
 
-def schedule_approved(db, mailbox: dict, now: datetime, settings: Settings, rng: random.Random | None = None, anytime: bool = False) -> int:
+def schedule_approved(db, mailbox: dict, now: datetime, settings: Settings, rng: random.Random | None = None, anytime: bool = False, immediate: bool = False) -> int:
     """Approved -> scheduled with a random send_at in the lead's window today, while today's allowance has room. Follow-ups first."""
     rng, now = rng or random.Random(), now.astimezone(timezone.utc)
     mb = mailbox["id"]
@@ -78,7 +78,7 @@ def schedule_approved(db, mailbox: dict, now: datetime, settings: Settings, rng:
         lead = t["leads"]
         if lead["status"] != (Status.DRAFTED.value if t["touch_no"] == 1 else Status.SENT.value) or blocked_reason(lead, suppressed, contacted if t["touch_no"] == 1 else set()):
             continue
-        at = now if anytime else pick_send_at(now, lead.get("tz"), rng)
+        at = now if anytime or (immediate and in_window(now, lead.get("tz"))) else pick_send_at(now, lead.get("tz"), rng)  # immediate: terminal `send --confirm` sends what is due now
         if at is None:
             continue  # outside its window now: stays approved, a later tick picks it up
         if db.table("touches").update({"status": "scheduled", "send_at": at.astimezone(timezone.utc).isoformat()}).eq("id", t["id"]).eq("status", "approved").execute().data:
@@ -199,7 +199,7 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
             out["paused"] = out.get("paused", 0) + 1
             continue
         respread_stale(db, mb, now)
-        out["scheduled"] += schedule_approved(db, mb, now, s, anytime=anytime)
+        out["scheduled"] += schedule_approved(db, mb, now, s, anytime=anytime, immediate=force)
         out["send"].update(send_scheduled(db, lambda _: svc, mb, now, s, anytime=anytime))
     out["replies"], out["send"] = dict(out["replies"]), dict(out["send"])
     return out
