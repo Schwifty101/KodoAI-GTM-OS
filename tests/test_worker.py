@@ -4,6 +4,7 @@ import pytest
 
 from gtm.budget import BudgetExceeded
 from gtm.db import get_db
+from gtm import worker
 from gtm.jobs import enqueue
 from gtm.worker import _run_pass, run_one
 
@@ -129,3 +130,43 @@ def test_run_one_beats_during_the_pass(monkeypatch):
     monkeypatch.setattr(worker, "heartbeat", lambda d, i: beats.append(i))
     run_one(None, lambda kind, argv: time.sleep(0.1) or "ok")
     assert len(beats) >= 2
+
+
+def test_worker_main_starts_the_send_loop_thread(monkeypatch):
+    started = []
+
+    class Rec:
+        def __init__(self, target=None, daemon=None, **kw):
+            self.target, self.daemon = target, daemon
+
+        def start(self):
+            started.append(self)
+
+    def stop(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(worker.threading, "Thread", Rec)
+    monkeypatch.setattr(worker, "get_db", lambda: object())
+    monkeypatch.setattr(worker, "requeue_stale", stop)
+    monkeypatch.setattr(worker.signal, "signal", lambda *a: None)
+    worker.main()
+    assert [t.target for t in started] == [worker.send_loop] and started[0].daemon is True
+
+
+def test_send_loop_survives_an_exception(monkeypatch):
+    calls = []
+
+    def boom(*a, **k):
+        calls.append(1)
+        raise RuntimeError("gmail down")
+
+    def stop(_):
+        if len(calls) >= 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(worker, "get_db", lambda: object())
+    monkeypatch.setattr(worker, "send_tick", boom)
+    monkeypatch.setattr(worker.time, "sleep", stop)
+    with pytest.raises(KeyboardInterrupt):
+        worker.send_loop(every=0)
+    assert len(calls) == 2
