@@ -77,3 +77,8 @@ Measured:
 - **Not verified:** the USD price per Serper credit on our plan, credit expiry, whether results are stable across days, quality of the closed-place flag, whether a lower-density tile (Cary, Bend) gives similar yield per call, the Serper terms of service on storing and using the data (see `docs/spikes/google_maps_terms.md`).
 
 Reading: a tile costs about $0.015 at the assumed credit price (5 calls) against $0.40 with Apify for a similar number of kept places in a dense tile, a saving of about 25x, with the same place-id identity. The two sources are complementary, not identical. Decision pending the Google/Serper terms review and the owner.
+
+## Serper price and terms (owner, 2026-11-14)
+- **Price (owner-read):** $50 for 50,000 credits = $0.001 per credit. A Maps call is 3 credits = $0.003 for up to 20 places, about $0.00015 a place, about 33x cheaper than Apify at $0.005 a place. Owner posted a screenshot; the figure was typed by the owner, not re-checked by Claude.
+- **Terms (https://serper.dev/terms, updated 2024-05-29, pasted by owner):** no clause forbids storing or reusing results. Forbidden: misrepresenting ownership or source, removing or changing copyright/attribution notices, more than one account, circumventing key limits. The Data License says third-party content may carry IP rights and may not be used unless licensed or permitted by law: the same underlying Google-data exposure as `google_maps_terms.md`; Serper grants no Google licence. Whether to accept that risk is the owner's decision (not a legal opinion).
+- Refund: full refund within 7 days of first payment if under 20% of credits used.
