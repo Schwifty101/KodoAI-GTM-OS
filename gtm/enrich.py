@@ -42,10 +42,13 @@ def _contact(seen: list[dict]) -> dict:
             "email_source": best.get("source"), "email_verified": False}
 
 
-def run_enrich(db, finders: list, batch_id: str, limit: int | None = None, retry_no_buyer: bool = False) -> dict[str, int]:
+def run_enrich(db, finders: list, batch_id: str, limit: int | None = None, retry_no_buyer: bool = False, named_only: bool = False) -> dict[str, int]:
     statuses = [Status.CLEANED.value] + ([Status.NO_BUYER.value] if retry_no_buyer else [])
-    q = db.table("leads").select("id,domain,name,city,owner_name,owner_title,owner_email").eq("batch_id", batch_id).in_("status", statuses)
-    rows = (q.limit(limit) if limit else q).execute().data
+    q = db.table("leads").select("id,status,domain,name,city,owner_name,owner_title,owner_email").eq("batch_id", batch_id).in_("status", statuses)
+    named_only = named_only and retry_no_buyer  # no-op without a retry
+    rows = (q.limit(limit) if limit and not named_only else q).execute().data
+    if named_only:  # unnamed no_buyer leads are the parked bucket: skip them before any finder runs; limit counts what is left
+        rows = [r for r in rows if r["status"] == Status.CLEANED.value or r.get("owner_name")][:limit]
     counts: dict[str, int] = {}
     for done, r in enumerate(rows):
         seen: list[dict] = []

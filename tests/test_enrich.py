@@ -216,3 +216,32 @@ def test_cost_log_rows_inside_run_enrich_carry_batch_and_lead(cleaned):
         assert got[0]["lead_id"] == db.table("leads").select("id").eq("status", "no_buyer").eq("batch_id", bid).execute().data[0]["id"]
     finally:
         db.table("cost_log").delete().eq("note", "pytest-attrib").execute()
+
+
+@pytest.mark.db
+def test_retry_named_only_skips_unnamed_no_buyer(cleaned):
+    db, bid = cleaned
+    nb = {"status": "no_buyer"}
+    db.table("leads").update({**nb, "owner_name": "Dana W", "owner_title": "Owner"}).eq("place_id", "TEST_0").execute()
+    db.table("leads").update({**nb, "owner_name": "Eve K", "owner_title": "Owner", "owner_email": "eve@spa1.com"}).eq("place_id", "TEST_1").execute()
+    db.table("leads").update(nb).eq("place_id", "TEST_2").execute()  # unnamed: the parked "no owner found" bucket
+    db.table("leads").insert({**place_to_lead({"placeId": "TEST_3", "title": "Spa 3", "website": "https://spa3.com", "categoryName": "Medical spa",
+                                               "categories": ["Medical spa"], "state": "Texas"}, bid), "status": "cleaned"}).execute()
+    seen = []
+    assert run_enrich(db, [lambda lead: seen.append(lead["domain"]) or []], bid, retry_no_buyer=True, named_only=True) == {"no_buyer": 3}
+    assert sorted(seen) == ["spa0.com", "spa1.com", "spa3.com"]
+    assert row(db, 1)["owner_email"] == "eve@spa1.com"  # a saved email survives
+    seen.clear()
+    run_enrich(db, [lambda lead: seen.append(lead["domain"]) or []], bid, retry_no_buyer=True)
+    assert len(seen) == 4
+    seen.clear()
+    run_enrich(db, [lambda lead: seen.append(lead["domain"]) or []], bid, named_only=True)  # no-op without retry_no_buyer
+    assert seen == []  # all four are now no_buyer: named_only alone retries none
+
+
+def test_enrich_parser_accepts_named_only():
+    from gtm.cli import build_parser
+
+    a = build_parser().parse_args(["enrich", "--batch", "x", "--retry-no-buyer", "--named-only"])
+    assert a.named_only and a.retry_no_buyer
+    assert not build_parser().parse_args(["enrich", "--batch", "x"]).named_only
