@@ -132,3 +132,10 @@ def test_run_clean_only_touches_scraped_leads_and_is_rerunnable(two_batches):
     db.table("leads").update({"status": "enriched"}).eq("place_id", "TEST_a").execute()
     assert run_clean(db, b1) == {}  # nothing scraped left in the batch
     assert status(db, "TEST_a")[0] == "enriched"
+
+
+def test_null_rating_and_reviews_do_not_change_the_decision():
+    """Overture-sourced leads have no rating or review_count."""
+    lead = {"name": "Glow Med Spa", "domain": "glowmed.com", "state": "TX", "category": "Medical spa", "categories": ["Medical spa"],
+            "closed": False, "rating": None, "review_count": None}
+    assert clean_decision(lead) is None

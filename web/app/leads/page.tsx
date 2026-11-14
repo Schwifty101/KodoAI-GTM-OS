@@ -17,7 +17,7 @@ export default function Leads() {
   const [err, setErr] = useState("");
 
   const load = useCallback(async () => {
-    let q = supabase.from("leads").select(LEAD_COLUMNS).order(f.sort, { ascending: f.sort === "name" }).limit(300);
+    let q = supabase.from("leads").select(LEAD_COLUMNS).order(f.sort, { ascending: f.sort === "name", nullsFirst: false }).limit(300);
     if (f.status) q = q.eq("status", f.status);
     if (f.batch) q = q.eq("batch_id", f.batch);
     if (f.city) q = q.ilike("city", `%${f.city}%`);
