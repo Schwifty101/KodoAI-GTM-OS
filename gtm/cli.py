@@ -97,13 +97,13 @@ def cmd_select(a: argparse.Namespace) -> None:
 def cmd_draft(a: argparse.Namespace) -> None:
     db = get_db()
     only = {m["id"] for m in db.table("mailboxes").select("id,address").in_("address", a.mailbox).execute().data} if a.mailbox else None
-    print(f"drafted {run_draft(db, complete_json, gmail_service, a.batch, date.today(), only)} Touch 1 emails in Gmail Drafts (nothing sent)")
+    print(f"drafted {run_draft(db, complete_json, a.batch, date.today(), only)} Touch 1 drafts stored (nothing sent)")
 
 
 def cmd_followups(a: argparse.Namespace) -> None:
     db = get_db()
     run_replies(db, gmail_service, complete_reply_json)  # a lead who already said stop gets no follow-up draft
-    print(f"drafted {run_followups(db, gmail_service, date.today())} follow-ups in Gmail Drafts (nothing sent)")
+    print(f"drafted {run_followups(db, date.today())} follow-ups stored (nothing sent)")
 
 
 def cmd_send(a: argparse.Namespace) -> None:
