@@ -144,8 +144,8 @@ export default function Send() {
                       {t.status === "approved"
                         ? <button onClick={() => act(() => unapproveTouches([t.id]), "Unapproved")}>Unapprove</button>
                         : <button className="primary" disabled={t.status !== "drafted"} onClick={() => act(() => approveTouches([t.id]), "Approved")}>Approve</button>}
-                      {t.status !== "scheduled" && <><button onClick={() => startEdit(t)}>Edit</button>
-                      <button className="danger" onClick={() => act(() => skipTouch(t.id), "Skipped")}>Skip</button></>}
+                      <button onClick={() => startEdit(t)}>Edit</button>
+                      {t.status !== "scheduled" && <button className="danger" onClick={() => act(() => skipTouch(t.id), "Skipped")}>Skip</button>}
                     </div>
                   </>
                 )}

@@ -29,6 +29,7 @@ export default function Drafts() {
   const [instr, setInstr] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [redrafting, setRedrafting] = useState(false);
 
   useEffect(() => {
     if (!ready) return;
@@ -41,11 +42,13 @@ export default function Drafts() {
 
   const load = useCallback(async () => {
     if (!batchId) return;
-    const [t, s] = await Promise.all([
+    const [t, s, j] = await Promise.all([
       supabase.from("touches").select(COLS).eq("touch_no", 1).eq("leads.batch_id", batchId).neq("status", "cancelled").order("id"),
       supabase.from("leads").select("id,name,reject_reason").eq("batch_id", batchId).eq("status", "selected").not("reject_reason", "is", null),
+      supabase.from("jobs").select("payload").eq("kind", "redraft").in("status", ["queued", "running"]),
     ]);
-    if (t.error || s.error) return setErr((t.error ?? s.error)!.message);
+    if (t.error || s.error || j.error) return setErr((t.error ?? s.error ?? j.error)!.message);
+    setRedrafting((j.data ?? []).some((r) => (r.payload?.argv ?? [])[1] === batchId));
     setErr(""); setTouches((t.data ?? []) as unknown as DraftTouch[]); setSkipped((s.data ?? []) as Skipped[]);
     return (t.data ?? []) as unknown as DraftTouch[];
   }, [batchId]);
@@ -57,11 +60,11 @@ export default function Drafts() {
   }, [load]);
 
   const checking = touches.some((t) => t.status === "edited");
-  useEffect(() => { if (checking) { const i = setInterval(load, 4000); return () => clearInterval(i); } }, [checking, load]);
+  useEffect(() => { if (checking || redrafting) { const i = setInterval(load, 4000); return () => clearInterval(i); } }, [checking, redrafting, load]);
   if (!ready) return null;
 
   const by = (s: string) => touches.filter((t) => t.status === s);
-  const readyIds = by("drafted").map((t) => t.id);
+  const readyIds = by("drafted").filter((t) => !flagged.has(t.id)).map((t) => t.id);
   const cur = touches.find((t) => t.id === sample[pos]);
   const batch = batches.find((b) => b.id === batchId);
 
@@ -91,15 +94,16 @@ export default function Drafts() {
         <select value={batchId} onChange={(e) => setBatchId(e.target.value)}>
           {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
-        <span>{touches.length} drafts · <strong>{readyIds.length} ready</strong> · {by("held").length} held · {by("approved").length} approved{checking && " · checking..."}</span>
+        <span>{touches.length} drafts · <strong>{by("drafted").length} ready</strong> · {by("held").length} held · {by("approved").length} approved{checking && " · checking..."}</span>
       </div>
+      {redrafting && <p className="msg">Regenerating this batch... approval is off until it finishes.</p>}
       {batch?.draft_instruction && <p className="muted">Last regenerate instruction: {batch.draft_instruction}</p>}
       {msg && <p className="msg">{msg}</p>}{err && <p className="err">{err}</p>}
 
       <div className="card">
         <div className="bar">
           <strong>Approve and regenerate</strong>
-          <button className="primary" disabled={!readyIds.length} onClick={() => act(() => approveTouches(readyIds), `Approved ${readyIds.length}`)}>Approve all ready ({readyIds.length})</button>
+          <button className="primary" disabled={!readyIds.length || redrafting} onClick={() => act(() => approveTouches(readyIds), `Approved ${readyIds.length}`)}>Approve all ready ({readyIds.length})</button>
         </div>
         <textarea style={{ width: "100%" }} rows={2} placeholder="New instruction for the whole batch, e.g. warmer opener" value={instr} onChange={(e) => setInstr(e.target.value)} />
         <div className="bar" style={{ marginTop: 6 }}>
@@ -130,7 +134,7 @@ export default function Drafts() {
                 <button className={flagged.has(cur.id) ? "danger" : ""} onClick={() => setFlagged((f) => new Set(f).add(cur.id))}>Flag a problem</button>
                 <button disabled={pos === 0} onClick={() => setPos(pos - 1)}>Back</button>
               </div>
-              {flagged.has(cur.id) && <p className="err">Flagged. Edit it, or regenerate the batch with an instruction above.</p>}
+              {flagged.has(cur.id) && <p className="err">Flagged and left out of Approve all. Edit it, or regenerate the batch with an instruction above.</p>}
               {pos >= sample.length - 1 && <p className="muted">End of the sample.</p>}
             </>
           )}

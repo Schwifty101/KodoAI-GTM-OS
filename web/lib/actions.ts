@@ -68,9 +68,9 @@ async function one(p: PromiseLike<{ data: { id: string }[] | null; error: { mess
   if (!data?.length) throw new Error("that touch is no longer in a state that allows this");
 }
 
-/** An edit clears approval; check-drafts re-checks it. */
+/** An edit clears approval and any planned slot; check-drafts re-checks it. Guarded by status, so a touch the tick claims meanwhile matches nothing. */
 export const saveDraftEdit = (touchId: string, subject: string, body: string) =>
-  one(supabase.from("touches").update({ subject, body, status: "edited", approved_at: null }).eq("id", touchId).in("status", ["drafted", "held", "edited", "approved"]).select("id"));
+  one(supabase.from("touches").update({ subject, body, status: "edited", approved_at: null, send_at: null }).eq("id", touchId).in("status", ["drafted", "held", "edited", "approved", "scheduled"]).select("id"));
 
 export const approveTouches = (ids: string[]) =>
   ok(supabase.from("touches").update({ status: "approved", approved_at: new Date().toISOString() }).in("id", ids).eq("status", "drafted"));
@@ -82,8 +82,14 @@ export const skipTouch = (id: string) =>
   one(supabase.from("touches").update({ status: "cancelled" }).eq("id", id).in("status", ["drafted", "held", "edited", "approved"]).select("id"));
 
 /** For a touch stranded in `sending` after a crash: the owner checked Gmail and decides. */
-export const markSent = (id: string) =>
-  one(supabase.from("touches").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", id).eq("status", "sending").select("id"));
+export async function markSent(id: string) {
+  const { data, error } = await supabase.from("touches").update({ status: "sent" }).eq("id", id).eq("status", "sending").select("id,lead_id,touch_no,sent_at");
+  if (error) throw new Error(error.message);
+  const t = data?.[0];
+  if (!t) throw new Error("that touch is no longer in a state that allows this");
+  if (!t.sent_at) await ok(supabase.from("touches").update({ sent_at: new Date().toISOString() }).eq("id", id));
+  if (t.touch_no === 1) await ok(supabase.from("leads").update({ status: "sent" }).eq("id", t.lead_id).eq("status", "drafted"));
+}
 
 export const markFailed = (id: string) =>
   one(supabase.from("touches").update({ status: "approved", send_at: null }).eq("id", id).eq("status", "sending").select("id"));
@@ -94,7 +100,7 @@ export const pauseSending = () => saveSetting("sending_on", false);
 export async function redraftBatch(batchId: string, instruction: string) {
   const text = instruction.trim();
   if (!text) throw new Error("type an instruction first");
-  await enqueueJobOnce("redraft", ["--batch", batchId, "--instruction", text]);
+  await enqueueJobOnce("redraft", ["--batch", batchId, `--instruction=${text}`]);
 }
 
 export const checkDrafts = () => enqueueJobOnce("check-drafts", []);

@@ -134,7 +134,12 @@ await admin.from("coverage").delete().eq("metro", "TEST");
   await saveDraftEdit(T.approved, "x / y", "edited approved");
   const ea = await tr(2);
   check("edit clears approval", ea.status === "edited" && ea.approved_at === null);
-  for (const s of ["scheduled", "sending", "sent"]) {
+  await admin.from("touches").update({ send_at: new Date().toISOString() }).eq("id", T.scheduled);
+  await saveDraftEdit(T.scheduled, "s / s", "edited scheduled");
+  const es = await tr(3);
+  check("edit unschedules a scheduled touch", es.status === "edited" && es.send_at === null && es.approved_at === null && es.body === "edited scheduled");
+  await admin.from("touches").update({ status: "scheduled", body: "old body" }).eq("id", T.scheduled);
+  for (const s of ["sending", "sent"]) {
     const i = sts.indexOf(s);
     check(`edit refuses a ${s} touch`, (await throws(() => saveDraftEdit(T[s], "hack", "hack"))) && (await tr(i)).body === "old body" && (await tr(i)).status === s);
   }
@@ -155,6 +160,17 @@ await admin.from("coverage").delete().eq("metro", "TEST");
   check("markSent refuses an approved touch", (await tr(4)).status === "approved");
   await unapproveTouches([T.sending]);
   check("unapprove returns approved to drafted", (await tr(4)).status === "drafted" && (await tr(4)).approved_at === null);
+  await admin.from("leads").insert({ place_id: "REHEARSAL_C_stuck", name: "RC stuck", status: "drafted", batch_id: rb!.id, domain: "rcstuck.com" });
+  const stuckLead = (await admin.from("leads").select("id").eq("place_id", "REHEARSAL_C_stuck").single()).data!.id as string;
+  await admin.from("touches").insert({ lead_id: stuckLead, touch_no: 1, status: "sending", subject: "s", body: "b" });
+  const stuckTouch = (await admin.from("touches").select("id").eq("lead_id", stuckLead).single()).data!.id as string;
+  await markSent(stuckTouch);
+  const st1 = (await admin.from("touches").select("status,sent_at").eq("id", stuckTouch).single()).data!;
+  check("markSent sends a stranded touch: sent_at set, Touch 1 lead becomes sent", st1.status === "sent" && st1.sent_at !== null && (await admin.from("leads").select("status").eq("id", stuckLead).single()).data!.status === "sent");
+  const dashArgv = ["--batch", rb!.id, "--instruction=-warmer opener"];
+  await redraftBatch(rb!.id, "-warmer opener");
+  const dj = (await admin.from("jobs").select("id,payload").eq("kind", "redraft").contains("payload", { argv: dashArgv })).data!;
+  check("redraft passes an instruction starting with - as one --instruction= argument", dj.length === 1);
   const j0 = (await admin.from("jobs").select("id", { count: "exact", head: true }).eq("kind", "redraft")).count;
   check("redraft refuses an empty instruction", (await throws(() => redraftBatch(rb!.id, "   "))) && (await admin.from("jobs").select("id", { count: "exact", head: true }).eq("kind", "redraft")).count === j0);
   await admin.from("jobs").delete().eq("kind", "redraft").contains("payload", { argv: ["--batch", rb!.id] });
