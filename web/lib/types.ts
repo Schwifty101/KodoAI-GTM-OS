@@ -44,10 +44,15 @@ export type Lead = {
 export const LEAD_COLUMNS =
   "id,name,city,state,domain,website,status,vector,signal_led,approved,owner_name,owner_title,owner_email,email_source,select_reason,reject_reason,rating,review_count,signal,batch_id,batch_no,tz,created_at,batches(name)";
 
-export type Mailbox = { id: string; address: string; daily_cap: number; enabled_on: string | null; paused: boolean; paused_reason: string | null };
+export type Mailbox = {
+  id: string; address: string; daily_cap: number; enabled_on: string | null; paused: boolean; paused_reason: string | null;
+  ramp_from: string | null; replies_checked_at: string | null;
+};
+export type TouchStatus = "drafted" | "held" | "edited" | "approved" | "scheduled" | "sending" | "sent" | "cancelled";
 export type Touch = {
-  id: string; lead_id: string; touch_no: number; status: string; subject: string | null; body: string | null;
+  id: string; lead_id: string; touch_no: number; status: TouchStatus; subject: string | null; body: string | null; objective: string | null;
   scheduled_for: string | null; sent_at: string | null; outcome: string | null;
+  send_at: string | null; approved_at: string | null; problems: string[]; gmail_thread_id: string | null;
   leads: { name: string; owner_email: string | null; status: string; mailbox_id: string | null } | null;
 };
 

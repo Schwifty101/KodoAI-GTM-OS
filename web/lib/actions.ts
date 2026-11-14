@@ -18,9 +18,9 @@ export const unapproveLeads = (ids: string[]) =>
 export const rejectLeads = (ids: string[]) =>
   ok(supabase.from("leads").update({ status: "rejected", reject_reason: "operator", approved: false }).in("id", ids).eq("status", "selected"));
 
-/** The operator clears a bounce-spike pause once they have looked at why. */
+/** The operator clears a bounce-spike pause once they have looked at why; the ramp restarts from today. */
 export const clearPause = (mailboxId: string) =>
-  ok(supabase.from("mailboxes").update({ paused: false, paused_reason: null }).eq("id", mailboxId));
+  ok(supabase.from("mailboxes").update({ paused: false, paused_reason: null, ramp_from: new Date().toISOString().slice(0, 10) }).eq("id", mailboxId));
 
 /** Soban's own call on a reply (positive / negative / other); recorded on the latest sent touch. */
 export async function setOutcome(leadId: string, outcome: "positive" | "negative" | "other") {
@@ -60,3 +60,47 @@ export async function enqueueJobOnce(kind: string, argv: string[]) {
 /** Only a failed tile goes back to pending; running and done tiles are never touched. */
 export const retryTile = (id: string) =>
   ok(supabase.from("coverage").update({ status: "pending", error: null }).eq("id", id).eq("status", "failed"));
+
+/** Touch writes filter on the current status, so a claimed (scheduled/sending/sent) touch is never changed. `one` throws when nothing matched. */
+async function one(p: PromiseLike<{ data: { id: string }[] | null; error: { message: string } | null }>) {
+  const { data, error } = await p;
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error("that touch is no longer in a state that allows this");
+}
+
+/** An edit clears approval and any planned slot; check-drafts re-checks it. Guarded by status, so a touch the tick claims meanwhile matches nothing. */
+export const saveDraftEdit = (touchId: string, subject: string, body: string) =>
+  one(supabase.from("touches").update({ subject, body, status: "edited", approved_at: null, send_at: null }).eq("id", touchId).in("status", ["drafted", "held", "edited", "approved", "scheduled"]).select("id"));
+
+export const approveTouches = (ids: string[]) =>
+  ok(supabase.from("touches").update({ status: "approved", approved_at: new Date().toISOString() }).in("id", ids).eq("status", "drafted"));
+
+export const unapproveTouches = (ids: string[]) =>
+  ok(supabase.from("touches").update({ status: "drafted", approved_at: null }).in("id", ids).eq("status", "approved"));
+
+export const skipTouch = (id: string) =>
+  one(supabase.from("touches").update({ status: "cancelled" }).eq("id", id).in("status", ["drafted", "held", "edited", "approved"]).select("id"));
+
+/** For a touch stranded in `sending` after a crash: the owner checked Gmail and decides. */
+export async function markSent(id: string) {
+  const { data, error } = await supabase.from("touches").update({ status: "sent" }).eq("id", id).eq("status", "sending").select("id,lead_id,touch_no,sent_at");
+  if (error) throw new Error(error.message);
+  const t = data?.[0];
+  if (!t) throw new Error("that touch is no longer in a state that allows this");
+  if (!t.sent_at) await ok(supabase.from("touches").update({ sent_at: new Date().toISOString() }).eq("id", id));
+  if (t.touch_no === 1) await ok(supabase.from("leads").update({ status: "sent" }).eq("id", t.lead_id).eq("status", "drafted"));
+}
+
+export const markFailed = (id: string) =>
+  one(supabase.from("touches").update({ status: "approved", send_at: null }).eq("id", id).eq("status", "sending").select("id"));
+
+export const startSending = () => saveSetting("sending_on", true);
+export const pauseSending = () => saveSetting("sending_on", false);
+
+export async function redraftBatch(batchId: string, instruction: string) {
+  const text = instruction.trim();
+  if (!text) throw new Error("type an instruction first");
+  await enqueueJobOnce("redraft", ["--batch", batchId, `--instruction=${text}`]);
+}
+
+export const checkDrafts = () => enqueueJobOnce("check-drafts", []);
