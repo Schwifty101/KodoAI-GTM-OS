@@ -57,6 +57,10 @@ def create_draft(svc, to: str, subject: str, body: str, thread_id: str | None = 
     return svc.users().drafts().create(userId="me", body={"message": message}).execute()["id"]
 
 
+def draft_thread_id(svc, draft_id: str) -> str:
+    return svc.users().drafts().get(userId="me", id=draft_id, format="minimal").execute()["message"]["threadId"]
+
+
 def send_draft(svc, draft_id: str) -> str:
     out = svc.users().drafts().send(userId="me", body={"id": draft_id}).execute()
     return out["threadId"]

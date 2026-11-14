@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from gtm.config import Settings, get_settings
 from gtm.db import fetch_all
-from gtm.gmail import create_draft, send_draft, thread_messages
+from gtm.gmail import create_draft, draft_thread_id, send_draft, thread_messages
 from gtm.replies import run_replies
 from gtm.select import _blocklists, blocked_reason
 from gtm.settings_store import clear_cache, setting
@@ -123,6 +123,7 @@ def send_scheduled(db, gmail_for, mailbox: dict, now: datetime, settings: Settin
         try:
             reply_to = thread_messages(svc, t["gmail_thread_id"])[0]["headers"]["message-id"] if t["touch_no"] > 1 else None
             draft = create_draft(svc, lead["owner_email"], t["subject"], t["body"], t["gmail_thread_id"], reply_to)
+            db.table("touches").update({"gmail_draft_id": draft, "gmail_thread_id": draft_thread_id(svc, draft)}).eq("id", t["id"]).execute()  # before the send: a stranded touch still has its thread
         except Exception:
             db.table("touches").update({"status": "scheduled"}).eq("id", t["id"]).execute()
             out["errors"] += 1

@@ -274,6 +274,7 @@ def test_send_draft_failure_leaves_sending_and_is_not_retried(world):
     out = _go(db, Lost(), mb)
     t = touch(db, l["id"])
     assert out["stranded"] == 1 and t["status"] == "sending" and t["gmail_draft_id"] == "draft1"
+    assert t["gmail_thread_id"] == "dthread-draft1"  # saved before the send, so Mark sent still has a thread to read replies from
     gm = Gmail()
     assert _go(db, gm, mb).get("sent", 0) == 0 and gm.created == []
 
@@ -498,6 +499,7 @@ class Gmail:
         return self
 
     def drafts(self):
+        self.kind = "drafts"
         return self
 
     def send(self, **kw):
@@ -511,9 +513,12 @@ class Gmail:
         return type("E", (), {"execute": lambda s: {"id": f"draft{len(self.created)}"}})()
 
     def threads(self):
+        self.kind = "threads"
         return self
 
     def get(self, **kw):
+        if self.kind == "drafts":
+            return type("E", (), {"execute": lambda s: {"id": kw["id"], "message": {"threadId": f"dthread-{kw['id']}"}}})()
         return type("E", (), {"execute": lambda s: {"messages": [{"payload": {"headers": [{"name": "Message-ID", "value": "<first@x>"}]}}]}})()
 
 
