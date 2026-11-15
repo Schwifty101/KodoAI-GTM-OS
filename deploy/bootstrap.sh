@@ -13,5 +13,7 @@ command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | UV_INST
 # fetch_secrets.py names the Gmail token file from GTM_MAILBOX
 mkdir -p /etc/systemd/system/gtm-worker.service.d
 printf '[Service]\nEnvironment=GTM_MAILBOX=soban@kodoai.xyz\n' > /etc/systemd/system/gtm-worker.service.d/mailbox.conf
+# SIGNAL_MAX_AGE_DAYS is config, not a secret: without it a signals job on the VM refuses to run (owner chose 90 on 2026-11-15)
+printf '[Service]\nEnvironment=SIGNAL_MAX_AGE_DAYS=90\n' > /etc/systemd/system/gtm-worker.service.d/signals.conf
 systemctl daemon-reload
 echo "bootstrap done; deploy.sh installs and enables the unit"
