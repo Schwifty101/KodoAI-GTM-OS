@@ -82,7 +82,7 @@ def apply_reply(db, lead_id: str, kind: str, sender: str | None = None) -> None:
     if kind == "auto_reply":
         return  # an out-of-office is not an answer: the sequence carries on
     lead = db.table("leads").select("owner_email,domain").eq("id", lead_id).execute().data[0]
-    db.table("touches").update({"status": "cancelled"}).eq("lead_id", lead_id).eq("status", "drafted").execute()
+    db.table("touches").update({"status": "cancelled"}).eq("lead_id", lead_id).in_("status", ["drafted", "held", "edited", "approved", "scheduled"]).execute()
     last = db.table("touches").select("id").eq("lead_id", lead_id).eq("status", "sent").order("touch_no", desc=True).limit(1).execute().data
     if last:
         db.table("touches").update({"outcome": kind}).eq("id", last[0]["id"]).execute()
@@ -103,9 +103,11 @@ def _classify_for(m: dict, llm, lead_id: str) -> str:
         return classify_reply(m, llm)
 
 
-def run_replies(db, gmail_for, llm, thread_messages=thread_messages, recent_bounces=recent_bounces) -> dict[str, int]:
+def run_replies(db, gmail_for, llm, thread_messages=thread_messages, recent_bounces=recent_bounces, mailbox_id: str | None = None) -> dict[str, int]:
     counts: Counter = Counter()
     for mb in db.table("mailboxes").select("*").execute().data:
+        if mailbox_id and mb["id"] != mailbox_id:
+            continue
         svc = gmail_for(mb["address"])
         active = {l["id"]: l for l in fetch_all(lambda: db.table("leads").select("id,owner_email").eq("mailbox_id", mb["id"]).eq("status", Status.SENT.value).order("id"))}
         for lead_id in list(active):

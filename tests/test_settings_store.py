@@ -75,3 +75,10 @@ def test_gemini_lite_price_defaults_are_floats():
     from gtm.settings_store import DEFAULTS
     for k in ("gemini_lite_input_usd_per_m", "gemini_lite_output_usd_per_m"):
         assert isinstance(DEFAULTS[k], float)
+
+
+def test_sending_on_defaults_false_and_is_a_bool():
+    from gtm.settings_store import DEFAULTS
+
+    assert DEFAULTS["sending_on"] is False
+    assert setting("sending_on") is False

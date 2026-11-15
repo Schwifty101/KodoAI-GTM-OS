@@ -26,10 +26,12 @@ from gtm.researcher import gemini_step, research_owner_finder
 from gtm.search import serper_search
 from gtm.sitescrape import fetch_with_fallback
 from gtm.draft import run_draft, run_followups
+from gtm.draftcheck import run_check_drafts
+from gtm.redraft import run_redraft
 from gtm.gmail import gmail_service
 from gtm.replies import run_replies
 from gtm.select import run_select
-from gtm.send import allowance, send_with_reply_check
+from gtm.send import allowance, send_tick, sending_days
 from gtm.signals import fetch_evidence, run_signals
 from gtm.scrape import DEFAULT_QUERIES, new_batch, scrape_city
 
@@ -97,28 +99,36 @@ def cmd_select(a: argparse.Namespace) -> None:
 def cmd_draft(a: argparse.Namespace) -> None:
     db = get_db()
     only = {m["id"] for m in db.table("mailboxes").select("id,address").in_("address", a.mailbox).execute().data} if a.mailbox else None
-    print(f"drafted {run_draft(db, complete_json, gmail_service, a.batch, date.today(), only)} Touch 1 emails in Gmail Drafts (nothing sent)")
+    print(f"drafted {run_draft(db, complete_json, a.batch, date.today(), only)} Touch 1 drafts stored (nothing sent)")
 
 
 def cmd_followups(a: argparse.Namespace) -> None:
     db = get_db()
     run_replies(db, gmail_service, complete_reply_json)  # a lead who already said stop gets no follow-up draft
-    print(f"drafted {run_followups(db, gmail_service, date.today())} follow-ups in Gmail Drafts (nothing sent)")
+    print(f"drafted {run_followups(db, date.today())} follow-ups stored (nothing sent)")
 
 
 def cmd_send(a: argparse.Namespace) -> None:
     db, s = get_db(), get_settings()
     if not a.confirm:
         for mb in db.table("mailboxes").select("*").execute().data:
-            room = allowance(mb, date.today(), s.ramp_start, s.ramp_step, min(s.daily_cap, mb["daily_cap"]))
+            room = allowance(mb, sending_days(db, mb["id"], date.today()), s.ramp_start, s.ramp_step, min(s.daily_cap, mb["daily_cap"]))
             print(f"{mb['address']}: paused={mb['paused']} allowance today={room}")
         sys.exit("Dry run only. Sending is a separate, explicit action: add --confirm to send due drafts.")
-    print(send_with_reply_check(db, gmail_service, complete_reply_json, date.today(), s, anytime=a.anytime))  # replies first, then send
+    print(send_tick(db, gmail_service, complete_reply_json, settings=s, force=True, anytime=a.anytime))  # same code as the worker's scheduler: replies first, then schedule and send
 
 
 def cmd_import_history(a: argparse.Namespace) -> None:
     recs = [parse_line(l) for l in open(a.file) if l.strip()]
     print(f"read {len(recs)} history rows;", run_import(get_db(), recs), "suppression rows added")
+
+
+def cmd_check_drafts(a: argparse.Namespace) -> None:
+    print(f"re-checked {run_check_drafts(get_db())} edited drafts")
+
+
+def cmd_redraft(a: argparse.Namespace) -> None:
+    print(f"redrafted {run_redraft(get_db(), complete_json, a.batch, a.instruction, date.today())} Touch 1 drafts")
 
 
 def cmd_replies(a: argparse.Namespace) -> None:
@@ -138,7 +148,7 @@ def cmd_tz_backfill(a: argparse.Namespace) -> None:
 
 def cmd_mailbox(a: argparse.Namespace) -> None:
     if a.action == "unpause":
-        get_db().table("mailboxes").update({"paused": False, "paused_reason": None}).eq("address", a.address).execute()
+        get_db().table("mailboxes").update({"paused": False, "paused_reason": None, "ramp_from": date.today().isoformat()}).eq("address", a.address).execute()  # the ramp restarts at 20 and the bounce window forgets the spike
         print(f"mailbox {a.address} unpaused")
     else:
         cmd_mailbox_add(a)
@@ -208,9 +218,15 @@ def build_parser() -> argparse.ArgumentParser:
     h = sub.add_parser("import-history", help="load Notion history lines (email|website|status|reply|DNC) into suppression")
     h.add_argument("file")
     h.set_defaults(fn=cmd_import_history)
+    c = sub.add_parser("check-drafts", help="re-run the draft rules on drafts edited in the UI")
+    c.set_defaults(fn=cmd_check_drafts)
+    rd = sub.add_parser("redraft", help="regenerate a batch's unsent Touch 1 drafts with an owner instruction")
+    rd.add_argument("--batch", required=True)
+    rd.add_argument("--instruction", required=True)
+    rd.set_defaults(fn=cmd_redraft)
     r = sub.add_parser("replies", help="read replies and bounces; stop sequences; honour opt-outs")
     r.set_defaults(fn=cmd_replies)
-    x2 = sub.add_parser("send", help="send due drafts (dry run unless --confirm)")
+    x2 = sub.add_parser("send", help="send due drafts (dry run unless --confirm). With --confirm, approved drafts are sent now (within the allowance and the send window), not at a random time later")
     x2.add_argument("--confirm", action="store_true")
     x2.add_argument("--anytime", action="store_true", help="ignore the weekday/local-time window (for rehearsals)")
     x2.set_defaults(fn=cmd_send)

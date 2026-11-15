@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import re
+import sys
 from email.message import EmailMessage
 from html import unescape
 from pathlib import Path
@@ -29,6 +30,8 @@ def gmail_service(mailbox: str):
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
     elif not creds or not creds.valid:
+        if not sys.stdin.isatty():  # headless VM: a browser flow would block the send thread forever
+            raise RuntimeError(f"Gmail token missing or invalid for {mailbox}: re-authorise on the Mac")
         client_file = get_settings().google_oauth_client_file
         creds = InstalledAppFlow.from_client_secrets_file(client_file, SCOPES).run_local_server(port=0, login_hint=mailbox)
     SECRETS.mkdir(exist_ok=True)
@@ -52,6 +55,10 @@ def create_draft(svc, to: str, subject: str, body: str, thread_id: str | None = 
     if thread_id:
         message["threadId"] = thread_id  # Touch 2 and 3 reply in the Touch 1 thread
     return svc.users().drafts().create(userId="me", body={"message": message}).execute()["id"]
+
+
+def draft_thread_id(svc, draft_id: str) -> str:
+    return svc.users().drafts().get(userId="me", id=draft_id, format="minimal").execute()["message"]["threadId"]
 
 
 def send_draft(svc, draft_id: str) -> str:

@@ -25,6 +25,46 @@ def test_reply_checks_use_reply_model(monkeypatch, command):
     monkeypatch.setattr(cli, "get_settings", lambda: object())
     monkeypatch.setattr(cli, "run_replies", lambda db, gmail, llm: seen.append(llm))
     monkeypatch.setattr(cli, "run_followups", lambda *args: 0)
-    monkeypatch.setattr(cli, "send_with_reply_check", lambda db, gmail, llm, *args, **kw: seen.append(llm))
+    monkeypatch.setattr(cli, "send_tick", lambda db, gmail, llm, *args, **kw: seen.append(llm))
     getattr(cli, f"cmd_{command}")(argparse.Namespace(confirm=True, anytime=False))
     assert seen == [cli.complete_reply_json]
+
+
+def test_cmd_send_dry_run_writes_nothing(monkeypatch, capsys):
+    class Db:  # any write (update/insert) would be an AttributeError
+        def table(self, name):
+            return self
+
+        def select(self, *a):
+            return self
+
+        def execute(self):
+            return argparse.Namespace(data=[{"id": "m", "address": "a@x", "paused": False, "daily_cap": 40, "enabled_on": "2026-11-10"}])
+
+    monkeypatch.setattr(cli, "get_db", lambda: Db())
+    monkeypatch.setattr(cli, "get_settings", lambda: argparse.Namespace(ramp_start=20, ramp_step=3, daily_cap=40))
+    monkeypatch.setattr(cli, "sending_days", lambda db, mid, d: 0)
+    monkeypatch.setattr(cli, "send_tick", lambda *a, **k: pytest.fail("sent"))
+    with pytest.raises(SystemExit):
+        cli.cmd_send(argparse.Namespace(confirm=False, anytime=False))
+    assert "allowance today=20" in capsys.readouterr().out
+
+
+def test_mailbox_unpause_restarts_the_ramp(monkeypatch):
+    """Unpausing clears the pause AND sets ramp_from to today (ramp restarts at 20; the bounce window forgets the old spike)."""
+    from datetime import date
+
+    seen = {}
+
+    class Table:
+        def update(self, v): seen["update"] = v; return self
+        def eq(self, *a): seen["eq"] = a; return self
+        def execute(self): return self
+
+    class Db:
+        def table(self, name): seen["table"] = name; return Table()
+
+    monkeypatch.setattr(cli, "get_db", lambda: Db())
+    cli.cmd_mailbox(argparse.Namespace(action="unpause", address="x@example.com"))
+    assert seen["update"] == {"paused": False, "paused_reason": None, "ramp_from": date.today().isoformat()}
+    assert seen["table"] == "mailboxes" and seen["eq"] == ("address", "x@example.com")

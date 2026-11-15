@@ -2,7 +2,7 @@
 // Run: node --env-file=.env.local --env-file=../.env --import tsx scripts/verify.mts   (reads the secret key from ../.env; never bundled into the app)
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import { approveLeads, cancelJob, clearPause, enqueueJob, enqueueJobOnce, markBooked, rejectLeads, retryJob, retryTile, saveSetting, setOutcome, unapproveLeads } from "../lib/actions";
+import { approveLeads, approveTouches, markSent, unapproveTouches, cancelJob, clearPause, markFailed, redraftBatch, saveDraftEdit, skipTouch, enqueueJob, enqueueJobOnce, markBooked, rejectLeads, retryJob, retryTile, saveSetting, setOutcome, unapproveLeads } from "../lib/actions";
 import { SETTING_FIELDS, validSetting } from "../lib/settings";
 import { splitArgs } from "../lib/args";
 import { execFileSync } from "node:child_process";
@@ -49,6 +49,7 @@ const { data: mb } = await admin.from("mailboxes").insert({ address: "pytest-ver
 await clearPause(mb!.id);
 const m = (await admin.from("mailboxes").select("paused,paused_reason").eq("id", mb!.id).single()).data!;
 check("clearPause unpauses and clears the reason", !m.paused && m.paused_reason === null);
+check("clearPause sets ramp_from to today", (await admin.from("mailboxes").select("ramp_from").eq("id", mb!.id).single()).data!.ramp_from === new Date().toISOString().slice(0, 10));
 await admin.from("leads").update({ status: "replied" }).eq("place_id", "TEST_v1");
 await admin.from("touches").insert([{ lead_id: a, touch_no: 1, status: "sent" }, { lead_id: a, touch_no: 2, status: "sent" }]);
 await setOutcome(a, "positive");
@@ -114,6 +115,68 @@ const after = (await admin.from("coverage").select("tile,status,error").eq("metr
 const st = (n: string) => after.find((r) => r.tile === `TEST_rt_${n}`)!;
 check("retryTile only flips failed", st("failed").status === "pending" && st("failed").error === null && st("running").status === "running" && st("done").status === "done" && st("pending").status === "pending");
 await admin.from("coverage").delete().eq("metro", "TEST");
+
+
+// Plan 4 Task 9: draft and send actions on REHEARSAL_C_ rows (a claimed touch must never change)
+{
+  const { data: rb } = await admin.from("batches").insert({ name: "REHEARSAL_C_ verify" }).select("id").single();
+  const sts = ["drafted", "held", "approved", "scheduled", "sending", "sent"];
+  await admin.from("leads").insert(sts.map((s, i) => ({ place_id: `REHEARSAL_C_t${i}`, name: `RC ${s}`, status: "drafted", batch_id: rb!.id, domain: `rc${i}.com` })));
+  const ids = (await admin.from("leads").select("id,place_id").like("place_id", "REHEARSAL_C_t%")).data!;
+  const lid = (i: number) => ids.find((r) => r.place_id === `REHEARSAL_C_t${i}`)!.id as string;
+  await admin.from("touches").insert(sts.map((s, i) => ({ lead_id: lid(i), touch_no: 1, status: s, subject: "old", body: "old body", approved_at: s === "approved" ? new Date().toISOString() : null })));
+  const tr = async (i: number) => (await admin.from("touches").select("id,status,subject,body,approved_at,send_at").eq("lead_id", lid(i)).single()).data!;
+  const T = Object.fromEntries(await Promise.all(sts.map(async (s, i) => [s, (await tr(i)).id as string])));
+
+  await saveDraftEdit(T.drafted, "new / subj", "new body");
+  const e = await tr(0);
+  check("edit sets edited and saves the text", e.status === "edited" && e.subject === "new / subj" && e.body === "new body");
+  await saveDraftEdit(T.approved, "x / y", "edited approved");
+  const ea = await tr(2);
+  check("edit clears approval", ea.status === "edited" && ea.approved_at === null);
+  await admin.from("touches").update({ send_at: new Date().toISOString() }).eq("id", T.scheduled);
+  await saveDraftEdit(T.scheduled, "s / s", "edited scheduled");
+  const es = await tr(3);
+  check("edit unschedules a scheduled touch", es.status === "edited" && es.send_at === null && es.approved_at === null && es.body === "edited scheduled");
+  await admin.from("touches").update({ status: "scheduled", body: "old body" }).eq("id", T.scheduled);
+  for (const s of ["sending", "sent"]) {
+    const i = sts.indexOf(s);
+    check(`edit refuses a ${s} touch`, (await throws(() => saveDraftEdit(T[s], "hack", "hack"))) && (await tr(i)).body === "old body" && (await tr(i)).status === s);
+  }
+  await admin.from("touches").update({ status: "drafted" }).eq("id", T.approved);
+  await approveTouches(Object.values(T));
+  const after2 = await Promise.all(sts.map((_, i) => tr(i)));
+  check("approve only moves drafted", after2.map((r) => r.status).join() === "edited,held,approved,scheduled,sending,sent" && after2[2].approved_at !== null);
+  await admin.from("touches").update({ status: "drafted" }).eq("id", T.drafted);
+  await skipTouch(T.sent).catch(() => {}); await skipTouch(T.drafted);
+  check("skip cancels a drafted touch and refuses a sent one", (await tr(0)).status === "cancelled" && (await tr(5)).status === "sent");
+  await markFailed(T.scheduled).catch(() => {});
+  check("markFailed refuses a touch that is not sending", (await tr(3)).status === "scheduled");
+  await markSent(T.scheduled).catch(() => {});
+  check("markSent refuses a touch that is not sending", (await tr(3)).status === "scheduled");
+  await markFailed(T.sending);
+  check("markFailed returns a sending touch to approved", (await tr(4)).status === "approved");
+  await markSent(T.sending).catch(() => {});
+  check("markSent refuses an approved touch", (await tr(4)).status === "approved");
+  await unapproveTouches([T.sending]);
+  check("unapprove returns approved to drafted", (await tr(4)).status === "drafted" && (await tr(4)).approved_at === null);
+  await admin.from("leads").insert({ place_id: "REHEARSAL_C_stuck", name: "RC stuck", status: "drafted", batch_id: rb!.id, domain: "rcstuck.com" });
+  const stuckLead = (await admin.from("leads").select("id").eq("place_id", "REHEARSAL_C_stuck").single()).data!.id as string;
+  await admin.from("touches").insert({ lead_id: stuckLead, touch_no: 1, status: "sending", subject: "s", body: "b" });
+  const stuckTouch = (await admin.from("touches").select("id").eq("lead_id", stuckLead).single()).data!.id as string;
+  await markSent(stuckTouch);
+  const st1 = (await admin.from("touches").select("status,sent_at").eq("id", stuckTouch).single()).data!;
+  check("markSent sends a stranded touch: sent_at set, Touch 1 lead becomes sent", st1.status === "sent" && st1.sent_at !== null && (await admin.from("leads").select("status").eq("id", stuckLead).single()).data!.status === "sent");
+  const dashArgv = ["--batch", rb!.id, "--instruction=-warmer opener"];
+  await redraftBatch(rb!.id, "-warmer opener");
+  const dj = (await admin.from("jobs").select("id,payload").eq("kind", "redraft").contains("payload", { argv: dashArgv })).data!;
+  check("redraft passes an instruction starting with - as one --instruction= argument", dj.length === 1);
+  const j0 = (await admin.from("jobs").select("id", { count: "exact", head: true }).eq("kind", "redraft")).count;
+  check("redraft refuses an empty instruction", (await throws(() => redraftBatch(rb!.id, "   "))) && (await admin.from("jobs").select("id", { count: "exact", head: true }).eq("kind", "redraft")).count === j0);
+  await admin.from("jobs").delete().eq("kind", "redraft").contains("payload", { argv: ["--batch", rb!.id] });
+  await admin.from("leads").delete().like("place_id", "REHEARSAL_C_%");
+  await admin.from("batches").delete().eq("id", rb!.id);
+}
 
 await admin.from("leads").delete().like("place_id", "TEST_v%");
 await admin.from("batches").delete().eq("id", batch!.id);

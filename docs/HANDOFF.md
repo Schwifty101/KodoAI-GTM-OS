@@ -12,7 +12,7 @@ Read section 0, then `CLAUDE.md`. Section 0 is the current state and is enough t
 | Plan 2 cloud runner (GCP VM worker, Secret Manager, heartbeat lease) | BUILT, merged |
 | Plan 3a scrape and batches backend (coverage walk, batches of 100, time zones, fetch fallback) | BUILT, merged |
 | Plan 3b `/scrape` and `/batches` pages, `--named-only` retry, `batch_no_spend` view | BUILT, merged (PR #6, 08c33dd). Browser run caught 4 bugs, fixed (`8f167b3`) |
-| Plan 4 drafts in the database, bulk edit, send scheduler, Pending follow-ups, send via Gmail API | NOT written |
+| Plan 4 drafts in the database, sample-first review, send scheduler, Pending follow-ups, send via Gmail API | BUILT on branch `plan4-build` (727 tests pass, `verify.mts` ok). NOT yet live: acceptance rehearsal to the owner's Gmail and on the VM (deploy with an idle queue), then the first real Houston send. Design: `docs/superpowers/specs/2026-11-14-plan4-drafts-and-sending-design.md`; plan: `docs/superpowers/plans/2026-11-14-plan4-drafts-and-sending.md` |
 | Plan 5 sheet import and manual queue | NOT written |
 | Plan 6 metrics, Home, Replies pages | NOT written |
 | Email copy and angle strategy | PARKED: `docs/NEXT-email-strategy.md` |
@@ -91,7 +91,7 @@ Concise answers; no assumptions; verify before claiming; one question at a time 
 
 1. Read `docs/NEXT-source-pilot.md`; run the Serper pilot and the free Overture test as the owner agreed (order and gates are in that file).
 2. First real small send of the 8 Houston leads (still not done): Review-page approval, `draft`, read every draft in Gmail, `send` dry run, then `send --confirm` small. Owner approves each step.
-3. Plan 4 (drafts in the database, bulk edit, send scheduler, pending follow-ups) via `superpowers:writing-plans`; then Plans 5 and 6.
+3. Plan 4 acceptance (rehearsal, VM deploy, VM memory check), then Plans 5 and 6. Known follow-ups: `tests/test_replies.py` still loops every mailbox (pass `mailbox_id`); the /send allowance hard-codes 20/3/40 (Python reads settings); Alaska/Hawaii UTC-day ramp edge; a redraft overwrites an owner edit made while the model runs.
 4. Fund Apify when the owner decides.
 
 Local reply classifier (`gtm/replies.py`): rules first (bounce, auto-reply, opt-out), then `local_kind` (bare decline of at most 6 words from allow-list `NEG_FULL`, or a clear positive cue), then the model. A bare decline suppresses the lead email, replier and business domain with reason `not-interested`. Positives are only flagged; a Gemini auto-conversation is not built.

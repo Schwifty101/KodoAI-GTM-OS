@@ -9,8 +9,7 @@ from pathlib import Path
 
 from gtm.config import Settings, get_settings
 from gtm.db import fetch_all
-from gtm.gmail import create_draft, thread_messages
-from gtm.mailboxes import assign_mailbox, mailbox_address
+from gtm.mailboxes import assign_mailbox
 from gtm.select import _blocklists, blocked_reason
 from gtm.costs import spend_context
 from gtm.status import Status
@@ -97,6 +96,16 @@ def check_draft(text: str, touch_no: int = 1) -> list[str]:
     return problems
 
 
+def check_subject(subject: str, touch_no: int) -> list[str]:
+    """Touch 1 subjects are `Company / topic`; follow-ups reuse the thread subject (`Re: ...`)."""
+    return ["bad_subject"] if touch_no == 1 and not re.match(r"^.+ / .+$", subject or "") else []
+
+
+def strip_footer(body: str) -> str:
+    f = footer(get_settings())
+    return body[: -len(f)].rstrip() if f and body.endswith(f) else body
+
+
 def build_followup(touch_no: int, first_name: str, company: str, objective: str) -> str:
     if touch_no == 2:
         return f"{first_name},\n\nIs {objective} something you're working on right now, or is it not a priority?\n\nSoban"
@@ -106,34 +115,33 @@ def build_followup(touch_no: int, first_name: str, company: str, objective: str)
     raise ValueError("only Touch 2 and 3 are templates; there is no Touch 4")
 
 
-def _prompt(lead: dict, problems: list[str]) -> str:
+def _prompt(lead: dict, problems: list[str], instruction: str | None = None) -> str:
     sig, handoff = lead["signal"].get("current_signal"), lead["signal"]["relevant_handoff"]
     lane = "signal-led" if lead.get("signal_led") and sig else "relevance-led"
     facts = (f"Lane: {lane}. Buyer first name: {lead['owner_name'].split()[0]}. Company: {lead['name']}. Vector: {lead['vector']}.\n"
              f"Observed handoff: {handoff['text']}")
     if lane == "signal-led":
         facts += f"\nObserved signal ({sig['date']}): {sig['text']}"
+    if instruction:
+        facts += f"\n\nOwner instruction for this batch: {instruction}"
     if problems:
         facts += f"\n\nYour previous draft broke these rules, fix them: {', '.join(problems)}."
     return facts
 
 
-def draft_touch1(llm, lead: dict, attempts: int = 3, why: list[str] | None = None) -> dict | None:
-    """`why`, when given, receives the last attempt's problem codes if every attempt fails."""
+def draft_touch1(llm, lead: dict, attempts: int = 3, instruction: str | None = None) -> dict:
+    """The LAST attempt's draft; `problems` is empty when it is clean."""
     problems: list[str] = []
     for _ in range(attempts):
-        ans = llm(SYSTEM, _prompt(lead, problems))
+        ans = llm(SYSTEM, _prompt(lead, problems, instruction)) or {}
         subject, body, objective = ans.get("subject") or "", ans.get("body") or "", (ans.get("objective") or "").strip()
         problems = check_draft(body, 1)
-        if not re.match(r"^.+ / .+$", subject):
-            problems.append("bad_subject")
+        problems += check_subject(subject, 1)
         if not objective:
             problems.append("no_objective")
         if not problems:
-            return {"subject": subject, "body": body, "objective": objective}
-    if why is not None:
-        why.extend(problems)
-    return None
+            break
+    return {"subject": subject, "body": body, "objective": objective, "problems": problems}
 
 
 def _with_footer(body: str) -> str:
@@ -141,9 +149,9 @@ def _with_footer(body: str) -> str:
     return f"{body}\n\n{f}" if f else body
 
 
-def _store(db, gmail_for, lead: dict, mailbox_id: str, touch_no: int, subject: str, body: str, objective: str, today: date, thread_id=None, in_reply_to=None) -> None:
-    draft_id = create_draft(gmail_for(mailbox_address(db, mailbox_id)), lead["owner_email"], subject, body, thread_id, in_reply_to)
-    db.table("touches").insert({"lead_id": lead["id"], "touch_no": touch_no, "status": "drafted", "gmail_draft_id": draft_id, "gmail_thread_id": thread_id,
+def _store(db, lead: dict, touch_no: int, subject: str, body: str, objective: str, today: date, status: str = "drafted",
+           problems: list[str] | None = None, thread_id=None) -> None:
+    db.table("touches").insert({"lead_id": lead["id"], "touch_no": touch_no, "status": status, "gmail_thread_id": thread_id, "problems": problems or [],
                                 "subject": subject, "body": body, "objective": objective, "scheduled_for": today.isoformat()}).execute()
 
 
@@ -151,7 +159,7 @@ def _skip(lead: dict, why: str) -> None:
     print(f"skipped {lead.get('name')}: {why}", file=sys.stderr)
 
 
-def run_draft(db, llm, gmail_for, batch_id: str, today: date, only_mailboxes: set[str] | None = None) -> int:
+def run_draft(db, llm, batch_id: str, today: date, only_mailboxes: set[str] | None = None) -> int:
     rows = db.table("leads").select("*").eq("batch_id", batch_id).eq("status", Status.SELECTED.value).eq("approved", True).execute().data
     suppressed, contacted = _blocklists(db)
     done = 0
@@ -160,24 +168,20 @@ def run_draft(db, llm, gmail_for, batch_id: str, today: date, only_mailboxes: se
         if blocked:
             db.table("leads").update({"status": Status.SUPPRESSED.value, "reject_reason": blocked} if blocked == "suppressed" else {"reject_reason": blocked}).eq("id", lead["id"]).execute()
             continue
-        why: list[str] = []
         try:
             with spend_context(batch_id=batch_id, lead_id=lead["id"]):
-                d = draft_touch1(llm, lead, why=why)
+                d = draft_touch1(llm, lead)
         except Exception as e:
             _skip(lead, f"{type(e).__name__}: {str(e)[:120]}")
             continue  # stays `selected`, retried next run
-        if not d:
-            _skip(lead, "failed checks 3 times: " + ", ".join(why))
-            continue
-        mailbox_id = assign_mailbox(db, lead["id"], today, only_mailboxes)
-        _store(db, gmail_for, lead, mailbox_id, 1, d["subject"], _with_footer(d["body"]), d["objective"], today)
+        assign_mailbox(db, lead["id"], today, only_mailboxes)
+        _store(db, lead, 1, d["subject"], _with_footer(d["body"]) if d["body"] else "", d["objective"], today, "held" if d["problems"] else "drafted", d["problems"])
         db.table("leads").update({"status": Status.DRAFTED.value}).eq("id", lead["id"]).execute()
         done += 1
     return done
 
 
-def run_followups(db, gmail_for, today: date, thread_messages=thread_messages) -> int:
+def run_followups(db, today: date) -> int:
     """Draft Touch 2 (Day 3) and Touch 3 (Day 7) in the Touch 1 thread. A reply, bounce or opt-out leaves the lead out of `sent`, so it stops here."""
     suppressed, _ = _blocklists(db)  # only opt-outs matter mid-sequence: we have of course already contacted these leads
     done = 0
@@ -186,7 +190,7 @@ def run_followups(db, gmail_for, today: date, thread_messages=thread_messages) -
         t1 = touches.get(1)
         if not t1 or t1["status"] != "sent" or not t1.get("sent_at"):
             continue
-        n = 2 if 2 not in touches else 3 if 3 not in touches and touches[2]["status"] == "sent" else None
+        n = 2 if 2 not in touches else 3 if 3 not in touches and touches[2]["status"] in ("sent", "cancelled") else None  # a skipped or cancelled Touch 2 must not strand Touch 3
         if n is None or today < touch_date(date.fromisoformat(t1["sent_at"][:10]), n):
             continue
         if blocked_reason(lead, suppressed, set()):
@@ -194,8 +198,6 @@ def run_followups(db, gmail_for, today: date, thread_messages=thread_messages) -
         with spend_context(lead_id=lead["id"]):
             subject = "Re: " + re.sub(r"^Re:\s*", "", t1["subject"])
             body = build_followup(n, lead["owner_name"].split()[0], lead["name"], t1["objective"])
-            svc = gmail_for(mailbox_address(db, lead["mailbox_id"]))
-            message_id = next((m["headers"]["message-id"] for m in thread_messages(svc, t1["gmail_thread_id"]) if m["headers"].get("message-id")), None)
-            _store(db, gmail_for, lead, lead["mailbox_id"], n, subject, _with_footer(body), t1["objective"], today, t1["gmail_thread_id"], message_id)
+            _store(db, lead, n, subject, _with_footer(body), t1["objective"], today, thread_id=t1["gmail_thread_id"])  # In-Reply-To is resolved at send time
         done += 1
     return done
