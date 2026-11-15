@@ -290,11 +290,12 @@ def test_touch_2_replies_in_the_touch_1_thread(world):
     assert touch(db, l["id"], 2)["status"] == "sent" and lead(db, l["id"])["status"] == "sent"
 
 
-def _tick(db, gm, on=True, **kw):
+def _tick(db, gm, on=True, sets=None, **kw):
     import gtm.send as send
 
-    send.setting = lambda key, db=None: on  # the sending_on flag; the real settings row is never touched
-    return send_tick(db, lambda addr: gm, lambda s, p: {"kind": "other"}, settings=SETTINGS, now=NOW, **{"thread_messages": lambda svc, tid: [], "recent_bounces": lambda svc: [], **kw})
+    sets = {"sending_on": on, **(sets or {})}
+    send.setting = lambda key, db=None: sets.get(key, False)  # the sending_on flag and any other setting; the real settings row is never touched
+    return send_tick(db, lambda addr: gm, lambda s, p: {"kind": "other"}, settings=SETTINGS, **{"now": NOW, "thread_messages": lambda svc, tid: [], "recent_bounces": lambda svc: [], **kw})
 
 
 @pytest.fixture(autouse=True)
@@ -590,3 +591,21 @@ def touch(db, lead_id, n=1):
 
 def lead(db, lead_id):
     return db.table("leads").select("*").eq("id", lead_id).execute().data[0]
+
+SATURDAY = datetime(2026, 11, 14, 18, 0, tzinfo=timezone.utc)  # outside any weekday window
+
+
+@pytest.mark.db
+def test_send_anytime_setting_lets_the_tick_send_outside_the_window(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="approved")
+    out = _tick(db, Gmail(), mailbox_id=mb["id"], now=SATURDAY, sets={"send_anytime": True})
+    assert out["scheduled"] == 1 and out["send"]["sent"] == 1
+
+
+@pytest.mark.db
+def test_without_the_send_anytime_setting_a_saturday_tick_sends_nothing(world):
+    db, bid, mb = world
+    (l,) = make_leads(db, bid, mb, 1, touch_status="approved")
+    out = _tick(db, Gmail(), mailbox_id=mb["id"], now=SATURDAY)
+    assert out["scheduled"] == 0 and out["send"].get("sent", 0) == 0 and touch(db, l["id"])["status"] == "approved"
