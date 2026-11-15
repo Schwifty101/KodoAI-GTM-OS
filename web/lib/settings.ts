@@ -28,6 +28,7 @@ export const SETTING_FIELDS: SettingField[] = [
   { key: "walk_queries", label: "Search terms (comma separated, tried in order)", type: "text", group: "Scrape walk", def: "med spa,aesthetics clinic" },
   { key: "walk_max_places", label: "Max places per query", type: "int", group: "Scrape walk", def: 40, min: 1, max: 200 },
   { key: "walk_escalate_at", label: "Go to next term when a query returned at least this share of the cap (0-1)", type: "float", group: "Scrape walk", def: 0.8, min: 0, max: 1 },
+  { key: "send_anytime", label: "REHEARSAL ONLY: send outside the Mon-Fri 9-16 window (leave off for real sending)", type: "bool", group: "Sending", def: false },
   { key: "sending_on", label: "Sending on", type: "bool", group: "Sending", def: false },
   { key: "fetch_fallback", label: "Read blocked pages through a paid fallback", type: "bool", group: "Page fetching", def: true },
 ];

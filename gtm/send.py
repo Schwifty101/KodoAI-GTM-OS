@@ -188,6 +188,7 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
     clear_cache()  # Pause must bite now, not after the settings cache expires
     if not (force or setting("sending_on", db)):
         return {"off": 1}
+    anytime = anytime or bool(setting("send_anytime", db))  # rehearsal switch: ignore the weekday/local-hours window
     bad0 = _bad_tz
     out: dict = {"replies": Counter(), "scheduled": 0, "send": Counter()}
     for mb in db.table("mailboxes").select("*").execute().data:
