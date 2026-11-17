@@ -144,7 +144,7 @@ def test_unsure_replies_do_call_the_model():
 def test_classification_cost_carries_the_lead(world):
     from gtm.costs import log_cost
 
-    db, leads, _ = world
+    db, leads, mb = world
     own = msg("Hi", frm="Soban <pytest-rep@example.com>")
     threads = {"thread-0": [own, msg("Who are you?")], "thread-1": [own], "thread-2": [own]}
 
@@ -153,7 +153,7 @@ def test_classification_cost_carries_the_lead(world):
         return {"kind": "other"}
 
     try:
-        run_replies(db, lambda addr: object(), llm, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [])
+        run_replies(db, lambda addr: object(), llm, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [], mailbox_id=mb["id"])
         got = db.table("cost_log").select("lead_id").eq("note", "pytest-classify").execute().data
         assert [g["lead_id"] for g in got] == [leads[0]["id"]]
     finally:
@@ -246,7 +246,7 @@ def test_run_replies_reads_threads_ignores_our_own_messages_and_applies_the_resu
     own = msg("Is easier booking something you're working on?", frm="Soban <pytest-rep@example.com>")
     threads = {"thread-0": [own, msg("please remove me")], "thread-1": [own, msg("Thanks", Auto_Submitted="auto-replied")], "thread-2": [own]}
     bounce = {"from": "Mail Delivery Subsystem <mailer-daemon@googlemail.com>", "subject": "Delivery Status Notification (Failure)", "headers": {}, "body": "dana@glow2.com not found"}
-    out = run_replies(db, lambda addr: object(), lambda s, p: {"kind": "other"}, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [bounce])
+    out = run_replies(db, lambda addr: object(), lambda s, p: {"kind": "other"}, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [bounce], mailbox_id=mb["id"])
     assert out == {"opt_out": 1, "auto_reply": 1, "bounce": 1}
     assert state(db, leads[0])[0] == "unsubscribed" and state(db, leads[1])[0] == "sent" and state(db, leads[2])[0] == "bounced"
 
@@ -266,7 +266,7 @@ def test_run_replies_considers_every_inbound_message_and_opt_out_wins_over_a_lat
     own = msg("Is easier booking something you're working on?", frm="Soban <pytest-rep@example.com>")
     ooo = msg("I am out of the office until Monday.", Auto_Submitted="auto-replied")
     threads = {"thread-0": [own, msg("please remove me"), ooo], "thread-1": [own], "thread-2": [own]}
-    out = run_replies(db, lambda addr: object(), lambda s, p: {"kind": "other"}, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [])
+    out = run_replies(db, lambda addr: object(), lambda s, p: {"kind": "other"}, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [], mailbox_id=mb["id"])
     assert out == {"opt_out": 1} and state(db, leads[0])[0] == "unsubscribed"
 
 
@@ -276,7 +276,7 @@ def test_run_replies_reads_the_threads_of_every_sent_touch_not_just_the_latest(w
     db.table("touches").update({"status": "sent", "gmail_thread_id": "thread-new", "sent_at": "2026-11-13T15:00:00+00:00"}).eq("lead_id", leads[0]["id"]).eq("touch_no", 2).execute()
     own = msg("Hi", frm="Soban <pytest-rep@example.com>")
     threads = {"thread-0": [own, msg("stop emailing me")], "thread-new": [own], "thread-1": [own], "thread-2": [own]}
-    out = run_replies(db, lambda addr: object(), lambda s, p: {"kind": "other"}, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [])
+    out = run_replies(db, lambda addr: object(), lambda s, p: {"kind": "other"}, thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [], mailbox_id=mb["id"])
     assert out == {"opt_out": 1} and state(db, leads[0])[0] == "unsubscribed"
 
 
@@ -299,9 +299,9 @@ def test_positive_reply_adds_no_suppression(world):
 
 @pytest.mark.db
 def test_a_later_positive_in_the_thread_beats_an_earlier_negative(world):
-    db, leads, _ = world
+    db, leads, mb = world
     own = msg("Hi", frm="Soban <pytest-rep@example.com>")
     threads = {"thread-0": [own, msg("not interested"), msg("actually tell me more")], "thread-1": [own], "thread-2": [own]}
-    out = run_replies(db, lambda addr: object(), lambda s, p: pytest.fail("local"), thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [])
+    out = run_replies(db, lambda addr: object(), lambda s, p: pytest.fail("local"), thread_messages=lambda svc, tid: threads[tid], recent_bounces=lambda svc: [], mailbox_id=mb["id"])
     assert out == {"positive": 1} and state(db, leads[0])[0] == "replied"
     assert db.table("suppression").select("id").eq("reason", "not-interested").in_("email", ["dana@glow0.com"]).execute().data == []

@@ -59,6 +59,8 @@ await markBooked(a);
 check("markBooked sets booked from replied", (await row(1)).status === "booked");
 await markBooked(b);
 check("markBooked does nothing to a lead that has not replied", (await row(2)).status === "selected");
+const al = await supabase.from("mailboxes").select("allowance_today,allowance_date").eq("id", mb!.id).single();
+check("the Send page can read the stamped allowance columns under RLS", !al.error && al.data!.allowance_today === null && al.data!.allowance_date === null);
 await admin.from("mailboxes").delete().eq("id", mb!.id);
 
 // Task 6: settings and jobs actions

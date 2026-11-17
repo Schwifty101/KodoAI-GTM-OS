@@ -1,3 +1,6 @@
+import re
+from datetime import datetime, timezone
+
 import pytest
 
 from gtm.settings_store import DEFAULTS
@@ -38,3 +41,29 @@ def _real_mailbox_untouched():
     before = row()
     yield
     assert row() == before, "a test changed the real soban@kodoai.xyz mailbox row"
+
+
+JUNK_BATCH = re.compile(r"^([A-Z] TX \d{4}-\d{2}-\d{2}|TEST.*|REHEARSAL_.*)$")
+
+
+def is_junk_batch(row: dict, has_leads: bool, session_start: datetime) -> bool:
+    """A batch a test run leaked: created this session, test-shaped name, no leads. Real batches never match."""
+    return not has_leads and bool(JUNK_BATCH.match(row["name"])) and datetime.fromisoformat(row["created_at"]) >= session_start
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _drop_leaked_test_batches():
+    """Tests call new_batch and never delete it: sweep this session's empty test-named batches at teardown."""
+    from gtm.db import get_db
+
+    start = datetime.now(timezone.utc)  # ponytail: local vs DB clock skew only makes the sweep miss rows; name pattern + no leads still guard
+    yield
+    try:
+        db = get_db()
+        rows = db.table("batches").select("id,name,created_at").gte("created_at", start.isoformat()).execute().data
+        used = {l["batch_id"] for l in db.table("leads").select("batch_id").in_("batch_id", [r["id"] for r in rows]).execute().data} if rows else set()
+        junk = [r["id"] for r in rows if is_junk_batch(r, r["id"] in used, start)]
+        if junk:
+            db.table("batches").delete().in_("id", junk).execute()
+    except Exception:
+        pass  # no database in this run: nothing leaked
