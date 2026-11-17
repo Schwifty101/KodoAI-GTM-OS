@@ -335,6 +335,23 @@ def test_an_invalid_tz_falls_back_to_chicago_and_does_not_abort_the_tick(world):
 
 
 @pytest.mark.db
+def test_tick_stamps_todays_allowance_on_the_mailbox(world):
+    db, bid, mb = world
+    _tick(db, Gmail(), mailbox_id=mb["id"], anytime=True)
+    row = db.table("mailboxes").select("allowance_today,allowance_date").eq("id", mb["id"]).execute().data[0]
+    assert row == {"allowance_today": 2, "allowance_date": TODAY.isoformat()}  # SETTINGS ramp_start 2, no earlier sending days
+
+
+@pytest.mark.db
+def test_a_paused_mailbox_is_not_stamped(world):
+    db, bid, mb = world
+    db.table("mailboxes").update({"paused": True, "paused_reason": "pytest"}).eq("id", mb["id"]).execute()
+    _tick(db, Gmail(), mailbox_id=mb["id"])
+    row = db.table("mailboxes").select("allowance_today,allowance_date").eq("id", mb["id"]).execute().data[0]
+    assert row == {"allowance_today": None, "allowance_date": None}
+
+
+@pytest.mark.db
 def test_tick_does_nothing_when_sending_off(world):
     db, bid, mb = world
     (l,) = make_leads(db, bid, mb, 1, touch_status="scheduled", tkw={"send_at": PAST})
