@@ -74,10 +74,28 @@ Before the OS, the owner worked leads in a Google Sheet "MedSpa" (tabs Utah, New
 - Statuses and gates stay as in CLAUDE.md. Failed leads stay `no_buyer`, keeping the saved name.
 - **Every run is a dry run** that prints, per tab, what it would add (suppression entries, leads, rows skipped and why, credits needed). It writes only with `--confirm`.
 
+### Field map (Owner, final 2026-11-17)
+
+Only these sheet fields are read; every other column is ignored.
+
+| Sheet field | Lead column |
+|---|---|
+| `business` / `Company` | `name` |
+| `maps_category` | `category` (and `categories`, which clean uses) |
+| `website` | `website`, `domain` derived |
+| `buyer_name`, `buyer_role` | `owner_name`, `owner_title` |
+| `linkedin_url` | **`owner_linkedin`** (new nullable text column) |
+| `email` | `owner_email`, `email_source='sheet'` |
+| `maps_url` | `place_id` (parsed); none -> `domain:<domain>` |
+| Utah block 2 `City`; Texas `metro` | `city` |
+| tab name (Utah, Newyork, Texas) | `state` (UT, NY, TX; My call, helps the tz backfill) |
+
+Ignored: `email_person`, `other_people`, Texas `email_verification` and `buyer_verdict`, Utah block 2 Fit, confirmation, evidence, email type and Gmail status, Newyork columns O to Z.
+
 ## 7. Sync (Owner: "syncing as well", then "one way, sheet to OS")
 
 - Each imported row is tracked in a new table (section 10) by tab, block and row key (place id or `domain:`). The importer re-reads the sheet and compares each tracked row with what it stored.
-- **Contact fields sync sheet -> OS:** email, buyer name, buyer role, LinkedIn, website. A changed email goes back through verification (costs credits, inside the import allowance, or the daily cap after the import is done).
+- **Contact fields sync sheet -> OS:** email, buyer name, buyer role, LinkedIn (`owner_linkedin`), website. A changed email goes back through verification (costs credits, inside the import allowance, or the daily cap after the import is done).
 - **Frozen once `drafted` or later:** the sheet never changes such a lead. The run prints the difference in its report.
 - **New colours add suppression only.** A row that turns green or red since the last run adds a suppression entry. The sheet never removes a suppression entry; a wrongly suppressed lead is fixed in the database (CLAUDE.md).
 - Rows are matched by key, not by position. If the owner changes a row's domain or Maps URL, the importer treats it as a new row and reports the old one as orphaned (My call: report only, no delete).
@@ -106,7 +124,7 @@ Before the OS, the owner worked leads in a Google Sheet "MedSpa" (tabs Utah, New
 
 ## 10. Data (My call; needs one additive migration, hard gate)
 
-One new table, for example `sheet_rows` (additive, RLS operator-only like the others): `id`, `tab`, `block`, `row_key` (unique with tab and block), `lead_id` (nullable), `suppression_id` (nullable), `sheet_row_no`, `content_hash` (of the mapped fields), `colour_seen` (`green`, `red`, `none`), `colour_written` (`green`, `red`, `none`), `written_at`, `last_seen_at`, `orphaned`. No changes to `leads` columns, status checks or `suppression`. Per-tab and per-block column mappings are **data** in a small file or table the builder chooses (My call: a Python data file under `gtm/data/`, since the layout is fixed and versioned), not hard-coded in the importer.
+One new table, for example `sheet_rows` (additive, RLS operator-only like the others): `id`, `tab`, `block`, `row_key` (unique with tab and block), `lead_id` (nullable), `suppression_id` (nullable), `sheet_row_no`, `content_hash` (of the mapped fields), `colour_seen` (`green`, `red`, `none`), `colour_written` (`green`, `red`, `none`), `written_at`, `last_seen_at`, `orphaned`. The same migration adds one nullable column, `leads.owner_linkedin text` (Owner). No other change to `leads`, to status checks or to `suppression`. Per-tab and per-block column mappings are **data** in a small file or table the builder chooses (My call: a Python data file under `gtm/data/`, since the layout is fixed and versioned), not hard-coded in the importer.
 
 ## 11. Settings, jobs, budget
 
