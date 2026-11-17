@@ -125,6 +125,56 @@ def plan_import(rows: list[MappedRow], have_emails: set[str], have_domains: set[
     return p
 
 
+FROZEN = {"drafted", "sent", "replied", "booked", "bounced", "suppressed", "unsubscribed"}
+
+
+@dataclass
+class SyncPlan:
+    updates: list[tuple[str, dict]] = field(default_factory=list)  # (lead_id, patch)
+    reverify: list[str] = field(default_factory=list)
+    frozen: list[tuple[str, dict]] = field(default_factory=list)  # (lead_id, the sheet's differing values)
+    orphaned: list[str] = field(default_factory=list)  # "Tab:block:row_key"
+    new_suppress: list[dict] = field(default_factory=list)  # not yet filtered against known suppression
+    touched: list[tuple[tuple[str, int, str], dict]] = field(default_factory=list)  # sheet_rows patches by key
+
+
+def plan_sync(rows: list[MappedRow], tracked: dict, leads_by_id: dict[str, dict]) -> SyncPlan:
+    """One way, sheet -> OS, for rows already tracked. Rows are matched by key; never deletes."""
+    s, seen = SyncPlan(), set()
+    for r in rows:
+        try:
+            k = (r.tab, r.block, place_key(r))
+        except ValueError:
+            continue
+        t = tracked.get(k)
+        if not t:
+            continue
+        seen.add(k)
+        patch = {"colour_seen": r.colour or "none", "orphaned": False}
+        if r.colour and t.get("colour_seen") != r.colour and t.get("colour_written") != r.colour:
+            s.new_suppress += suppress_rows(r, set(), set())
+        h = content_hash(r)
+        lead = leads_by_id.get(t.get("lead_id"))
+        if h != t.get("content_hash") and lead:
+            want = {k_: v for k_, v in lead_fields(r).items() if v is not None or k_ not in ("name", "owner_email")}
+            diff = {k_: v for k_, v in want.items() if lead.get(k_) != v}
+            if lead["status"] in FROZEN:
+                s.frozen.append((t["lead_id"], diff))  # hash stays old: the difference is reported every run
+            else:
+                if "owner_email" in diff:
+                    diff |= {"status": "cleaned", "email_verified": False}
+                    s.reverify.append(t["lead_id"])
+                if diff:
+                    s.updates.append((t["lead_id"], diff))
+                patch["content_hash"] = h
+        elif h != t.get("content_hash"):
+            patch["content_hash"] = h
+        s.touched.append((k, patch))
+    tabs = {r.tab for r in rows}
+    s.orphaned = [f"{k[0]}:{k[1]}:{k[2]}" for k, t in tracked.items() if k[0] in tabs and k not in seen and not t.get("orphaned")]
+    return s
+
+
 def _load(db):
     leads = fetch_all(lambda: db.table("leads").select(
         "id,place_id,status,name,website,domain,owner_name,owner_title,owner_linkedin,owner_email").order("id"))
@@ -158,9 +208,21 @@ def run_import_sheet(db, svc, sheet_id: str, confirm: bool = False) -> ImportPla
         total.skipped += p.skipped
         total.left_for_queue += p.left_for_queue
         total.tracked_new += p.tracked_new
+    sync = plan_sync([r for rows in mapped.values() for r in rows], tracked, {x["id"]: x for x in leads})
+    sync.new_suppress = [x for x in sync.new_suppress if x.get("email", x.get("domain")) not in (emails if "email" in x else domains)]
+    total.suppress += sync.new_suppress
+    print(f"sync: {len(sync.updates)} lead updates, {len(sync.reverify)} to re-verify, {len(sync.frozen)} frozen "
+          f"(drafted or later; sheet differs), {len(sync.orphaned)} orphaned, {len(sync.new_suppress)} new suppression rows")
     if not confirm:
         print("dry run: nothing written (use --confirm)")
         return total
+    for lid, patch in sync.updates:
+        db.table("leads").update(patch).eq("id", lid).execute()
+    for (tab, block, key), patch in sync.touched:
+        db.table("sheet_rows").update({**patch, "last_seen_at": datetime.now(timezone.utc).isoformat()}).eq("tab", tab).eq("block", block).eq("row_key", key).execute()
+    for o in sync.orphaned:
+        tab, block, key = o.split(":", 2)
+        db.table("sheet_rows").update({"orphaned": True}).eq("tab", tab).eq("block", int(block)).eq("row_key", key).execute()
     sup_id = {("email", x["email"].lower()): x["id"] for x in sup if x["email"]} | {("domain", x["domain"]): x["id"] for x in sup if x["domain"]}
     for i in range(0, len(total.suppress), 200):
         for x in db.table("suppression").insert(total.suppress[i:i + 200]).execute().data:

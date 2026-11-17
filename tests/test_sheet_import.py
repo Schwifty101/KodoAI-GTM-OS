@@ -1,6 +1,6 @@
 import pytest
 
-from gtm.sheet_import import place_key, plan_import
+from gtm.sheet_import import content_hash, place_key, plan_import, plan_sync
 from gtm.sheet_map import MappedRow
 
 MAPS = "https://www.google.com/maps/place/Glow/data=!1s0x1:0x2!8m2!3d1!4d2?place_id=ChIJabc_DEF-123"
@@ -76,3 +76,57 @@ def test_known_email_or_domain_is_skipped():
 def test_uncoloured_named_row_without_email_counts_left_for_queue():
     p = plan([mrow(2, emails=()), mrow(3, emails=(), owner_name=""), mrow(4, emails=(), owner_name="Acme Registered Agent")])
     assert p.left_for_queue == 1 and p.leads == [] and p.skipped == []
+
+
+# ---- Task 7: sync ----
+KEY = ("Texas", 1, "ChIJabc_DEF-123")
+
+
+def tr(row, **kw):
+    return {"content_hash": content_hash(row), "colour_seen": "none", "colour_written": None, "lead_id": "L1",
+            "suppression_id": None, "orphaned": False, **kw}
+
+
+def lead(status="scraped", **kw):
+    return {"status": status, "name": "Glow Lab", "website": "https://www.glowlab.example/x", "domain": "glowlab.example",
+            "owner_name": "Dana Fox", "owner_title": "Owner", "owner_linkedin": "https://linkedin.com/in/dana",
+            "owner_email": "dana@glowlab.example", **kw}
+
+
+def test_changed_email_updates_lead_and_queues_reverify():
+    old = mrow()
+    new = mrow(emails=("new@glowlab.example",), owner_title="Founder")
+    s = plan_sync([new], {KEY: tr(old)}, {"L1": lead()})
+    assert s.updates == [("L1", {"owner_title": "Founder", "owner_email": "new@glowlab.example",
+                                 "status": "cleaned", "email_verified": False})]
+    assert s.reverify == ["L1"] and s.frozen == [] and s.orphaned == []
+
+
+@pytest.mark.parametrize("status", ["drafted", "sent", "replied", "booked", "bounced", "suppressed", "unsubscribed"])
+def test_drafted_lead_is_frozen_and_reported_not_changed(status):
+    s = plan_sync([mrow(emails=("new@glowlab.example",))], {KEY: tr(mrow())}, {"L1": lead(status)})
+    assert s.updates == [] and s.reverify == []
+    assert s.frozen == [("L1", {"owner_email": "new@glowlab.example"})]
+
+
+def test_deleted_or_rekeyed_row_is_orphaned_not_deleted():
+    t = {KEY: tr(mrow()), ("Texas", 1, "domain:old.example"): tr(mrow(), lead_id="L2"), ("Utah", 1, "domain:u.example"): tr(mrow(), lead_id="L3")}
+    s = plan_sync([mrow()], t, {"L1": lead(), "L2": lead()})  # Utah not read this run: not orphaned
+    assert s.orphaned == ["Texas:1:domain:old.example"] and s.updates == []
+
+
+def test_new_red_colour_adds_suppression():
+    s = plan_sync([mrow(colour="red")], {KEY: tr(mrow())}, {"L1": lead()})
+    assert {(x.get("email"), x.get("domain"), x["reason"]) for x in s.new_suppress} == {
+        ("dana@glowlab.example", None, "sheet-dropped"), (None, "glowlab.example", "sheet-dropped")}
+
+
+def test_os_written_red_is_not_read_as_owner_mark():
+    s = plan_sync([mrow(colour="red")], {KEY: tr(mrow(), colour_written="red")}, {"L1": lead()})
+    assert s.new_suppress == []
+    assert plan_sync([mrow(colour="green")], {KEY: tr(mrow(), colour_seen="green")}, {"L1": lead()}).new_suppress == []  # not new
+
+
+def test_unchanged_hash_makes_no_updates():
+    s = plan_sync([mrow()], {KEY: tr(mrow())}, {"L1": lead()})
+    assert (s.updates, s.reverify, s.frozen, s.orphaned, s.new_suppress) == ([], [], [], [], [])
