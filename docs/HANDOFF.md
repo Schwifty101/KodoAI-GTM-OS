@@ -32,7 +32,7 @@ Plans: `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` (six-plan roadmap),
 
 | Item | Fact |
 |---|---|
-| Supabase | Project KodoAI-GTM-OS, id `alvxsbnfthvaiquhytig`, Tokyo. Migrations 0001-0012 all applied: 0009 job heartbeat, 0010 `coverage` + `leads.batch_no` + `leads.tz`, 0011 `claim_job(include_test)` (a live worker never claims test-marked jobs), 0012 `batch_no_spend` view |
+| Supabase | Project KodoAI-GTM-OS, id `alvxsbnfthvaiquhytig`, Tokyo. Migrations 0001-0014 all applied (0013 Plan 4 draft/send columns, 0014 `mailboxes.allowance_today`/`allowance_date`): 0009 job heartbeat, 0010 `coverage` + `leads.batch_no` + `leads.tz`, 0011 `claim_job(include_test)` (a live worker never claims test-marked jobs), 0012 `batch_no_spend` view |
 | Google accounts (owner-confirmed 2026-11-14) | Workspace admin `soban@sobanahmad.dev` (primary domain `sobanahmad.dev`, secondary `kodoai.xyz`, paid plan). Sending mailbox `soban@kodoai.xyz`: owns GCP project `kodoai-gtm-os` (number 343452321933), which holds only the Gmail API Desktop OAuth client (consent screen Internal; the client file and token live in git-ignored `.secrets/`). Personal `sobanahmad2003@gmail.com`: the `gcloud` login and owner of `gen-lang-client-0603350481` (Vertex Gemini and the Google credit). Two projects, two jobs; the OS never logs into `sobanahmad.dev` |
 | GCP | Project `gen-lang-client-0603350481`, full pay-as-you-go account (upgraded before 2027-02-09, nothing is deleted). Budget alert "GTM OS monthly" $20 USD at 50/90/100 percent (warns, does not cap). `allow_paid_gemini` (off by default) is the only Gemini spend guard |
 | GCP APIs enabled | compute, secretmanager, cloudbilling, apikeys, billingbudgets, geocoding-backend (plus pre-existing iap) |
@@ -91,7 +91,7 @@ Concise answers; no assumptions; verify before claiming; one question at a time 
 2. Source pilots per `docs/NEXT-source-pilot.md` (Apify is the default provider, Serper the fallback only, owner 2026-11-14); fund Apify when the owner decides.
 3. Plans 5 and 6, plus the follow-ups list below.
 
-Remaining small follow-up: Alaska/Hawaii UTC-day ramp edge (no AK/HI leads). Items 1,2,3,5 are being fixed in a separate PR; the orchestrator will delete this sentence after it merges.
+Remaining small follow-up: Alaska/Hawaii UTC-day ramp edge (no AK/HI leads). (The other four small follow-ups, test-batch sweep, reply tests on a fixture mailbox, stamped allowance and the redraft edit guard, are in PR #14.)
 
 Local reply classifier (`gtm/replies.py`): rules first (bounce, auto-reply, opt-out), then `local_kind` (bare decline of at most 6 words from allow-list `NEG_FULL`, or a clear positive cue), then the model. A bare decline suppresses the lead email, replier and business domain with reason `not-interested`. Positives are only flagged; a Gemini auto-conversation is not built.
 
