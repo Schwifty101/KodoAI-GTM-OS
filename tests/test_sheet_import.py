@@ -1,6 +1,7 @@
 import pytest
 
-from gtm.sheet_import import content_hash, place_key, plan_import, plan_sync
+from gtm.sheet import SheetRow
+from gtm.sheet_import import content_hash, place_key, plan_import, plan_sync, run_import_sheet
 from gtm.sheet_map import MappedRow
 
 MAPS = "https://www.google.com/maps/place/Glow/data=!1s0x1:0x2!8m2!3d1!4d2?place_id=ChIJabc_DEF-123"
@@ -90,7 +91,7 @@ def tr(row, **kw):
 def lead(status="scraped", **kw):
     return {"status": status, "name": "Glow Lab", "website": "https://www.glowlab.example/x", "domain": "glowlab.example",
             "owner_name": "Dana Fox", "owner_title": "Owner", "owner_linkedin": "https://linkedin.com/in/dana",
-            "owner_email": "dana@glowlab.example", **kw}
+            "owner_email": "dana@glowlab.example", "email_source": "sheet", **kw}
 
 
 def test_changed_email_updates_lead_and_queues_reverify():
@@ -112,7 +113,7 @@ def test_drafted_lead_is_frozen_and_reported_not_changed(status):
 def test_deleted_or_rekeyed_row_is_orphaned_not_deleted():
     t = {KEY: tr(mrow()), ("Texas", 1, "domain:old.example"): tr(mrow(), lead_id="L2"), ("Utah", 1, "domain:u.example"): tr(mrow(), lead_id="L3")}
     s = plan_sync([mrow()], t, {"L1": lead(), "L2": lead()})  # Utah not read this run: not orphaned
-    assert s.orphaned == ["Texas:1:domain:old.example"] and s.updates == []
+    assert s.orphaned == [("Texas", 1, "domain:old.example")] and s.updates == []
 
 
 def test_new_red_colour_adds_suppression():
@@ -130,3 +131,105 @@ def test_os_written_red_is_not_read_as_owner_mark():
 def test_unchanged_hash_makes_no_updates():
     s = plan_sync([mrow()], {KEY: tr(mrow())}, {"L1": lead()})
     assert (s.updates, s.reverify, s.frozen, s.orphaned, s.new_suppress) == ([], [], [], [], [])
+
+
+# ---- fix round 1 ----
+HDR = "business,maps_category,website,buyer_name,buyer_role,linkedin_url,email,email_person,other_people,maps_url".split(",")
+
+
+def test_coloured_row_matching_an_existing_lead_still_suppresses():
+    r = mrow(2, "green")
+    emails, domains = {"dana@glowlab.example"}, {"glowlab.example"}
+    p = plan_import([r], emails, domains, set(), {}, set(), set())
+    assert {(x.get("email"), x.get("domain")) for x in p.suppress} == {("dana@glowlab.example", None), (None, "glowlab.example")}
+    p = plan_import([r], emails, domains, set(), {}, {"dana@glowlab.example"}, {"glowlab.example"})
+    assert p.suppress == [] and len(p.tracked_new) == 1
+
+
+def test_known_lead_without_sheet_row_gets_tracked_with_its_place_id():
+    p = plan([mrow()], emails={"dana@glowlab.example"}, places={"ChIJabc_DEF-123"})
+    assert p.leads == [] and p.skipped == [("Texas:2", "known")]
+    assert [(t["row_key"], t["place_id"]) for t in p.tracked_new] == [("ChIJabc_DEF-123", "ChIJabc_DEF-123")]
+
+
+def test_same_key_twice_in_one_tab_is_tracked_once():
+    a, b = mrow(2, maps_url=""), mrow(3, maps_url="", emails=("other@glowlab.example",))
+    p = plan([a, b])
+    assert len(p.leads) == 1 and [t["row_key"] for t in p.tracked_new] == ["domain:glowlab.example"]
+
+
+def test_blank_sheet_cell_never_wipes_a_lead_value():
+    s = plan_sync([mrow(owner_title="Founder", owner_linkedin="")], {KEY: tr(mrow())}, {"L1": lead()})
+    assert s.updates == [("L1", {"owner_title": "Founder"})]
+
+
+def test_frozen_only_when_something_differs_and_report_names_fields(capsys, monkeypatch):
+    extra = mrow(emails=("dana@glowlab.example", "second@glowlab.example"))  # hash changes, synced fields do not
+    assert plan_sync([extra], {KEY: tr(mrow())}, {"L1": lead("drafted")}).frozen == []
+    run = harness(monkeypatch, [mrow(owner_title="Founder")], leads=[{"id": "L1abcdefgh", "place_id": KEY[2], **lead("drafted")}],
+                  tracked={KEY: tr(mrow(), lead_id="L1abcdefgh")})
+    run()
+    out = capsys.readouterr().out
+    assert "1 frozen" in out and "L1abcdef: sheet differs in owner_title" in out and "Founder" not in out and "dana@" not in out
+
+
+def test_finder_email_is_kept_and_not_reset():
+    new = mrow(emails=("new@glowlab.example",))
+    s = plan_sync([new], {KEY: tr(mrow())}, {"L1": lead(email_source="hunter")})
+    assert s.updates == [] and s.reverify == [] and s.finder_email_kept == 1
+    s = plan_sync([new], {KEY: tr(mrow())}, {"L1": lead(email_source="hunter", owner_email=None)})
+    assert s.reverify == ["L1"] and s.updates[0][1]["status"] == "cleaned"
+
+
+class _Q:
+    def __init__(self, db, name):
+        self.db, self.name, self.op, self.rows = db, name, None, None
+
+    def insert(self, rows):
+        self.op, self.rows = "insert", rows
+        return self
+
+    def update(self, patch):
+        self.op, self.rows = "update", patch
+        return self
+
+    def select(self, *a):
+        self.op = "select"
+        return self
+
+    def __getattr__(self, _):  # eq, limit, ...
+        return lambda *a, **k: self
+
+    def execute(self):
+        self.db.calls.append((self.name, self.op))
+        if self.name == "suppression" and self.op == "insert":
+            raise RuntimeError("suppression insert failed")
+        return type("R", (), {"data": [{**r, "id": "new"} for r in self.rows] if self.op == "insert" else []})()
+
+
+class FakeDb:
+    def __init__(self):
+        self.calls = []
+
+    def table(self, name):
+        return _Q(self, name)
+
+
+def harness(monkeypatch, texas_rows, leads=(), tracked=None, db=None):
+    def read(svc, sheet_id, tab):
+        hdr = SheetRow(tab, 1, HDR, [None] * len(HDR))
+        if tab != "Texas":
+            return [hdr]
+        keys = ("name", "category", "website", "owner_name", "owner_title", "owner_linkedin", "owner_email", None, None, "maps_url")
+        return [hdr] + [SheetRow("Texas", r.row_no, [r.fields.get(k, "") if k else "" for k in keys], [r.colour] * 10) for r in texas_rows]
+    monkeypatch.setattr("gtm.sheet_import.read_tab", read)
+    monkeypatch.setattr("gtm.sheet_import._load", lambda db: (list(leads), [], dict(tracked or {})))
+    return lambda confirm=False: run_import_sheet(db or FakeDb(), None, "sheet", confirm)
+
+
+def test_failed_suppression_insert_leaves_no_colour_seen_patch(monkeypatch):
+    db = FakeDb()
+    run = harness(monkeypatch, [mrow(colour="red")], tracked={KEY: tr(mrow())}, db=db)
+    with pytest.raises(RuntimeError):
+        run(confirm=True)
+    assert ("sheet_rows", "update") not in db.calls and ("leads", "update") not in db.calls
