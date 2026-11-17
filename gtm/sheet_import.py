@@ -170,13 +170,13 @@ def plan_sync(rows: list[MappedRow], tracked: dict, leads_by_id: dict[str, dict]
         h = content_hash(r)
         lead = leads_by_id.get(t.get("lead_id"))
         if h != t.get("content_hash") and lead:
-            want = {k_: v for k_, v in lead_fields(r).items() if v is not None}
+            want = {k_: v for k_, v in lead_fields(r).items() if v and str(v).strip()}
             if want.get("owner_email") and lead.get("owner_email") and lead.get("email_source") != "sheet":
                 # ponytail: a sheet email edit on a lead whose email an OS finder found is ignored; add a per-lead override if it matters
                 if want["owner_email"] != lead["owner_email"].lower():
                     s.finder_email_kept += 1
                 del want["owner_email"]
-            diff = {k_: v for k_, v in want.items() if lead.get(k_) != v}
+            diff = {k_: v for k_, v in want.items() if (str(lead.get(k_) or "").lower() if k_ == "owner_email" else lead.get(k_)) != v}
             if lead["status"] in FROZEN:
                 if diff:
                     s.frozen.append((t["lead_id"], diff))  # hash stays old: the difference is reported every run

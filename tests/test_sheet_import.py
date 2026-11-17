@@ -163,6 +163,16 @@ def test_blank_sheet_cell_never_wipes_a_lead_value():
     assert s.updates == [("L1", {"owner_title": "Founder"})]
 
 
+def test_blank_name_never_overwrites_the_lead_name():
+    s = plan_sync([mrow(name="  ", owner_title="Founder")], {KEY: tr(mrow())}, {"L1": lead()})
+    assert s.updates == [("L1", {"owner_title": "Founder"})]
+
+
+def test_mixed_case_lead_email_is_not_a_change():
+    s = plan_sync([mrow(owner_title="Founder")], {KEY: tr(mrow())}, {"L1": lead(owner_email="Dana@GlowLab.example", owner_title="Founder")})
+    assert s.updates == [] and s.reverify == []
+
+
 def test_frozen_only_when_something_differs_and_report_names_fields(capsys, monkeypatch):
     extra = mrow(emails=("dana@glowlab.example", "second@glowlab.example"))  # hash changes, synced fields do not
     assert plan_sync([extra], {KEY: tr(mrow())}, {"L1": lead("drafted")}).frozen == []
