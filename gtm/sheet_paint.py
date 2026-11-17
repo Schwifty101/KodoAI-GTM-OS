@@ -43,41 +43,55 @@ def plan_paint(tracked_rows: list[dict], live: dict[tuple[str, int, str], list[s
 
 
 def _tracked_and_live(db, svc, sheet_id: str):
-    """Tracked sheet_rows (with the lead's state) and the live colours of each row, read from the sheet."""
-    from gtm.sheet_map import map_tab  # Task 4: block numbers and header widths
+    """Tracked sheet_rows (with the lead's state), the live colours of each row, and the count of moved rows.
+    A tracked row is painted only if the live row at its stored (block, row_no) still has its row_key."""
+    from gtm.db import fetch_all
+    from gtm.sheet_import import place_key
+    from gtm.sheet_map import map_tab  # block numbers and header widths
 
-    data = (db.table("sheet_rows")
-            .select("id,tab,block,row_key,sheet_row_no,colour_written,queue_state,leads(status,owner_name,owner_email)")
-            .not_.is_("lead_id", "null").eq("orphaned", False).execute().data)
-    tracked, live = [], {}
+    data = fetch_all(lambda: db.table("sheet_rows")
+                     .select("id,tab,block,row_key,sheet_row_no,colour_written,queue_state,leads(status,owner_name,owner_email)")
+                     .not_.is_("lead_id", "null").eq("orphaned", False).order("id"))
+    tracked, live, moved = [], {}, 0
     for tab in sorted({r["tab"] for r in data} - {QUEUE_TAB}):
         rows = read_tab(svc, sheet_id, tab)
         by_no = {r.row_no: r for r in rows}
-        width = {(m.block, m.row_no): m.width for m in map_tab(tab, rows)}
+        at = {}  # (block, row_no) -> (row_key, width)
+        for m in map_tab(tab, rows):
+            try:
+                at[(m.block, m.row_no)] = (place_key(m), m.width)
+            except ValueError:
+                pass
         for r in (r for r in data if r["tab"] == tab):
-            w, lead = width.get((r["block"], r["sheet_row_no"])), r.get("leads")
-            if w is None or not lead or r["sheet_row_no"] not in by_no:
-                continue  # row moved or gone: the importer's job, not ours
-            tracked.append({**r, "width": w, "desired": desired_colour(
+            lead, here = r.get("leads"), at.get((r["block"], r["sheet_row_no"]))
+            if not lead:
+                continue
+            if not here or here[0] != r["row_key"]:
+                moved += 1  # sorted, inserted or deleted since the last import: never paint another lead's row
+                continue
+            tracked.append({**r, "width": here[1], "desired": desired_colour(
                 lead["status"], lead.get("owner_name"), lead.get("owner_email"), r.get("queue_state"))})
             live[(tab, r["block"], r["row_key"])] = by_no[r["sheet_row_no"]].colours
-    return tracked, live
+    return tracked, live, moved
 
 
 def run_paint(db, svc, sheet_id: str, confirm: bool = False) -> int:
     if not setting("sheet_writeback_on", db):
         raise RuntimeError("sheet write-back is off (setting sheet_writeback_on)")
-    tracked, live = _tracked_and_live(db, svc, sheet_id)
+    tracked, live, moved = _tracked_and_live(db, svc, sheet_id)
     plan = plan_paint(tracked, live)
     for tab, row_no, width, colour in plan:
         print(f"{tab} row {row_no} (A..{width}): {colour or 'clear'}")
+    print(f"{moved} rows moved (skipped)")
     print(f"{len(plan)} rows" + ("" if confirm else " (preview; --confirm to paint)"))
     if not confirm or not plan:
         return len(plan)
-    for tab in sorted({p[0] for p in plan}):
-        paint_rows(svc, sheet_id, tab, [(n, w, c) for t, n, w, c in plan if t == tab])
     ids = {(t["tab"], t["sheet_row_no"]): t["id"] for t in tracked}
-    now = datetime.now(timezone.utc).isoformat()
-    for tab, row_no, _, colour in plan:
-        db.table("sheet_rows").update({"colour_written": colour, "written_at": now}).eq("id", ids[(tab, row_no)]).execute()
+    for tab in sorted({p[0] for p in plan}):
+        cells = [(n, w, c) for t, n, w, c in plan if t == tab]
+        paint_rows(svc, sheet_id, tab, cells)
+        # record right after the paint; a crash between the two leaves a paint that reads as an owner mark (accepted ceiling)
+        now = datetime.now(timezone.utc).isoformat()
+        for n, _, c in cells:
+            db.table("sheet_rows").update({"colour_written": c, "written_at": now}).eq("id", ids[(tab, n)]).execute()
     return len(plan)

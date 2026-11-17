@@ -1,6 +1,7 @@
 import pytest
 
 from gtm import settings_store, sheet_paint
+from gtm.sheet import SheetRow
 from gtm.sheet_paint import desired_colour, is_ours, plan_paint, run_paint
 
 
@@ -122,15 +123,61 @@ def test_writeback_switch_off_refuses():
 def test_run_paint_previews_then_paints_and_records(monkeypatch, capsys):
     settings_store.clear_cache()
     r = {**row("red"), "id": "row-1"}
-    monkeypatch.setattr(sheet_paint, "_tracked_and_live", lambda db, svc, sid: ([r], live_of(r, [None] * 3)))
+    monkeypatch.setattr(sheet_paint, "_tracked_and_live", lambda db, svc, sid: ([r], live_of(r, [None] * 3), 2))
     painted = []
     monkeypatch.setattr(sheet_paint, "paint_rows", lambda svc, sid, tab, cells: painted.append((tab, cells)) or len(cells))
     db = FakeDb(True)
     assert run_paint(db, object(), "sid") == 1
     assert painted == [] and db.updates == []
-    assert "Utah" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Utah" in out and "2 rows moved" in out
     assert run_paint(db, object(), "sid", confirm=True) == 1
     assert painted == [("Utah", [(5, 3, "red")])]
     (filt, upd), = db.updates
     assert filt == ("id", "row-1") and upd["colour_written"] == "red" and upd["written_at"]
     settings_store.clear_cache()
+
+
+class Q:
+    """Fake query chain over a list of rows (join already embedded)."""
+    def __init__(self, rows):
+        self.rows = rows
+
+    def table(self, name):
+        assert name == "sheet_rows"
+        return self
+
+    def __getattr__(self, name):  # select, not_, is_, eq, order: all return the chain
+        return self if name == "not_" else (lambda *a, **k: self)
+
+    def range(self, lo, hi):
+        self.lo, self.hi = lo, hi
+        return self
+
+    def execute(self):
+        class R:
+            data = self.rows[self.lo:self.hi + 1]
+        return R()
+
+
+def _sr(no, name, site):
+    return SheetRow("Utah", no, [name, f"https://{site}"], [None] * 2)
+
+
+def _tr(id_, no, site, status="sent", block=1):
+    return {"id": id_, "tab": "Utah", "block": block, "row_key": f"domain:{site}", "sheet_row_no": no,
+            "colour_written": None, "queue_state": None,
+            "leads": {"status": status, "owner_name": None, "owner_email": None}}
+
+
+def test_tracked_and_live_joins_width_and_skips_moved_and_blank_rows(monkeypatch):
+    sheet = [SheetRow("Utah", 1, ["business", "website"], [None] * 2),
+             _sr(2, "Glow", "glow.example"),             # tracked row 2 is still here
+             _sr(3, "Other", "other.example")]           # tracked row 3 moved: another lead's row sits there
+    monkeypatch.setattr(sheet_paint, "read_tab", lambda svc, sid, tab: sheet)
+    data = [_tr("a", 2, "glow.example"), _tr("b", 3, "moved.example"), _tr("c", 9, "gone.example")]  # 9: no row
+    tracked, live, moved = sheet_paint._tracked_and_live(Q(data), object(), "sid")
+    assert [t["id"] for t in tracked] == ["a"] and tracked[0]["width"] == 2 and tracked[0]["desired"] == "green"
+    assert live == {("Utah", 1, "domain:glow.example"): [None, None]}
+    assert moved == 2
+    assert plan_paint(tracked, live) == [("Utah", 2, 2, "green")]  # moved row 3 and missing row 9 are never painted
