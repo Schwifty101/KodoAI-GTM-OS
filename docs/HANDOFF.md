@@ -89,7 +89,7 @@ Concise answers; no assumptions; verify before claiming; one question at a time 
 
 1. Owner signs off the whole flow, then the first small Houston send (8 selected leads) via the Review, Drafts and Send pages (owner approves each step; the real send is ON HOLD by the owner).
 2. Source pilots per `docs/NEXT-source-pilot.md` (Apify is the default provider, Serper the fallback only, owner 2026-11-14); fund Apify when the owner decides.
-3. Plans 5 and 6, plus the follow-ups list below.
+3. Plans 5 and 6, plus the follow-ups list below. Plan 5 (sheet import and manual queue) starts from `docs/superpowers/plans/2026-11-17-plan5-outline.md`: brainstorm first, then a design, then the build.
 
 Remaining small follow-up: Alaska/Hawaii UTC-day ramp edge (no AK/HI leads). (The other four small follow-ups, test-batch sweep, reply tests on a fixture mailbox, stamped allowance and the redraft edit guard, are in PR #14.)
 
