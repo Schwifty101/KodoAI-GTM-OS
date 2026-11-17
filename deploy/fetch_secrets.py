@@ -55,16 +55,19 @@ def main():
             lines.append('%s="%s"\n' % (name, v.replace("\\", "\\\\").replace('"', '\\"')))
         elif not optional:
             die(f"required secret {name} is missing (NOT_FOUND)")
-    token = fetch("gmail-token")  # optional Gmail OAuth token; mailbox name from GTM_MAILBOX
+    tokens = {f"token_{os.environ.get('GTM_MAILBOX', 'primary')}.json": fetch("gmail-token"),  # optional; mailbox name from GTM_MAILBOX
+              "token_sheets.json": fetch("sheets-token")}  # optional Sheets OAuth token
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=OUT.parent, prefix=".env.")  # mkstemp is mode 600
     with os.fdopen(fd, "w") as f:
         f.write("".join(lines))
     os.replace(tmp, OUT)
-    if token is not None:
+    for fname, token in tokens.items():
+        if token is None:
+            continue
         TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-        dest = TOKEN_DIR / f"token_{os.environ.get('GTM_MAILBOX', 'primary')}.json"
+        dest = TOKEN_DIR / fname
         fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(token)

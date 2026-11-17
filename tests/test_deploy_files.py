@@ -80,6 +80,14 @@ def test_fetch_writes_env_file_and_gmail_token(tmp_path):
     assert tok.read_text() == '{"t": 1}' and stat.S_IMODE(tok.stat().st_mode) == 0o600
 
 
+def test_fetch_secrets_writes_sheets_token(tmp_path):
+    r, out = _run_fetch(tmp_path, {"sheets-token": _ok('{"s": 1}')}, "")
+    assert r.returncode == 0, r.stderr
+    tok = tmp_path / "tok/token_sheets.json"
+    assert tok.read_text() == '{"s": 1}' and stat.S_IMODE(tok.stat().st_mode) == 0o600
+    assert not (tmp_path / "tok/token_primary.json").exists()
+
+
 def test_fetch_fails_loudly_on_a_missing_required_secret(tmp_path):
     r, out = _run_fetch(tmp_path, {}, "SUPABASE_URL\n")
     assert r.returncode != 0 and "required secret SUPABASE_URL is missing (NOT_FOUND)" in r.stderr and not out.exists()
