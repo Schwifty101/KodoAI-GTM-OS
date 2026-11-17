@@ -63,7 +63,12 @@ def pull_sheet_only(db, svc, sheet_id: str) -> int:
 
     cands = [(m, k) for m, k in _mapped(svc, sheet_id) if m.colour is None and not m.emails and (m.fields.get("owner_name") or "").strip() and not _agent(m.fields)]
     keys = [k for _, k in cands]
-    known = {r["place_id"] for i in range(0, len(keys), 100) for r in db.table("leads").select("place_id").in_("place_id", keys[i:i + 100]).execute().data}
+    have = _in(db, "leads", "id,place_id,status,batch_id", "place_id", keys)
+    sheet_batches = {b["id"] for b in db.table("batches").select("id").like("name", f"{BATCH_NAME}%").execute().data}
+    tracked = {r["lead_id"] for r in _in(db, "sheet_rows", "lead_id", "lead_id", [r["id"] for r in have])}
+    # a lead of ours that never got its sheet_rows row (an earlier run died midway) is retried, not "known"
+    retry = {r["place_id"] for r in have if r["batch_id"] in sheet_batches and r["status"] in ("scraped", "cleaned") and r["id"] not in tracked}
+    known = {r["place_id"] for r in have} - retry
     fresh = [(m, k) for m, k in cands if k not in known]
     if not fresh:
         return 0
@@ -76,14 +81,19 @@ def pull_sheet_only(db, svc, sheet_id: str) -> int:
               "owner_title": m.fields.get("owner_title") or None, "owner_linkedin": m.fields.get("owner_linkedin") or None,
               "status": Status.SCRAPED.value, "batch_id": batch_id, "tz": lead_tz(m.fields.get("state"), m.fields.get("city"))} for m, k in fresh]
     db.table("leads").upsert(leads, on_conflict="place_id", ignore_duplicates=True).execute()
-    run_clean(db, batch_id)
-    by_key = {m_k[1]: m_k[0] for m_k in fresh}
+    for b in {batch_id} | {r["batch_id"] for r in have if r["place_id"] in retry}:
+        run_clean(db, b)
+    by_key = {k: m for m, k in fresh}
     n = 0
-    for r in db.table("leads").select("id,place_id").eq("batch_id", batch_id).eq("status", Status.CLEANED.value).in_("place_id", list(by_key)).execute().data:
+    # rejected leads get no sheet_rows entry and so stay hidden from later pulls (accepted)
+    for r in _in(db, "leads", "id,place_id,status", "place_id", list(by_key)):
+        if r["status"] != Status.CLEANED.value:
+            continue
         m = by_key[r["place_id"]]
+        # tracking row first: if it fails the lead is still cleaned and the next pull retries it
+        db.table("sheet_rows").upsert({"tab": m.tab, "block": m.block, "row_key": r["place_id"], "lead_id": r["id"], "sheet_row_no": m.row_no,
+                                       "colour_seen": "none"}, on_conflict="tab,block,row_key").execute()
         db.table("leads").update({"status": Status.NO_BUYER.value}).eq("id", r["id"]).execute()
-        db.table("sheet_rows").insert({"tab": m.tab, "block": m.block, "row_key": r["place_id"], "lead_id": r["id"], "sheet_row_no": m.row_no,
-                                       "colour_seen": "none"}).execute()
         n += 1
     return n
 

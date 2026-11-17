@@ -9,6 +9,7 @@ from gtm.sheet import QUEUE_HEADER, SheetRow
 from gtm.sheet_queue import pull_sheet_only, queue_order, run_queue, select_queue
 
 _ids = itertools.count(1)
+IN_SIZES: list[int] = []
 
 
 class Q:
@@ -31,7 +32,12 @@ class Q:
         return self
 
     def in_(self, k, vs):
+        IN_SIZES.append(len(vs))
         self.rows = [r for r in self.rows if r.get(k) in vs]
+        return self
+
+    def like(self, k, pat):
+        self.rows = [r for r in self.rows if str(r.get(k)).startswith(pat.rstrip("%"))]
         return self
 
     def is_(self, k, _):
@@ -61,13 +67,19 @@ class Q:
         self.mode, self.patch = "insert", rows if isinstance(rows, list) else [rows]
         return self
 
-    upsert = lambda self, rows, **k: self.insert(rows)  # noqa: E731
+    def upsert(self, rows, **k):  # on_conflict ignore: skip rows whose conflict key already exists
+        rows = rows if isinstance(rows, list) else [rows]
+        keys = k.get("on_conflict", "").split(",")
+        have = {tuple(r.get(c) for c in keys) for r in self.tables[self.name]}
+        return self.insert([r for r in rows if tuple(r.get(c) for c in keys) not in have])
 
     def execute(self):
         if self.mode == "update":
             for r in self.rows:
                 r.update(self.patch)
         elif self.mode == "insert":
+            if self.name == "sheet_rows" and self.tables.get("fail_sheet_rows"):
+                raise RuntimeError("sheet_rows write failed")
             self.rows = [{"id": f"id{next(_ids)}", **r} for r in self.patch]
             self.tables[self.name].extend(self.rows)
         return SimpleNamespace(data=self.rows)
@@ -75,7 +87,7 @@ class Q:
 
 class FakeDB:
     def __init__(self, leads=(), sheet_rows=(), suppression=(), touches=()):
-        self.tables = {"leads": list(leads), "sheet_rows": list(sheet_rows), "suppression": list(suppression), "touches": list(touches), "batches": []}
+        self.tables = {"fail_sheet_rows": False, "leads": list(leads), "sheet_rows": list(sheet_rows), "suppression": list(suppression), "touches": list(touches), "batches": []}
 
     def table(self, name):
         return Q(self.tables, name)
@@ -139,6 +151,32 @@ def test_pull_sheet_only_inserts_scraped_then_cleans_then_no_buyer(monkeypatch):
     assert by_name["Dentist"]["status"] == "rejected"
     assert [(r["tab"], r["row_key"], r["lead_id"]) for r in db.tables["sheet_rows"]] == [("Texas", "domain:glowmed.com", by_name["Glowmed"]["id"])]
     assert pull_sheet_only(db, object(), "sid") == 0  # a second pull finds them already known
+
+
+def _sheet_row(name, key):
+    return SimpleNamespace(tab="Texas", block=1, row_no=5, colour=None, emails=[],
+                           fields={"name": name, "website": f"https://www.{name.lower()}.com", "category": "Medical spa", "owner_name": "Dana White",
+                                   "owner_title": "Owner", "state": "TX", "city": "Austin"}), key
+
+
+def test_pull_sheet_only_never_sends_more_than_100_keys_in_one_query(monkeypatch):
+    rows = [_sheet_row(f"Spa{i}", f"domain:spa{i}.com") for i in range(250)]
+    monkeypatch.setattr(sheet_queue, "_mapped", lambda svc, sheet_id: rows)
+    IN_SIZES.clear()
+    assert pull_sheet_only(FakeDB(), object(), "sid") == 250
+    assert max(IN_SIZES) <= 100
+
+
+def test_failed_sheet_rows_write_leaves_lead_cleaned_and_next_pull_retries(monkeypatch):
+    monkeypatch.setattr(sheet_queue, "_mapped", lambda svc, sheet_id: [_sheet_row("Glowmed", "domain:glowmed.com")])
+    db = FakeDB()
+    db.tables["fail_sheet_rows"] = True
+    with pytest.raises(RuntimeError):
+        pull_sheet_only(db, object(), "sid")
+    assert [r["status"] for r in db.tables["leads"]] == ["cleaned"]
+    db.tables["fail_sheet_rows"] = False
+    assert pull_sheet_only(db, object(), "sid") == 1
+    assert [r["status"] for r in db.tables["leads"]] == ["no_buyer"] and len(db.tables["leads"]) == 1 and len(db.tables["sheet_rows"]) == 1
 
 
 # ---- Task 9: queue tab run ----
