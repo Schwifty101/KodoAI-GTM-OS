@@ -82,3 +82,10 @@ def test_sending_on_defaults_false_and_is_a_bool():
 
     assert DEFAULTS["sending_on"] is False
     assert setting("sending_on") is False
+
+
+def test_sheet_defaults():
+    want = {"sheet_id": "", "sheet_queue_size": 5, "sheet_queue_on": False, "sheet_queue_hour_utc": 13,
+            "sheet_writeback_on": False, "import_hunter_allowance_credits": 0.0}
+    for k, v in want.items():
+        assert setting(k) == v and type(setting(k)) is type(v)
