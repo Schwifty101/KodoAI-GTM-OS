@@ -67,6 +67,53 @@ def test_read_tab_missing_tab_raises_value_error():
         read_tab(FakeSvc({"sheets": []}), "SID", "Nope")
 
 
+def test_read_tab_real_api_400_for_missing_tab_raises_value_error():
+    from googleapiclient.errors import HttpError
+
+    class Resp:
+        status, reason = 400, "Bad Request"
+
+    class Boom(FakeSvc):
+        def execute(self):
+            raise HttpError(Resp(), b'{"error": {"message": "Unable to parse range: \'Nope\'!A:Z"}}')
+
+    with pytest.raises(ValueError, match="tab 'Nope' not found in sheet"):
+        read_tab(Boom(None), "SID", "Nope")
+
+    class Resp500(Resp):
+        status = 500
+
+    class Boom500(FakeSvc):
+        def execute(self):
+            raise HttpError(Resp500(), b"{}")
+
+    with pytest.raises(HttpError):
+        read_tab(Boom500(None), "SID", "Nope")
+
+
+def test_read_tab_escapes_apostrophe_in_tab_title():
+    svc = FakeSvc(_resp([_cell("a")], title="Bob's"))
+    read_tab(svc, "SID", "Bob's")
+    assert svc.calls[0]["ranges"] == ["'Bob''s'!A:Z"]
+
+
+def test_revoked_refresh_token_raises_runtime_error(tmp_path, monkeypatch):
+    from google.auth.exceptions import RefreshError
+    from google.oauth2.credentials import Credentials
+
+    class Dead:
+        expired, refresh_token, valid = True, "r", False
+
+        def refresh(self, _request):
+            raise RefreshError("invalid_grant")
+
+    (tmp_path / "token_sheets.json").write_text("{}")
+    monkeypatch.setattr(sheet, "SECRETS", tmp_path)
+    monkeypatch.setattr(Credentials, "from_authorized_user_file", classmethod(lambda cls, *a, **k: Dead()))
+    with pytest.raises(RuntimeError, match="token_sheets.json"):
+        sheet.sheets_service()
+
+
 def test_headless_without_token_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(sheet, "SECRETS", tmp_path)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
@@ -148,4 +195,5 @@ def test_write_queue_tab_clears_then_writes_header_and_rows():
     assert dict(svc.log)["clear"]["range"] == "Queue!A:G"
     up = dict(svc.log)["update"]
     assert up["range"] == "Queue!A1" and up["valueInputOption"] == "RAW"
-    assert up["body"]["values"] == [sheet.QUEUE_HEADER, ["biz", "Ann", "x.com", "u", "", "waiting", "id1"]]
+    header = ["business", "owner_name", "domain", "linkedin_search", "email", "status", "lead_id"]
+    assert up["body"]["values"] == [header,["biz", "Ann", "x.com", "u", "", "waiting", "id1"]]

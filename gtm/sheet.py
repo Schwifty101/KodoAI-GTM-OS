@@ -9,7 +9,7 @@ SHEET_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 SECRETS = Path(__file__).resolve().parent.parent / ".secrets"  # git-ignored
 PURE = {"green": {"green": 1}, "red": {"red": 1}}
 QUEUE_TAB = "Queue"
-QUEUE_HEADER = ["business", "owner", "domain", "linkedin", "email", "status", "lead id"]  # A:G
+QUEUE_HEADER = ["business", "owner_name", "domain", "linkedin_search", "email", "status", "lead_id"]  # A:G
 
 
 @dataclass
@@ -39,7 +39,11 @@ def sheets_service():
     token = SECRETS / "token_sheets.json"
     creds = Credentials.from_authorized_user_file(str(token), [SHEET_SCOPE]) if token.exists() else None
     if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+        from google.auth.exceptions import RefreshError
+        try:
+            creds.refresh(Request())
+        except RefreshError as e:  # revoked or expired refresh token
+            raise RuntimeError(f"Sheets token missing or invalid ({token.name}): re-authorise on the Mac") from e
     elif not creds or not creds.valid:
         if not sys.stdin.isatty():  # headless VM: a browser flow would block the worker forever
             raise RuntimeError(f"Sheets token missing or invalid ({token.name}): re-authorise on the Mac")
@@ -53,9 +57,16 @@ def sheets_service():
 
 def read_tab(svc, sheet_id: str, tab: str) -> list[SheetRow]:
     """Non-blank rows of one tab; colours come from userEnteredFormat only (never effectiveFormat)."""
-    resp = svc.spreadsheets().get(
-        spreadsheetId=sheet_id, ranges=[f"'{tab}'!A:Z"], includeGridData=True,
-        fields="sheets.data.rowData.values(formattedValue,userEnteredFormat.backgroundColor)").execute()
+    from googleapiclient.errors import HttpError
+
+    try:
+        resp = svc.spreadsheets().get(
+            spreadsheetId=sheet_id, ranges=[f"'{tab.replace(chr(39), chr(39) * 2)}'!A:Z"], includeGridData=True,
+            fields="sheets.data.rowData.values(formattedValue,userEnteredFormat.backgroundColor)").execute()
+    except HttpError as e:  # the real API answers 400 "Unable to parse range" for a missing tab
+        if e.resp.status == 400:
+            raise ValueError(f"tab {tab!r} not found in sheet") from e
+        raise
     sheets = resp.get("sheets", [])
     if not sheets:
         raise ValueError(f"tab {tab!r} not found in sheet")
