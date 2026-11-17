@@ -46,7 +46,7 @@ export const LEAD_COLUMNS =
 
 export type Mailbox = {
   id: string; address: string; daily_cap: number; enabled_on: string | null; paused: boolean; paused_reason: string | null;
-  ramp_from: string | null; replies_checked_at: string | null;
+  ramp_from: string | null; replies_checked_at: string | null; allowance_today: number | null; allowance_date: string | null;
 };
 export type TouchStatus = "drafted" | "held" | "edited" | "approved" | "scheduled" | "sending" | "sent" | "cancelled";
 export type Touch = {

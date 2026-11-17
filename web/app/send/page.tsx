@@ -9,7 +9,6 @@ import type { Mailbox, Touch } from "@/lib/types";
 
 type T = Touch & { leads: { name: string; owner_name: string | null; place_id: string; mailbox_id: string | null; status: string } };
 const COLS = "id,lead_id,touch_no,status,subject,body,scheduled_for,sent_at,send_at,outcome,problems,leads!inner(name,owner_name,place_id,mailbox_id,status)";
-const isTest = (t: T) => /^(TEST_|REHEARSAL_)/.test(t.leads.place_id);
 const day = (iso: string | null) => (iso ?? "").slice(0, 10);
 const ago = (iso: string | null) => (iso ? Math.floor((Date.now() - Date.parse(iso)) / 864e5) : 0);
 
@@ -51,10 +50,8 @@ export default function Send() {
 
   const today = new Date().toISOString().slice(0, 10);
   const mine = (t: T) => !mb || t.leads.mailbox_id === mb.id;
-  const real = sent.filter((t) => mine(t) && !isTest(t));
-  // Same rule as gtm/send.py: min(40, 20 + 3 * sending days before today on or after ramp_from).
-  const days = new Set(real.filter((t) => day(t.sent_at) < today && day(t.sent_at) >= (mb?.ramp_from ?? "")).map((t) => day(t.sent_at))).size;
-  const allowance = !mb || mb.paused || !mb.enabled_on ? 0 : Math.min(40, 20 + 3 * days);
+  // One source of truth: the Python send tick stamps the allowance (gtm/send.py today_allowance).
+  const allowance = mb?.allowance_date === today && mb.allowance_today != null ? mb.allowance_today : null;
   const sentToday = sent.filter((t) => mine(t) && day(t.sent_at) === today).length;
   const wk = sent.filter((t) => mine(t) && ago(t.sent_at) < 7);
   const bounced = wk.filter((t) => t.leads.status === "bounced").length;
@@ -89,7 +86,7 @@ export default function Send() {
                     : <button className="primary" disabled={mb.paused} onClick={() => act(startSending, "Sending started")}>Start sending</button>}
               </div>
               {mb.paused && <p className="err">{mb.paused_reason} <button onClick={() => act(() => clearPause(mb.id), "Pause cleared")}>I&apos;ve looked, clear the pause</button></p>}
-              <div>Allowance today <strong>{allowance}</strong> · sent today <strong>{sentToday}</strong> · sent last 7 days <strong>{wk.length}</strong> · bounced <strong>{bounced}</strong> ({wk.length ? Math.round((100 * bounced) / wk.length) : 0}%)</div>
+              <div>Allowance today {allowance === null ? <span className="muted">not computed yet today</span> : <strong>{allowance}</strong>} · sent today <strong>{sentToday}</strong> · sent last 7 days <strong>{wk.length}</strong> · bounced <strong>{bounced}</strong> ({wk.length ? Math.round((100 * bounced) / wk.length) : 0}%)</div>
             </div>
           )}
           <div className="grid">
