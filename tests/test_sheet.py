@@ -72,3 +72,80 @@ def test_headless_without_token_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
     with pytest.raises(RuntimeError, match="token_sheets.json"):
         sheet.sheets_service()
+
+
+class RecSvc:
+    """Records every request; get() returns the given tab titles."""
+
+    def __init__(self, titles=("Texas",)):
+        self.titles, self.log = list(titles), []
+
+    def spreadsheets(self):
+        return self
+
+    def values(self):
+        return self
+
+    def _rec(self, name, kw):
+        self.log.append((name, kw))
+        return self
+
+    def get(self, **kw):
+        return self._rec("get", kw)
+
+    def batchUpdate(self, **kw):
+        return self._rec("batchUpdate", kw)
+
+    def clear(self, **kw):
+        return self._rec("clear", kw)
+
+    def update(self, **kw):
+        return self._rec("update", kw)
+
+    def execute(self):
+        name = self.log[-1][0]
+        if name == "get":
+            return {"sheets": [{"properties": {"title": t, "sheetId": 100 + i}} for i, t in enumerate(self.titles)]}
+        return {}
+
+    def names(self):
+        return [n for n, _ in self.log]
+
+
+def test_paint_rows_builds_one_batch_with_pure_colours():
+    svc = RecSvc(["Other", "Texas"])
+    assert sheet.paint_rows(svc, "SID", "Texas", [(3, 10, "green"), (7, 4, "red")]) == 2
+    batches = [kw for n, kw in svc.log if n == "batchUpdate"]
+    assert len(batches) == 1 and batches[0]["spreadsheetId"] == "SID"
+    r1, r2 = batches[0]["body"]["requests"]
+    assert r1["repeatCell"]["range"] == {"sheetId": 101, "startRowIndex": 2, "endRowIndex": 3,
+                                         "startColumnIndex": 0, "endColumnIndex": 10}
+    assert r1["repeatCell"]["cell"]["userEnteredFormat"]["backgroundColor"] == {"red": 0, "green": 1, "blue": 0}
+    assert r1["repeatCell"]["fields"] == "userEnteredFormat.backgroundColor"
+    assert r2["repeatCell"]["range"]["startRowIndex"] == 6 and r2["repeatCell"]["range"]["endColumnIndex"] == 4
+    assert r2["repeatCell"]["cell"]["userEnteredFormat"]["backgroundColor"] == {"red": 1, "green": 0, "blue": 0}
+
+
+def test_paint_clear_uses_white():
+    svc = RecSvc()
+    assert sheet.paint_rows(svc, "SID", "Texas", [(2, 10, None)]) == 1
+    bg = svc.log[-1][1]["body"]["requests"][0]["repeatCell"]["cell"]["userEnteredFormat"]["backgroundColor"]
+    assert bg == {"red": 1, "green": 1, "blue": 1}
+
+
+def test_write_queue_tab_creates_tab_when_missing():
+    svc = RecSvc(["Texas"])
+    sheet.write_queue_tab(svc, "SID", [["a"]])
+    add = [kw for n, kw in svc.log if n == "batchUpdate"][0]["body"]["requests"]
+    assert add == [{"addSheet": {"properties": {"title": "Queue"}}}]
+
+
+def test_write_queue_tab_clears_then_writes_header_and_rows():
+    svc = RecSvc(["Queue"])
+    sheet.write_queue_tab(svc, "SID", [["biz", "Ann", "x.com", "u", "", "waiting", "id1"]])
+    assert "batchUpdate" not in svc.names()
+    assert svc.names()[-2:] == ["clear", "update"]
+    assert dict(svc.log)["clear"]["range"] == "Queue!A:G"
+    up = dict(svc.log)["update"]
+    assert up["range"] == "Queue!A1" and up["valueInputOption"] == "RAW"
+    assert up["body"]["values"] == [sheet.QUEUE_HEADER, ["biz", "Ann", "x.com", "u", "", "waiting", "id1"]]

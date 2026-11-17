@@ -70,3 +70,34 @@ def read_tab(svc, sheet_id: str, tab: str) -> list[SheetRow]:
         colours += [None] * (last + 1 - len(colours))
         out.append(SheetRow(tab, no, cells[:last + 1], colours[:last + 1]))
     return out
+
+
+def _sheet_ids(svc, sheet_id: str) -> dict[str, int]:
+    resp = svc.spreadsheets().get(spreadsheetId=sheet_id, fields="sheets.properties(sheetId,title)").execute()
+    return {s["properties"]["title"]: s["properties"]["sheetId"] for s in resp.get("sheets", [])}
+
+
+def paint_rows(svc, sheet_id: str, tab: str, cells: list[tuple[int, int, str | None]]) -> int:
+    """cells = (row_no, width, colour); columns A..width painted pure green/red, None clears to white. One batchUpdate."""
+    if not cells:
+        return 0
+    gid = _sheet_ids(svc, sheet_id).get(tab)
+    if gid is None:
+        raise ValueError(f"tab {tab!r} not found in sheet")
+    white = {"red": 1, "green": 1, "blue": 1}
+    reqs = [{"repeatCell": {
+        "range": {"sheetId": gid, "startRowIndex": row - 1, "endRowIndex": row, "startColumnIndex": 0, "endColumnIndex": width},
+        "cell": {"userEnteredFormat": {"backgroundColor": {"red": 0, "green": 0, "blue": 0, **PURE[colour]} if colour else white}},
+        "fields": "userEnteredFormat.backgroundColor"}} for row, width, colour in cells]
+    svc.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute()
+    return len(reqs)
+
+
+def write_queue_tab(svc, sheet_id: str, rows: list[list[str]]) -> None:
+    """Rewrite the Queue tab (created if missing): clear A:G, then header + rows as RAW text."""
+    if QUEUE_TAB not in _sheet_ids(svc, sheet_id):
+        svc.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": [
+            {"addSheet": {"properties": {"title": QUEUE_TAB}}}]}).execute()
+    svc.spreadsheets().values().clear(spreadsheetId=sheet_id, range=f"{QUEUE_TAB}!A:G", body={}).execute()
+    svc.spreadsheets().values().update(spreadsheetId=sheet_id, range=f"{QUEUE_TAB}!A1", valueInputOption="RAW",
+                                       body={"values": [QUEUE_HEADER, *rows]}).execute()
