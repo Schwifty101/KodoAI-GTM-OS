@@ -17,7 +17,7 @@ def utc(y, m, d, h=1):
 def world(monkeypatch):
     """rows: list of (provider, units, usd, created_at); overrides: settings."""
     w = {"rows": [], "set": {}}
-    monkeypatch.setattr(budget, "setting", lambda k, db=None: w["set"].get(k, DEFAULTS[k]))
+    monkeypatch.setattr(budget, "setting", lambda k, db=None: w["set"].get(k, DEFAULTS.get(k, 0)))  # import allowance default is added by settings_store elsewhere
     monkeypatch.setattr(budget, "_cost_rows", lambda db, p, since: [
         {"units": u, "usd": c, "created_at": t} for pr, u, c, t in w["rows"] if pr == p and t >= since])
     return w
@@ -112,3 +112,19 @@ def test_spent_since_pages_past_1000_rows(monkeypatch):
             return Q()
 
     assert budget.spent_since(DB(), "gemini", NOW) == 1500
+
+
+def test_import_bucket_is_lifetime_and_separate(world):
+    world["set"]["import_hunter_allowance_credits"] = 1.0
+    world["rows"] = [("hunter_import", 0.5, None, utc(2026, 1, 1)), ("hunter_import", 0.5, None, utc(2026, 1, 2))]
+    with pytest.raises(budget.BudgetExceeded):
+        budget.require("hunter_import", 0.5, now=NOW)
+    world["rows"] = world["rows"][:1]
+    budget.require("hunter_import", 0.5, now=NOW)
+
+
+def test_import_spend_not_counted_in_daily_cap(world):
+    world["set"]["import_hunter_allowance_credits"] = 100
+    world["rows"] = [("hunter_import", 50, None, utc(2026, 11, 12))]
+    budget.require("hunter", 1, now=NOW)
+    assert budget.spent_since(None, "hunter", utc(2026, 11, 12, 0)) == 0

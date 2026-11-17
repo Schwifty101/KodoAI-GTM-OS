@@ -30,10 +30,10 @@ def _spent(body: dict) -> bool:
 class HunterPool:
     def __init__(self, keys: list[str], http=_http, log=None, sleep=time.sleep, batch_id: str | None = None):
         self.keys, self.http, self.sleep, self.idx = keys, http, sleep, 0
-        self.log = log or (lambda units, note: log_cost("hunter", units, None, batch_id=batch_id, note=note))
+        self.log = log or (lambda units, note, bucket="hunter": log_cost(bucket, units, None, batch_id=batch_id, note=note))
 
-    def _call(self, path: str, params: dict) -> dict:
-        budget.require("hunter", 1)
+    def _call(self, path: str, params: dict, bucket: str = "hunter", amount: float = 1.0) -> dict:
+        budget.require(bucket, amount)
         retries = 0
         while self.idx < len(self.keys):
             status, body = self.http(path, params, self.keys[self.idx])
@@ -66,3 +66,8 @@ class HunterPool:
         return {"email": d["email"], "first_name": d.get("first_name") or first, "last_name": d.get("last_name") or last,
                 "position": d.get("position"), "verification_status": (d.get("verification") or {}).get("status"), "score": d.get("score"),
                 "source": "hunter"}
+
+    def verify_email(self, email: str, bucket: str = "hunter") -> dict:
+        d = self._call("email-verifier", {"email": email}, bucket, 0.5).get("data") or {}
+        self.log(0.5, f"verify:{email.rsplit('@', 1)[-1]}", bucket=bucket)
+        return {"email": email, "verification_status": d.get("status"), "score": d.get("score")}

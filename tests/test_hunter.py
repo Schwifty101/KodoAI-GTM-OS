@@ -15,7 +15,7 @@ def pool(keys, script):
         calls.append((path, key))
         return script.pop(0)
 
-    return HunterPool(keys, http=http, log=lambda units, note: logs.append((units, note)), sleep=lambda s: None), calls, logs
+    return HunterPool(keys, http=http, log=lambda units, note, bucket="hunter": logs.append((units, note, bucket)), sleep=lambda s: None), calls, logs
 
 
 def test_domain_search_maps_candidates_and_charges_one_credit():
@@ -24,7 +24,7 @@ def test_domain_search_maps_candidates_and_charges_one_credit():
         {"email": "dana@glowspa.com", "first_name": "Dana", "last_name": "Whitfield", "position": "Owner",
          "verification_status": "valid", "score": 94, "source": "hunter"}
     ]
-    assert [u for u, _ in logs] == [1]
+    assert [l[0] for l in logs] == [1]
 
 
 def test_empty_domain_search_costs_nothing():
@@ -62,9 +62,25 @@ def test_email_finder_returns_candidate_when_found_and_charges_one_credit():
     p, _, logs = pool(["k1"], [(200, data)])
     c = p.email_finder("glowspa.com", "Dana", "Whitfield")
     assert c["email"] == "dana@glowspa.com" and c["verification_status"] == "valid" and c["score"] == 91 and c["source"] == "hunter"
-    assert [u for u, _ in logs] == [1]
+    assert [l[0] for l in logs] == [1]
 
 
 def test_email_finder_returns_none_and_is_free_when_not_found():
     p, _, logs = pool(["k1"], [(200, {"data": {"email": None}})])
     assert p.email_finder("glowspa.com", "Dana", "Whitfield") is None and logs == []
+
+
+def test_verify_email_returns_status_and_score_and_logs_half_credit():
+    p, calls, logs = pool(["k1"], [(200, {"data": {"status": "valid", "score": 96}})])
+    assert p.verify_email("dana@glowspa.com") == {"email": "dana@glowspa.com", "verification_status": "valid", "score": 96}
+    assert calls == [("email-verifier", "k1")]
+    assert logs == [(0.5, "verify:glowspa.com", "hunter")]
+
+
+def test_verify_email_import_bucket_logs_hunter_import_provider(monkeypatch):
+    rows = []
+    monkeypatch.setattr("gtm.budget.setting", lambda key, db=None: 10)
+    monkeypatch.setattr("gtm.hunter.log_cost", lambda provider, units, usd, batch_id=None, note=None: rows.append((provider, units, note)))
+    p = HunterPool(["k1"], http=lambda *a: (200, {"data": {"status": "valid", "score": 90}}))
+    p.verify_email("a@b.com", bucket="hunter_import")
+    assert rows == [("hunter_import", 0.5, "verify:b.com")]
