@@ -65,9 +65,8 @@ def pull_sheet_only(db, svc, sheet_id: str) -> int:
     keys = [k for _, k in cands]
     have = _in(db, "leads", "id,place_id,status,batch_id", "place_id", keys)
     sheet_batches = {b["id"] for b in db.table("batches").select("id").like("name", f"{BATCH_NAME}%").execute().data}
-    tracked = {r["lead_id"] for r in _in(db, "sheet_rows", "lead_id", "lead_id", [r["id"] for r in have])}
-    # a lead of ours that never got its sheet_rows row (an earlier run died midway) is retried, not "known"
-    retry = {r["place_id"] for r in have if r["batch_id"] in sheet_batches and r["status"] in ("scraped", "cleaned") and r["id"] not in tracked}
+    # a lead of ours still scraped or cleaned (an earlier run died midway, with or without its sheet_rows row) is retried, not "known"
+    retry = {r["place_id"] for r in have if r["batch_id"] in sheet_batches and r["status"] in ("scraped", "cleaned")}
     known = {r["place_id"] for r in have} - retry
     fresh = [(m, k) for m, k in cands if k not in known]
     if not fresh:

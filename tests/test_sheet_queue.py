@@ -75,6 +75,8 @@ class Q:
 
     def execute(self):
         if self.mode == "update":
+            if self.name == "leads" and self.tables.get("fail_lead_update") and self.patch.get("status") == "no_buyer":
+                raise RuntimeError("lead update failed")
             for r in self.rows:
                 r.update(self.patch)
         elif self.mode == "insert":
@@ -87,7 +89,7 @@ class Q:
 
 class FakeDB:
     def __init__(self, leads=(), sheet_rows=(), suppression=(), touches=()):
-        self.tables = {"fail_sheet_rows": False, "leads": list(leads), "sheet_rows": list(sheet_rows), "suppression": list(suppression), "touches": list(touches), "batches": []}
+        self.tables = {"fail_sheet_rows": False, "fail_lead_update": False, "leads": list(leads), "sheet_rows": list(sheet_rows), "suppression": list(suppression), "touches": list(touches), "batches": []}
 
     def table(self, name):
         return Q(self.tables, name)
@@ -177,6 +179,18 @@ def test_failed_sheet_rows_write_leaves_lead_cleaned_and_next_pull_retries(monke
     db.tables["fail_sheet_rows"] = False
     assert pull_sheet_only(db, object(), "sid") == 1
     assert [r["status"] for r in db.tables["leads"]] == ["no_buyer"] and len(db.tables["leads"]) == 1 and len(db.tables["sheet_rows"]) == 1
+
+
+def test_crash_after_sheet_rows_upsert_before_lead_flip_is_retried(monkeypatch):
+    monkeypatch.setattr(sheet_queue, "_mapped", lambda svc, sheet_id: [_sheet_row("Glowmed", "domain:glowmed.com")])
+    db = FakeDB()
+    db.tables["fail_lead_update"] = True
+    with pytest.raises(RuntimeError):
+        pull_sheet_only(db, object(), "sid")
+    assert [r["status"] for r in db.tables["leads"]] == ["cleaned"] and len(db.tables["sheet_rows"]) == 1
+    db.tables["fail_lead_update"] = False
+    assert pull_sheet_only(db, object(), "sid") == 1
+    assert [r["status"] for r in db.tables["leads"]] == ["no_buyer"] and len(db.tables["sheet_rows"]) == 1
 
 
 # ---- Task 9: queue tab run ----
