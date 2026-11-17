@@ -22,11 +22,11 @@ KodoAI GTM OS for med spa outreach. Spec: `docs/superpowers/specs/2026-11-09-kod
 - `send_tick` (`gtm/send.py`) on the worker is the one sender: it runs every 60 s while the `sending_on` setting is on (Start sending / Pause on the Send page). Terminal `send --confirm` forces one tick (sends what is due now; only `--confirm` reads replies first).
 - Window: Mon-Fri 9:00-16:00 in the lead's local time (null tz = America/Chicago).
 - `send_anytime` setting and `send --confirm --anytime` skip the window: REHEARSAL ONLY, keep off.
-- Ramp: 20 on the first real sending day, +3 per sending day, cap 40 per mailbox; restart from 20 after an auto-pause (`mailbox unpause` sets ramp_from).
+- Ramp: 20 on the first real sending day, +3 per sending day, cap 40 per mailbox; restart from 20 after an auto-pause (`mailbox unpause` sets ramp_from). The tick stamps today's allowance on the mailbox (`allowance_today`, `allowance_date`) and the Send page shows that stamp; there is no second formula.
 - Auto-pause at 3% bounce over 20 sends (7-day window).
 - Replies are read at most every 10 minutes per mailbox. A Gmail token or auth failure pauses that mailbox with a reason.
 - Gmail runs on the Mac (interactive OAuth) and on the VM (token from Secret Manager; a headless worker never opens a browser).
-- Rehearsal and manual test rows use the prefix `REHEARSAL_` (never `TEST_`: db tests delete every `TEST_%` lead). Run one pytest process at a time (`mkdir /tmp/gtm-pytest.lock`).
+- Rehearsal and manual test rows use the prefix `REHEARSAL_` (never `TEST_`: db tests delete every `TEST_%` lead). Run one pytest process at a time (`mkdir /tmp/gtm-pytest.lock`). A session fixture sweeps empty test-named batches left by `new_batch`; reply and send tests use a fixture mailbox, never the real one.
 
 ## Rules
 - Supabase Postgres is the only database. `gtm/config.py` is the only reader of the environment.
