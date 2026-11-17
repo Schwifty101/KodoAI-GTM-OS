@@ -1,5 +1,7 @@
 # GTM OS Foundation Implementation Plan (Plan 1 of 6)
 
+> BUILT and merged; history only. Current state: docs/HANDOFF.md section 0.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the OS a settings store, complete spend tracking with budget caps and a paid-Gemini gate, and a job queue with a worker, plus a Settings page to steer them.

@@ -1,5 +1,7 @@
 # KodoAI GTM OS for Med Spas Implementation Plan
 
+> BUILT and merged; history only. Current state: docs/HANDOFF.md section 0.
+
 > See also: the operating-layer design `docs/superpowers/specs/2026-11-12-gtm-os-operating-layer-design.md` and roadmap `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` (the pipeline here is built; those describe what comes next). Current state: `docs/HANDOFF.md`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -13,6 +13,7 @@ Facts verified 2026-11-12 unless marked unverified. The worker runs on a GCP VM;
 | Unit | systemd `gtm-worker`; `Restart=always` |
 | Secrets | 15 in Secret Manager, named as the env vars (SUPABASE_URL, SUPABASE_SECRET_KEY, GROQ_API_KEY, GEMINI_AGENT_PLATFORM_API_KEY, SERP_API_KEY, PROSPEO_API_KEY, APIFY_API_KEY, APIFY_API_KEY_2, SUPABASE_PUBLISHABLE_KEY, HARVEST_API_KEY, HUNTER_API_KEY .. _4), plus `gmail-token` |
 | Loader | `deploy/fetch_secrets.py` (one Python process: metadata server + Secret Manager REST) writes `/run/gtm/env` at each start. The first loader called gcloud once per secret and exceeded the 90 s start timeout on the e2-micro (found in the kill drill) |
+| Config | `SIGNAL_MAX_AGE_DAYS=90` via systemd drop-in `/etc/systemd/system/gtm-worker.service.d/signals.conf` (written by `deploy/bootstrap.sh`) |
 | Layout | `/opt/gtm` root-owned; user `gtm` owns only `.venv .cache .python .secrets` |
 | Python | 3.14.10 on the VM (pinned by `UV_PYTHON=3.14` in `deploy/deploy.sh`), same minor as the Mac |
 | gcloud (Mac) | 593.0.0 via Homebrew, logged in as the owner account |
@@ -86,11 +87,12 @@ Then delete the `gtm-worker` service account if unused. Queued jobs stay in the 
 
 ## Open items
 
-- Verified 2026-11-12: a real `clean` job on the Houston batch ran to `done` on the VM (output `{}`: nothing left to clean). Not verified: a heavy pass (enrich, signals) and the RAM peak under load on 1 GB.
-- Verified 2026-11-13: one live `walk` tile (New York / Manhattan, 80 places) ran to `done` on the VM, worker unchanged. RAM peak under it not recorded.
-- Not verified: RAM peak on 1 GB under a heavy pass; the walk on the daily schedule unattended. `walk_schedule_enabled` stays OFF by owner decision (2026-11-13) until the owner says to turn it on; the owner adds Apify credit when the free credit runs out or the OS is ready for campaigns.
+- Verified 2026-11-12: a real `clean` job on the Houston batch ran to `done` on the VM.
+- Verified 2026-11-13: one live `walk` tile (Manhattan, 80 places) ran to `done` on the VM.
+- Measured 2026-11-15: enrich of 3 real leads and signals of 1 on the VM: peak worker 118 MB cgroup / 124 MB RSS, at least 560 MB free, swap 91 MB or less, no OOM (3-5 s sampling). Still unmeasured: a full batch of 100 on enrich/signals.
+- Verified 2026-11-15: Gmail send from the VM (token from Secret Manager, draft job, scheduler send, reply and bounce read).
+- Not verified: the walk on the daily schedule unattended. `walk_schedule_enabled` stays OFF by owner decision (2026-11-13) until the owner says to turn it on; the owner adds Apify credit when the free credit runs out or the OS is ready for campaigns.
 - The daily Apify cap ($2 default) needs a temporary raise for spikes only; restore it afterwards (delete the stored row).
-- Not verified: Gmail send from the VM (Plan 4).
 - If the VM's Python ever changes: empty `/opt/gtm/.venv` as `gtm` over ssh first, then redeploy (uv cannot remove it; `/opt/gtm` is root-owned).
 - Plan 3b pages `/scrape` and `/batches` built 2026-11-14, never opened in a browser: run the checklists below.
 

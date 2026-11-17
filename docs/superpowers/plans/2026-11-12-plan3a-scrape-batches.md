@@ -1,5 +1,7 @@
 # Scrape and Batches, backend (Plan 3a) Implementation Plan
 
+> BUILT and merged; history only. Current state: docs/HANDOFF.md section 0.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The worker walks US metros tile by tile (suburb by suburb) on a daily schedule, scrapes and cleans each tile at the cheapest query depth that still finds the places (measured, not guessed), never repeats covered ground, groups selected leads into batches of 100, knows each lead's US time zone, and falls back to Serper or Apify to read a page only when a direct fetch is blocked.
