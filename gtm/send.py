@@ -57,6 +57,10 @@ def allowance(mailbox: dict, days_sent: int, ramp_start: int, ramp_step: int, ca
     return min(cap, ramp_start + ramp_step * days_sent)
 
 
+def today_allowance(db, mailbox: dict, day: date, settings: Settings) -> int:
+    return allowance(mailbox, sending_days(db, mailbox["id"], day), settings.ramp_start, settings.ramp_step, min(settings.daily_cap, mailbox["daily_cap"]))
+
+
 def window_end(now: datetime, tz: str | None) -> datetime:
     z = _zone(tz)
     d = now.astimezone(z)
@@ -81,7 +85,7 @@ def schedule_approved(db, mailbox: dict, now: datetime, settings: Settings, rng:
     rng, now = rng or random.Random(), now.astimezone(timezone.utc)
     mb = mailbox["id"]
     taken = len(_touches(db, mb, "scheduled")) + len(_touches(db, mb, "sending")) + len(_touches(db, mb, "sent", now.date().isoformat()))
-    room = allowance(mailbox, sending_days(db, mb, now.date()), settings.ramp_start, settings.ramp_step, min(settings.daily_cap, mailbox["daily_cap"])) - taken
+    room = today_allowance(db, mailbox, now.date(), settings) - taken
     suppressed, contacted = _blocklists(db)
     n = 0
     for t in sorted(_touches(db, mb, "approved"), key=lambda t: (-t["touch_no"], t["approved_at"] or "")):
@@ -212,6 +216,7 @@ def send_tick(db, gmail_for, llm, now: datetime | None = None, settings: Setting
         if _auto_pause(db, mb, now, s):
             out["paused"] = out.get("paused", 0) + 1
             continue
+        db.table("mailboxes").update({"allowance_today": today_allowance(db, mb, now.date(), s), "allowance_date": now.date().isoformat()}).eq("id", mb["id"]).execute()  # the Send page shows this, not its own formula
         respread_stale(db, mb, now)
         out["scheduled"] += schedule_approved(db, mb, now, s, anytime=anytime, immediate=force)
         out["send"].update(send_scheduled(db, lambda _: svc, mb, now, s, anytime=anytime))
