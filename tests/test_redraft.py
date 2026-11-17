@@ -114,6 +114,41 @@ def test_an_approval_that_lands_during_the_model_call_is_not_overwritten(world, 
 
 
 @pytest.mark.db
+def test_unedited_row_is_redrafted_and_edit_during_call_is_kept(world, capsys):
+    db, bid, ids = world
+    a, b = put(db, ids[0], "drafted"), put(db, ids[1], "drafted")
+
+    def llm(system, prompt):  # the owner edits one row, during the first call only
+        if not llm.done:
+            llm.done = True
+            # which lead goes first is by uuid, so edit both: the row in flight is skipped, the other was read after the edit and is redrafted
+            db.table("touches").update({"status": "edited", "subject": "mine", "body": "mine"}).in_("id", [a, b]).execute()
+        return NEW
+
+    llm.done = False
+
+    assert run_redraft(db, llm, bid, "x", TODAY) == 1
+    rows = [row(db, t) for t in (a, b)]
+    assert sorted(r["subject"] for r in rows) == sorted(["mine", NEW["subject"]])
+    assert next(r for r in rows if r["subject"] == "mine")["status"] == "edited"
+    assert "skipped_edited 1" in capsys.readouterr().out
+
+
+@pytest.mark.db
+def test_edit_during_failed_call_is_not_demoted(world):
+    db, bid, ids = world
+    t = put(db, ids[0], "drafted")
+
+    def llm(system, prompt):
+        db.table("touches").update({"status": "edited", "subject": "mine", "body": "mine"}).eq("id", t).execute()
+        raise ValueError("vertex down")
+
+    assert run_redraft(db, llm, bid, "x", TODAY) == 0
+    r = row(db, t)
+    assert (r["status"], r["subject"], r["problems"]) == ("edited", "mine", [])
+
+
+@pytest.mark.db
 def test_budget_exceeded_propagates_and_later_drafts_stay_untouched(world):
     db, bid, ids = world
     tids = [put(db, ids[i], "drafted") for i in range(3)]
