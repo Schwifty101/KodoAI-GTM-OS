@@ -1,5 +1,7 @@
 # Scrape & Coverage and Batches Pages (Plan 3b) Implementation Plan
 
+> BUILT and merged; history only. Current state: docs/HANDOFF.md section 0.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Two new browser pages (Scrape & Coverage, Batches), the walk settings editable in the UI, a "retry later" button for known-owner leads whose email could not be verified, and Settings page copy that matches the system as it now is.

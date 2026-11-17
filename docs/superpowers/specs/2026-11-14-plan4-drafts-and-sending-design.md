@@ -1,6 +1,6 @@
 # Plan 4 design: Drafts and Sending
 
-Date: 2026-11-14. Status: **awaiting owner approval** (all builder questions settled; decision 7 added). Nothing here is built. It narrows sections 8, 9 and 15 of `2026-11-12-gtm-os-operating-layer-design.md` into one buildable plan and records what the owner decided in the 2026-11-14 brainstorm. Where this document and that one disagree, this one rules (known case: section 9 still says auto-pause at 5% over 40 sends; the rule is **3% over 20 sends**, owner 2026-11-14).
+Date: 2026-11-14. Status: Built and accepted live 2026-11-15 (HANDOFF section 0); drafts, send tick and the two pages are in main. It narrows sections 8, 9 and 15 of `2026-11-12-gtm-os-operating-layer-design.md` into one buildable plan and records what the owner decided in the 2026-11-14 brainstorm. Where this document and that one disagree, this one rules (known case: section 9 still says auto-pause at 5% over 40 sends; the rule is **3% over 20 sends**, owner 2026-11-14).
 
 ## 1. Intent and why
 
@@ -87,7 +87,7 @@ The UI only reads and writes the database and enqueues jobs; it never calls Gemi
 1. Unit and database tests for every new rule, run serially under the shared lock (`/tmp/gtm-pytest.lock`); rehearsal rows must use a `REHEARSAL_` prefix, never `TEST_` (the test cleanup deletes `TEST_` rows).
 2. Browser check of the Drafts and Send pages (Plan 3b found four bugs that code and database checks missed).
 3. A rehearsal to the owner's own Gmail, no real leads: approve in the UI, Start sending, a send inside the window arrives, a reply stops the sequence, a bounce is recorded, Touch 2 and Touch 3 appear in Follow-ups and thread correctly.
-4. The same rehearsal on the VM: deploy (queue idle), then run a `send_tick` against a test lead. The Gmail token and a send from the VM are verified; the OS passes on the VM and their memory use on the 1 GB machine are not.
+4. The same rehearsal on the VM: deploy (queue idle), then run a `send_tick` against a test lead. Done 2026-11-15: Gmail send from the VM and the OS passes' memory use are verified (docs/runbooks/cloud-runner.md).
 5. The first real send of the 8 Houston leads happens only after the above, with the owner approving each step.
 
 ## 9. Left to the builder
@@ -96,7 +96,7 @@ Migration details and indexes; how the random send times are chosen within a win
 
 ## 10. Risks and unverified items
 
-- The OS `send` and `replies` passes have never run on the VM; memory on the 1 GB machine is unknown.
+- Resolved 2026-11-15: send and replies ran on the VM; memory measured (docs/runbooks/cloud-runner.md).
 - Groq's 8K tokens-per-minute wall is untested; a large regenerate that falls back from Vertex could stall.
 - The 9:00-16:00 window is the earlier design's guess.
 - A reply can take about a minute to become visible to the Gmail API.

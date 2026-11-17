@@ -1,5 +1,7 @@
 # Cloud Runner (Plan 2) Implementation Plan
 
+> BUILT and merged; history only. Current state: docs/HANDOFF.md section 0.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `uv run python -m gtm.cli worker` runs unattended on an always-on Google Cloud VM (us-west1), restarts on failure, takes keys from Secret Manager, and two workers can never run the same live job.

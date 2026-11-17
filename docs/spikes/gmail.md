@@ -11,6 +11,8 @@
 
 ## Needs Soban (one-time, about 10 minutes)
 1. In Google Cloud Console, create a project (or reuse one), then enable the **Gmail API**.
+Result: consent screen Internal (HANDOFF section 0(c)).
+
 2. OAuth consent screen: user type **Internal** if the project belongs to the kodoai.xyz Workspace org (no app review, tokens do not expire after 7 days); otherwise External in Testing mode, where refresh tokens expire after 7 days and need re-login.
 3. Credentials: create an **OAuth client ID, type Desktop app**, and download the JSON.
 4. Save it as `.secrets/google_oauth_client.json` and set `GOOGLE_OAUTH_CLIENT_FILE=.secrets/google_oauth_client.json` in `.env`.

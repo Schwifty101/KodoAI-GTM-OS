@@ -14,4 +14,6 @@ Counts only; no addresses. Source: Batch01, Batch02, Batch03 databases (`Initial
 - **Bounce rate was about 5.5%** across all batches, above the 3% the OS first assumed. A 3% rule over 20 sends would pause on a single bounce, which is why the pause thresholds were recalibrated (see `.env`: 5% over at least 40 sends).
 
 ## Settings derived from this (2026-11-10)
+> Superseded 2026-11-14: ramp 20 start +3, pause 3% over 20 sends; see CLAUDE.md, Sending.
+
 `RAMP_START=20` (the busiest day so far was 20 new leads), `RAMP_STEP=5` (matches MailReach's +4-6 emails a day), `DAILY_CAP=40`, `PAUSE_BOUNCE_RATE=0.05`, `PAUSE_MIN_SENDS=40`. These are judgment calls, not provider rules; I have not verified any external bounce-rate standard.
