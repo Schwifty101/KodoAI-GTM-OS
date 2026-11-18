@@ -197,3 +197,10 @@ def test_write_queue_tab_clears_then_writes_header_and_rows():
     assert up["range"] == "Queue!A1" and up["valueInputOption"] == "RAW"
     header = ["business", "owner_name", "domain", "linkedin_search", "email", "status", "lead_id"]
     assert up["body"]["values"] == [header,["biz", "Ann", "x.com", "u", "", "waiting", "id1"]]
+
+
+def test_read_tab_keeps_colours_of_trailing_format_only_cells():
+    g = {"green": 1}
+    svc = FakeSvc(_resp([_cell(c, g) for c in "abcde"] + [_cell(None, g) for _ in range(5)]))
+    row = read_tab(svc, "SID", "Texas")[0]
+    assert row.cells == list("abcde") and row.colours == ["green"] * 10

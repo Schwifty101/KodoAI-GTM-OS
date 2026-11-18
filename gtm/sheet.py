@@ -78,8 +78,7 @@ def read_tab(svc, sheet_id: str, tab: str) -> list[SheetRow]:
         if last < 0:
             continue
         colours = [colour_of(v.get("userEnteredFormat", {}).get("backgroundColor")) for v in vals]
-        colours += [None] * (last + 1 - len(colours))
-        out.append(SheetRow(tab, no, cells[:last + 1], colours[:last + 1]))
+        out.append(SheetRow(tab, no, cells[:last + 1], colours))  # colours of trailing format-only cells stay (OS paint, owner marks)
     return out
 
 
