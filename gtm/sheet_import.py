@@ -210,8 +210,10 @@ def _report(tab: str, rows: list[MappedRow], p: ImportPlan, n_sup: int, n_leads:
           f"skipped {why or 0}, left for queue {p.left_for_queue}")
 
 
-def run_import_sheet(db, svc, sheet_id: str, confirm: bool = False) -> ImportPlan:
-    mapped = {tab: map_tab(tab, read_tab(svc, sheet_id, tab)) for tab in TAB_STATE}  # any missing tab raises before a write
+def run_import_sheet(db, svc, sheet_id: str, confirm: bool = False, tab: str | None = None) -> ImportPlan:
+    if tab is not None and tab not in TAB_STATE:
+        raise ValueError(f"unknown tab {tab!r}; known: {', '.join(TAB_STATE)}")
+    mapped = {t: map_tab(t, read_tab(svc, sheet_id, t)) for t in TAB_STATE if tab in (None, t)}  # any missing tab raises before a write
     leads, sup, tracked = _load(db)
     sup_emails = {x["email"].lower() for x in sup if x["email"]}
     sup_domains = {x["domain"] for x in sup if x["domain"]}

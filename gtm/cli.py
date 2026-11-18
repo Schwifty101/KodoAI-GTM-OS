@@ -73,12 +73,10 @@ def cmd_import_sheet(a: argparse.Namespace) -> None:
     from gtm.sheet import sheets_service
 
     sid, db = _sheet_id(), get_db()
-    tabs = si.TAB_STATE
-    if a.tab:
-        if a.tab not in tabs:
-            sys.exit(f"unknown tab {a.tab!r}; known: {', '.join(tabs)}")
-        si.TAB_STATE = {a.tab: tabs[a.tab]}  # ponytail: run_import_sheet has no tab argument; narrow its tab map for this process
-    si.run_import_sheet(db, sheets_service(), sid, confirm=a.confirm)
+    try:
+        si.run_import_sheet(db, sheets_service(), sid, confirm=a.confirm, tab=a.tab)
+    except ValueError as e:
+        sys.exit(str(e))
 
 
 def cmd_verify_sheet(a: argparse.Namespace) -> None:
@@ -104,10 +102,13 @@ def cmd_sheet_queue(a: argparse.Namespace) -> None:
 
 
 def cmd_sheet_paint(a: argparse.Namespace) -> None:
+    from gtm.settings_store import setting
     from gtm.sheet import sheets_service
     from gtm.sheet_paint import run_paint
 
     sid, db = _sheet_id(), get_db()
+    if not setting("sheet_writeback_on"):
+        sys.exit("sheet_writeback_on is off: turn it on before sheet-paint")
     print(run_paint(db, sheets_service(), sid, confirm=a.confirm))
 
 

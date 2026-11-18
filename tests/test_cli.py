@@ -117,3 +117,45 @@ def test_verify_sheet_refuses_without_confirm(monkeypatch, capsys):
     with pytest.raises(SystemExit, match="--confirm"):
         cli.main(["verify-sheet", "--batch", "b1"])
     assert "0.5 x 2" in capsys.readouterr().out
+
+
+def _import_env(monkeypatch):
+    import gtm.settings_store as ss
+    import gtm.sheet as sheet
+    import gtm.sheet_import as si
+
+    read = []
+    monkeypatch.setattr(ss, "setting", lambda key, db=None: "sid")
+    monkeypatch.setattr(cli, "get_db", lambda: None)
+    monkeypatch.setattr(sheet, "sheets_service", lambda: object())
+    monkeypatch.setattr(si, "read_tab", lambda svc, sid, tab: read.append(tab) or [])
+    monkeypatch.setattr(si, "map_tab", lambda tab, rows: [])
+    monkeypatch.setattr(si, "_load", lambda db: ([], [], {}))
+    return read
+
+
+def test_import_sheet_tab_limits_one_call_and_the_next_reads_all_tabs(monkeypatch):
+    read = _import_env(monkeypatch)
+    cli.main(["import-sheet", "--tab", "Texas"])
+    assert read == ["Texas"]
+    read.clear()
+    cli.main(["import-sheet"])
+    assert read == ["Utah", "Newyork", "Texas"]
+
+
+def test_import_sheet_unknown_tab_exits_naming_it(monkeypatch):
+    read = _import_env(monkeypatch)
+    with pytest.raises(SystemExit, match="Nope"):
+        cli.main(["import-sheet", "--tab", "Nope"])
+    assert read == []
+
+
+def test_sheet_paint_checks_writeback_switch_before_building_service(monkeypatch):
+    import gtm.settings_store as ss
+    import gtm.sheet as sheet
+
+    monkeypatch.setattr(ss, "setting", lambda key, db=None: "sid" if key == "sheet_id" else False)
+    monkeypatch.setattr(cli, "get_db", lambda: None)
+    monkeypatch.setattr(sheet, "sheets_service", lambda: pytest.fail("built a Sheets service"))
+    with pytest.raises(SystemExit, match="sheet_writeback_on"):
+        cli.main(["sheet-paint", "--confirm"])
