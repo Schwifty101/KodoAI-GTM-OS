@@ -11,7 +11,9 @@ Follow these and the importer reads your marks exactly as you meant them.
 ## 2. Headers
 - Row 1, and the first row of any second block, is the only header: **dark grey fill, white bold text**. Its first cell is `business` or `Company`.
 - Names the importer reads (any case): `business`, `company` (name); `maps_category`; `website`; `buyer_name`, `buyer`; `buyer_role`, `role`; `linkedin_url`, `linkedin (confirmed)`, `linkedin (to check)`; `email`; `maps_url`; `city`, `metro`.
-- Utah block 2 uses `Company`, `Buyer`, `Role`, `LinkedIn (confirmed)`, `LinkedIn (to check)`, `Metro`. Other columns are ignored.
+- One block per tab: one header, one continuous table. Utah's header is: `business, maps_category, website, buyer_name, buyer_role, linkedin_url, email, email_person, other_people, maps_url, city, fit, role_check, role_evidence, role_evidence_url, linkedin_to_check, email_type, email_status, email_source, notes`.
+- Extra columns are kept in the sheet but ignored by the importer (it reads only the names listed above). The old second-block names (`Company`, `Buyer`, `Role`, `LinkedIn (confirmed)`, `LinkedIn (to check)`, `Metro`) still import if a sheet is not merged yet.
+- A tab with a second block (Utah rows 20-46) is merged under block 1 by `sheet-format --confirm` (step F). Do this BEFORE the first import: row numbers change.
 
 ## 3. Rows
 - One lead per row. One email per cell: if there are several, only the first is used.

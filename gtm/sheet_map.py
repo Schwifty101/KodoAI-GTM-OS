@@ -5,7 +5,19 @@ from dataclasses import dataclass
 from gtm.sheet import SheetRow
 
 TAB_STATE = {"Utah": "UT", "Newyork": "NY", "Texas": "TX"}
+# One header per tab (sheet-format merges extra blocks under it). A tab with several blocks and an entry here is merged to this header.
+MERGE_TARGET = {"Utah": ["business", "maps_category", "website", "buyer_name", "buyer_role", "linkedin_url", "email", "email_person",
+                         "other_people", "maps_url", "city", "fit", "role_check", "role_evidence", "role_evidence_url",
+                         "linkedin_to_check", "email_type", "email_status", "email_source", "notes"]}
+MERGE_ALIAS = {  # a later block's own header (lower-case) -> target column
+    "company": "business", "city": "city", "website": "website", "fit": "fit", "buyer": "buyer_name", "role": "buyer_role",
+    "role check": "role_check", "role evidence (quote)": "role_evidence", "role evidence url": "role_evidence_url",
+    "linkedin (confirmed)": "linkedin_url", "linkedin (to check)": "linkedin_to_check", "email": "email", "email type": "email_type",
+    "email status": "email_status", "email source": "email_source", "notes": "notes"}
+# Columns the importer reads: see HEADERS. Every other merged column (email_person, other_people, fit, role_check, role_evidence,
+# role_evidence_url, email_type, email_status, email_source, notes) is kept in the sheet and ignored by design.
 HEADERS = {  # header text (lower-case) -> field; unknown headers are ignored
+    "linkedin_to_check": "owner_linkedin_check",
     "business": "name", "company": "name", "maps_category": "category", "website": "website",
     "buyer_name": "owner_name", "buyer": "owner_name", "buyer_role": "owner_title", "role": "owner_title",
     "linkedin_url": "owner_linkedin", "linkedin (confirmed)": "owner_linkedin", "linkedin (to check)": "owner_linkedin_check",

@@ -85,3 +85,11 @@ def test_linkedin_falls_back_to_to_check_column():
 
 def test_width_is_header_length():
     assert map_tab("Texas", [row("Texas", 1, HTX), row("Texas", 2, data())])[0].width == len(HTX)
+
+
+def test_unified_utah_header_and_old_block_two_names_both_read():
+    from gtm.sheet_map import MERGE_TARGET
+    h = header_map(MERGE_TARGET["Utah"])
+    assert h["city"] == 10 and h["owner_linkedin_check"] == 15 and h["owner_email"] == 6 and h["owner_name"] == 3
+    old = header_map(H2)
+    assert old["city"] == 1 and old["owner_linkedin_check"] == 10
