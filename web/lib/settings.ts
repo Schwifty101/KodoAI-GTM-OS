@@ -49,3 +49,15 @@ export function validSetting(f: SettingField, v: unknown): boolean {
 }
 
 export const settingDefaults = (): Record<string, unknown> => Object.fromEntries(SETTING_FIELDS.map((f) => [f.key, f.def]));
+
+// Groups shown on the Settings page, with a hint each.
+export const GROUPS: [string, string][] = [
+  ["Budget", "Monthly budget and exchange rate used in the cost views."],
+  ["Google credit", "Free-trial credit: it ends on the date below unless the full account is activated first."],
+  ["API prices", "Third-party prices, unconfirmed; they only change what the cost views show."],
+  ["Daily caps", "Each cap is in the provider's own unit and is checked before every paid call; 0 blocks the provider."],
+  ["Page fetching", ""],
+  ["Sheet", "The MedSpa sheet: its id, the daily ContactOut queue and the colour write-back. Both switches stay off until the owner turns them on; the Hunter allowance is a one-off lifetime budget for the sheet import and defaults to 0 (nothing can be spent)."],
+];
+// Shown on their own pages, never on Settings.
+export const HIDDEN_GROUPS = ["Scrape walk", "Sending"];

@@ -9,15 +9,8 @@ import { cancelJob, enqueueJob, retryJob } from "@/lib/actions";
 import { useSettings } from "@/lib/useSettings";
 import { SettingInput } from "@/components/SettingInput";
 import { splitArgs } from "@/lib/args";
-import { SETTING_FIELDS } from "@/lib/settings";
+import { SETTING_FIELDS, GROUPS } from "@/lib/settings";
 
-const GROUPS: [string, string][] = [
-  ["Budget", "Monthly budget and exchange rate used in the cost views."],
-  ["Google credit", "Free-trial credit: it ends on the date below unless the full account is activated first."],
-  ["API prices", "Third-party prices, unconfirmed; they only change what the cost views show."],
-  ["Daily caps", "Each cap is in the provider's own unit and is checked before every paid call; 0 blocks the provider."],
-  ["Page fetching", ""],
-];
 // Spend meter: provider, its daily cap key, and which spend column that cap counts.
 const METER: [string, string, "usd" | "units"][] = [
   ["apify", "cap_apify_usd_day", "usd"], ["serper", "cap_serper_queries_day", "units"], ["gemini", "cap_gemini_usd_day", "usd"],
