@@ -307,3 +307,39 @@ def test_budget_exceeded_keeps_row_waiting(sheet):
     out = run_queue(db, svc, Pool(raises=BudgetExceeded("cap")), "sid", 2, confirm=True)
     assert state(db, "a") == "waiting" and out["out_of_credits"] == 2
     assert [(r[6], r[4]) for r in svc.written] == [("a", "ann@spa.com"), ("b", "bob@spa.com")]  # typed emails survive for tomorrow
+
+
+def test_pasted_email_is_trimmed_and_lowercased_before_verify(sheet):
+    db = FakeDB([L("a")])
+    waiting(db, "a")
+    pool = Pool()
+    run_queue(db, sheet(tab(trow("a", "  Dana@Spa.COM "))), pool, "sid", 0, confirm=True)
+    assert pool.calls == [("dana@spa.com", "hunter")] and db.tables["leads"][0]["owner_email"] == "dana@spa.com"
+
+
+def test_malformed_paste_fails_without_spend(sheet):
+    db = FakeDB([L("a")])
+    waiting(db, "a")
+    pool = Pool()
+    out = run_queue(db, sheet(tab(trow("a", "not an email"))), pool, "sid", 0, confirm=True)
+    assert state(db, "a") == "failed" and out["failed"] == 1 and not pool.calls and db.tables["leads"][0]["status"] == "no_buyer"
+
+
+def test_hunter_error_for_one_row_leaves_it_waiting_and_continues(sheet):
+    db = FakeDB([L("a"), L("b")])
+    waiting(db, "a", "b")
+
+    class Flaky(Pool):
+        def verify_email(self, email, bucket):
+            if email == "ann@spa.com":
+                raise RuntimeError("hunter 500")
+            return super().verify_email(email, bucket)
+    svc = sheet(tab(trow("a", "ann@spa.com"), trow("b", "bob@spa.com")))
+    out = run_queue(db, svc, Flaky(), "sid", 2, confirm=True)
+    assert state(db, "a") == "waiting" and state(db, "b") == "verified" and out["errors"] == 1 and out["enriched"] == 1
+    assert [(r[6], r[4]) for r in svc.written] == [("a", "ann@spa.com")]
+
+
+def test_queue_reuses_the_shared_agent_helper_and_batch_name():
+    from gtm import sheet_import
+    assert sheet_queue._agent is sheet_import._agent and sheet_queue.BATCH_NAME is sheet_import.BATCH_NAME

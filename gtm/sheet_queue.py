@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from urllib.parse import quote_plus
 
@@ -12,10 +13,10 @@ from gtm.db import fetch_all
 from gtm.select import _blocklists, blocked_reason
 from gtm.hunter import OutOfCredits
 from gtm.sheet import QUEUE_TAB, read_tab, write_queue_tab
+from gtm.sheet_import import BATCH_NAME, _agent
 from gtm.sheet_verify import verify_lead
 from gtm.status import Status
 
-BATCH_NAME = "Sheet import"
 _COLS = "id,name,domain,owner_name,owner_title,owner_linkedin,owner_email,review_count,rating,status"
 
 
@@ -49,10 +50,6 @@ def _mapped(svc, sheet_id: str) -> list[tuple]:
             except ValueError:  # no maps_url and no website: nothing to key on
                 pass
     return out
-
-
-def _agent(f: dict) -> bool:
-    return any(w in f"{f.get('owner_name')} {f.get('owner_title')}".lower() for w in ("registered agent", "service of process"))
 
 
 def pull_sheet_only(db, svc, sheet_id: str) -> int:
@@ -122,7 +119,7 @@ def run_queue(db, svc, pool, sheet_id: str, size: int, confirm: bool = False) ->
     ignored = [i for i, c in rows.items() if state.get(i) != "waiting" and c[4].strip()]
     pasted = [i for i, c in rows.items() if state.get(i) == "waiting" and c[4].strip()]
     waiting_ids = [i for i in rows if state.get(i) == "waiting"]
-    counts = {"enriched": 0, "failed": 0, "ignored": len(ignored), "out_of_credits": 0, "added": 0, "waiting": 0}
+    counts = {"enriched": 0, "failed": 0, "ignored": len(ignored), "out_of_credits": 0, "errors": 0, "added": 0, "waiting": 0}
     if ignored:
         print("ignored (lead not waiting):", ", ".join(ignored))
     if not confirm:
@@ -132,13 +129,17 @@ def run_queue(db, svc, pool, sheet_id: str, size: int, confirm: bool = False) ->
         return counts
     leads = {r["id"]: r for r in _in(db, "leads", "id,owner_name,owner_title", "id", pasted)}
     for done, i in enumerate(pasted):
-        email = rows[i][4].strip()
+        email = rows[i][4].strip().lower()
         try:
             with spend_context(lead_id=i):
-                ok = verify_lead(pool, leads[i], email, "hunter")  # queue spend is the daily bucket, not the import allowance
+                # a malformed paste fails with no spend; queue spend is the daily bucket, not the import allowance
+                ok = bool(re.fullmatch(r"\S+@\S+\.\S+", email)) and verify_lead(pool, leads[i], email, "hunter")
         except (OutOfCredits, BudgetExceeded):
             counts["out_of_credits"] = len(pasted) - done  # the rows stay waiting, typed emails kept
             break
+        except RuntimeError:  # one Hunter failure (non-200/202): this row stays waiting, the rest go on
+            counts["errors"] += 1
+            continue
         if ok:
             db.table("leads").update({"status": Status.ENRICHED.value, "email_verified": True, "owner_email": email, "email_source": "contactout"}).eq("id", i).execute()
         # a failed paste is not stored; the lead stays no_buyer and is never re-queued
