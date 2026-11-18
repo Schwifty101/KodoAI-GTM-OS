@@ -95,6 +95,9 @@ def test_verify_sheet_refuses_without_confirm(monkeypatch, capsys):
     import gtm.settings_store as ss
     import gtm.sheet_verify as sv
 
+    import gtm.select as sel
+
+    monkeypatch.setattr(sel, "_blocklists", lambda db: (set(), set()))
     monkeypatch.setattr(ss, "setting", lambda key, db=None: "sid")
     monkeypatch.setattr(cli, "HunterPool", lambda *a, **k: pytest.fail("built a pool"))
     monkeypatch.setattr(sv, "run_verify_sheet", lambda *a, **k: pytest.fail("verified"))
@@ -117,6 +120,34 @@ def test_verify_sheet_refuses_without_confirm(monkeypatch, capsys):
     with pytest.raises(SystemExit, match="--confirm"):
         cli.main(["verify-sheet", "--batch", "b1"])
     assert "0.5 x 2" in capsys.readouterr().out
+
+
+def test_verify_sheet_estimate_excludes_blocked_leads(monkeypatch, capsys):
+    import gtm.select as sel
+    import gtm.settings_store as ss
+
+    monkeypatch.setattr(ss, "setting", lambda key, db=None: "sid")
+    monkeypatch.setattr(sel, "_blocklists", lambda db: ({"bad.com"}, {"sent.com"}))
+
+    class Q:
+        data = [{"id": 1, "owner_email": "a@bad.com", "domain": "bad.com"}, {"id": 2, "owner_email": "b@sent.com"},
+                {"id": 3, "owner_email": "c@ok.com", "domain": "ok.com"}]
+        not_ = property(lambda self: self)
+
+        def __getattr__(self, name):
+            return lambda *a, **k: self
+
+        def execute(self):
+            return self
+
+    class DB:
+        def table(self, name):
+            return Q()
+
+    monkeypatch.setattr(cli, "get_db", lambda: DB())
+    with pytest.raises(SystemExit, match="--confirm"):
+        cli.main(["verify-sheet", "--batch", "b1"])
+    assert "0.5 x 1 = 0.5" in capsys.readouterr().out
 
 
 def _import_env(monkeypatch):

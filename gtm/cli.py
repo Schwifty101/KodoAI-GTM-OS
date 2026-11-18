@@ -80,12 +80,14 @@ def cmd_import_sheet(a: argparse.Namespace) -> None:
 
 
 def cmd_verify_sheet(a: argparse.Namespace) -> None:
+    from gtm.select import _blocklists, blocked_reason
     from gtm.sheet_verify import run_verify_sheet
 
     db = get_db()
-    q = (db.table("leads").select("id").eq("batch_id", a.batch).eq("status", "cleaned").eq("email_source", "sheet")
+    q = (db.table("leads").select("id,domain,owner_email").eq("batch_id", a.batch).eq("status", "cleaned").eq("email_source", "sheet")
          .eq("email_verified", False).not_.is_("owner_email", "null"))
-    n = len((q.limit(a.limit) if a.limit else q).execute().data)
+    sup, sent = _blocklists(db)
+    n = sum(1 for r in (q.limit(a.limit) if a.limit else q).execute().data if not blocked_reason(r, sup, sent))  # blocked leads cost nothing
     print(f"verify-sheet: 0.5 x {n} = {0.5 * n:g} Hunter credits (bucket hunter_import)")
     if not a.confirm:
         sys.exit("dry run: rerun with --confirm to spend them")

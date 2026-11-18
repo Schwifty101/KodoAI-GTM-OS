@@ -1,4 +1,4 @@
-"""Import the owner's Google Sheet: green/red rows -> suppression, uncoloured rows with an email -> scraped leads.
+"""Import the owner's Google Sheet: green/red rows -> suppression, every uncoloured row (with or without an email) -> scraped leads.
 
 `plan_import` is pure; `run_import_sheet` is the only writer and writes only with confirm."""
 import hashlib
@@ -27,7 +27,6 @@ class ImportPlan:
     suppress: list[dict] = field(default_factory=list)
     leads: list[dict] = field(default_factory=list)
     skipped: list[tuple[str, str]] = field(default_factory=list)  # (Tab:row_no, reason); no lead data
-    left_for_queue: int = 0
     tracked_new: list[dict] = field(default_factory=list)
 
 
@@ -108,16 +107,12 @@ def plan_import(rows: list[MappedRow], have_emails: set[str], have_domains: set[
             emails |= {x["email"] for x in new if "email" in x}
             domains |= {x["domain"] for x in new if "domain" in x}
             track["match"] = ("email", r.emails[0].lower()) if r.emails else ("domain", d)
-        elif not r.emails:
-            if r.fields.get("owner_name") and not _agent(r.fields):
-                p.left_for_queue += 1
-            continue
         else:
             lf = lead_fields(r)
             if not key:
                 p.skipped.append((label, "no_key"))
                 continue
-            if key in places or r.emails[0] in emails or (lf["domain"] and lf["domain"] in domains):
+            if key in places or (r.emails and r.emails[0] in emails) or (lf["domain"] and lf["domain"] in domains):
                 p.skipped.append((label, "known"))
                 if key in places and (r.tab, r.block, key) not in keys:
                     track["place_id"] = key  # known lead with no sheet_rows entry (half-failed run): track it, lead_id resolved at write time
@@ -128,10 +123,11 @@ def plan_import(rows: list[MappedRow], have_emails: set[str], have_domains: set[
             # ponytail: only the first address of a multi-email cell is kept; the rest are dropped
             p.leads.append({"place_id": key, **lf, "category": cat, "categories": [cat] if cat else [],
                             "city": r.fields.get("city") or None, "state": r.fields.get("state") or None,
-                            "tz": lead_tz(r.fields.get("state"), r.fields.get("city")),
-                            "email_source": "sheet", "email_verified": False, "status": "scraped"})
+                            "tz": lead_tz(r.fields.get("state"), r.fields.get("city")), "status": "scraped",
+                            **({"email_source": "sheet", "email_verified": False} if r.emails else {})})
             places.add(key)
-            emails.add(r.emails[0])
+            if r.emails:
+                emails.add(r.emails[0])
             if lf["domain"]:
                 domains.add(lf["domain"])
             track["place_id"] = key
@@ -214,7 +210,7 @@ def _report(tab: str, rows: list[MappedRow], p: ImportPlan, n_sup: int, n_leads:
     c = Counter(r.colour or "none" for r in rows)
     why = dict(Counter(reason for _, reason in p.skipped))
     print(f"{tab}: green {c['green']}, red {c['red']}, uncoloured {c['none']}; suppression rows {n_sup}, leads {n_leads}, "
-          f"skipped {why or 0}, left for queue {p.left_for_queue}")
+          f"skipped {why or 0}, no email: {sum(1 for x in p.leads if not x['owner_email'])}")
 
 
 def run_import_sheet(db, svc, sheet_id: str, confirm: bool = False, tab: str | None = None) -> ImportPlan:
@@ -239,7 +235,6 @@ def run_import_sheet(db, svc, sheet_id: str, confirm: bool = False, tab: str | N
         total.suppress += p.suppress
         total.leads += p.leads
         total.skipped += p.skipped
-        total.left_for_queue += p.left_for_queue
         total.tracked_new += p.tracked_new
     sync = plan_sync([r for rows in mapped.values() for r in rows], tracked, {x["id"]: x for x in leads})
     sync.new_suppress = [x for x in sync.new_suppress if x.get("email", x.get("domain")) not in (sup_emails if "email" in x else sup_domains)]

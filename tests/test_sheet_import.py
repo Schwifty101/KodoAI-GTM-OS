@@ -75,9 +75,28 @@ def test_known_email_or_domain_is_skipped():
     assert len(plan([mrow(2), mrow(3, maps_url="", website="https://other.example")]).leads) == 1
 
 
-def test_uncoloured_named_row_without_email_counts_left_for_queue():
-    p = plan([mrow(2, emails=()), mrow(3, emails=(), owner_name=""), mrow(4, emails=(), owner_name="Acme Registered Agent")])
-    assert p.left_for_queue == 1 and p.leads == [] and p.skipped == []
+def test_uncoloured_row_without_email_becomes_scraped_lead_without_email_fields():
+    (lead,) = plan([mrow(2, emails=())]).leads
+    assert lead["status"] == "scraped" and lead["owner_email"] is None and lead["place_id"] == "ChIJabc_DEF-123"
+    assert "email_source" not in lead and "email_verified" not in lead and lead["owner_name"] == "Dana Fox"
+
+
+def test_no_email_registered_agent_row_is_a_lead_without_owner():
+    (lead,) = plan([mrow(2, emails=(), owner_name="Acme Registered Agent")]).leads
+    assert lead["owner_name"] is None
+
+
+def test_row_with_no_key_is_skipped_no_key_with_or_without_email():
+    p = plan([mrow(2, emails=(), maps_url="", website=""), mrow(3, maps_url="", website="")])
+    assert p.leads == [] and p.skipped == [("Texas:2", "no_key"), ("Texas:3", "no_key")]
+
+
+def test_report_shows_no_email_count(capsys):
+    from gtm.sheet_import import _report
+    rows = [mrow(2, emails=()), mrow(3, emails=(), maps_url="", website="https://b.example"), mrow(4)]
+    _report("Texas", rows, plan(rows), 0, 3)
+    out = capsys.readouterr().out
+    assert "no email: 2" in out and "left for queue" not in out
 
 
 # ---- Task 7: sync ----

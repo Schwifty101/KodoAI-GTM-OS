@@ -23,7 +23,8 @@ Follow these and the importer reads your marks exactly as you meant them.
 
 ## 5. What the OS does with marks
 - Green or red row becomes suppression (never contacted).
-- Uncoloured row with an email becomes a candidate.
+- Every uncoloured row, with or without an email, becomes an unvetted lead. Flow: `import-sheet --confirm`, then `clean --batch <id>`, then `verify-sheet --batch <id> --confirm` (leads with a sheet email; run before enrich), then `enrich --batch <id>` (the rest), then `signals`, `select`, `draft` as for any lead. Named leads enrich cannot resolve end `no_buyer` and feed the manual queue. Clean and signals decide ICP; nothing from the sheet skips them.
+- A row with no maps_url and no website cannot be keyed and is skipped.
 - The OS paints status colours back only when write-back is on, and never over a mark you made.
 
 ## 6. Tidy up
