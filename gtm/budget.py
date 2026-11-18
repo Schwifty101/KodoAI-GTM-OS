@@ -13,6 +13,7 @@ CAP_KEYS = {
     "apify": "cap_apify_usd_day", "serper": "cap_serper_queries_day", "gemini": "cap_gemini_usd_day",
     "hunter": "cap_hunter_credits_day", "prospeo": "cap_prospeo_credits_day", "harvest": "cap_harvest_usd_day",
     "serper_maps": "cap_serper_maps_credits_day",
+    "hunter_import": "import_hunter_allowance_credits",  # lifetime allowance, not daily
 }
 USD = {"apify", "gemini", "harvest"}
 
@@ -51,5 +52,6 @@ def require(provider: str, amount: float = 1.0, db=None, now: datetime | None = 
     if provider == "gemini" and not gemini_allowed(db, now.date()):
         raise BudgetExceeded("gemini: credit ended or used up and paid Gemini is off or at its monthly cap")
     cap = setting(key, db)
-    if spent_since(db, provider, _midnight(now.date())) + amount > cap:
-        raise BudgetExceeded(f"{provider}: daily cap {cap} reached ({key})")
+    since = datetime(1970, 1, 1, tzinfo=timezone.utc) if provider == "hunter_import" else _midnight(now.date())
+    if spent_since(db, provider, since) + amount > cap:
+        raise BudgetExceeded(f"{provider}: {'lifetime allowance' if provider == 'hunter_import' else 'daily cap'} {cap} reached ({key})")

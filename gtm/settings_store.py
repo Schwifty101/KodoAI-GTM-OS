@@ -22,6 +22,9 @@ DEFAULTS: dict[str, bool | int | float | str] = {
     "fetch_fallback": True,
     "send_anytime": False,  # REHEARSAL ONLY: ignores the Mon-Fri 9-16 window. Leave off for real sending.
     "sending_on": False,  # Plan 4: Start sending turns it on, Pause or an auto-pause turns it off
+    # Plan 5: sheet import and manual queue
+    "sheet_id": "", "sheet_queue_size": 5, "sheet_queue_on": False, "sheet_queue_hour_utc": 13,
+    "sheet_writeback_on": False, "import_hunter_allowance_credits": 0.0,
 }
 TTL = 60
 _cache: dict[str, tuple[float, Any]] = {}

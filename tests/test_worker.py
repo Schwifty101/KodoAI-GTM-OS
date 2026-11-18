@@ -191,3 +191,7 @@ def test_send_loop_prints_the_tick_result_only_when_something_happened(monkeypat
         worker.send_loop(every=0)
     out = capsys.readouterr().out
     assert out.count("send tick:") == 1 and "'sent': 2" in out
+
+
+def test_worker_allows_the_sheet_kinds():
+    assert {"import-sheet", "verify-sheet", "sheet-queue", "sheet-paint"} <= worker.ALLOWED

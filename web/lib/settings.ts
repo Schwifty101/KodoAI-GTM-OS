@@ -30,6 +30,12 @@ export const SETTING_FIELDS: SettingField[] = [
   { key: "walk_escalate_at", label: "Go to next term when a query returned at least this share of the cap (0-1)", type: "float", group: "Scrape walk", def: 0.8, min: 0, max: 1 },
   { key: "send_anytime", label: "REHEARSAL ONLY: send outside the Mon-Fri 9-16 window (leave off for real sending)", type: "bool", group: "Sending", def: false },
   { key: "sending_on", label: "Sending on", type: "bool", group: "Sending", def: false },
+  { key: "sheet_id", label: "Google Sheet ID", type: "text", group: "Sheet", def: "" },
+  { key: "sheet_queue_size", label: "Leads queued to the sheet per day", type: "int", group: "Sheet", def: 5, min: 0, max: 50 },
+  { key: "sheet_queue_on", label: "Daily sheet queue on", type: "bool", group: "Sheet", def: false },
+  { key: "sheet_queue_hour_utc", label: "Sheet queue hour (UTC, 0-23)", type: "int", group: "Sheet", def: 13, min: 0, max: 23 },
+  { key: "sheet_writeback_on", label: "Write status colours back to the sheet", type: "bool", group: "Sheet", def: false },
+  { key: "import_hunter_allowance_credits", label: "Hunter credits allowed for sheet imports", type: "float", group: "Sheet", def: 0, min: 0 },
   { key: "fetch_fallback", label: "Read blocked pages through a paid fallback", type: "bool", group: "Page fetching", def: true },
 ];
 

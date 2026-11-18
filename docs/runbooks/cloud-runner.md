@@ -85,6 +85,13 @@ gcloud secrets delete NAME --project gen-lang-client-0603350481    # each of the
 
 Then delete the `gtm-worker` service account if unused. Queued jobs stay in the database and wait for any worker (the Mac works: `uv run python -m gtm.cli worker`).
 
+## Sheet passes (Plan 5; built, not run live)
+
+- Gates, in order: the owner applies migration 0015 (not applied by code); the owner sets `sheet_id`; the first real write to the sheet (`sheet-queue --confirm`, `sheet-paint --confirm`) happens only after the owner has seen the dry-run preview and said yes. `import-sheet` and `verify-sheet` also stay dry-run/refused until `--confirm`; `verify-sheet` spends 0.5 Hunter credit per email.
+- Consent on the Mac: run any sheet command once (for example `uv run python -m gtm.cli import-sheet`, a dry run), sign in in the browser; the token lands in `.secrets/token_sheets.json`.
+- Token to the VM: `gcloud secrets create sheets-token --data-file=.secrets/token_sheets.json --project gen-lang-client-0603350481` (new versions with `gcloud secrets versions add sheets-token --data-file=...`), `deploy/fetch_secrets.py` fetches the optional `sheets-token` secret and writes `token_sheets.json`, so creating the secret is enough; `deploy/secrets.txt` (the plain secrets list) needs no entry for it. A headless worker never opens a browser.
+- Morning queue: with setting `sheet_queue_on` true the worker enqueues one `sheet-queue --confirm` job per UTC day once the hour passes `sheet_queue_hour_utc`. Only the schedule is gated by `sheet_queue_on`: a manual `enqueue sheet-queue --confirm` ignores it. `sheet-paint` is gated by `sheet_writeback_on` (it exits before building the Sheets service when off). Leave both off until the gates above are cleared.
+
 ## Open items
 
 - Verified 2026-11-12: a real `clean` job on the Houston batch ran to `done` on the VM.

@@ -59,6 +59,59 @@ def cmd_walk(a: argparse.Namespace) -> None:
     print(run_walk(get_db(), lambda inp: run_places(inp, MIN_CAP), a.tiles or setting("walk_tiles_per_run")))
 
 
+def _sheet_id() -> str:
+    from gtm.settings_store import setting
+
+    sid = setting("sheet_id")
+    if not sid:
+        sys.exit("sheet_id setting is empty: set it to the leads sheet id first")
+    return sid
+
+
+def cmd_import_sheet(a: argparse.Namespace) -> None:
+    import gtm.sheet_import as si
+    from gtm.sheet import sheets_service
+
+    sid, db = _sheet_id(), get_db()
+    try:
+        si.run_import_sheet(db, sheets_service(), sid, confirm=a.confirm, tab=a.tab)
+    except ValueError as e:
+        sys.exit(str(e))
+
+
+def cmd_verify_sheet(a: argparse.Namespace) -> None:
+    from gtm.sheet_verify import run_verify_sheet
+
+    db = get_db()
+    q = (db.table("leads").select("id").eq("batch_id", a.batch).eq("status", "cleaned").eq("email_source", "sheet")
+         .eq("email_verified", False).not_.is_("owner_email", "null"))
+    n = len((q.limit(a.limit) if a.limit else q).execute().data)
+    print(f"verify-sheet: 0.5 x {n} = {0.5 * n:g} Hunter credits (bucket hunter_import)")
+    if not a.confirm:
+        sys.exit("dry run: rerun with --confirm to spend them")
+    print(run_verify_sheet(db, HunterPool(get_settings().hunter_keys, batch_id=a.batch), a.batch, a.limit))
+
+
+def cmd_sheet_queue(a: argparse.Namespace) -> None:
+    from gtm.settings_store import setting
+    from gtm.sheet import sheets_service
+    from gtm.sheet_queue import run_queue
+
+    sid, db = _sheet_id(), get_db()
+    print(run_queue(db, sheets_service(), HunterPool(get_settings().hunter_keys), sid, setting("sheet_queue_size"), confirm=a.confirm))
+
+
+def cmd_sheet_paint(a: argparse.Namespace) -> None:
+    from gtm.settings_store import setting
+    from gtm.sheet import sheets_service
+    from gtm.sheet_paint import run_paint
+
+    sid, db = _sheet_id(), get_db()
+    if not setting("sheet_writeback_on"):
+        sys.exit("sheet_writeback_on is off: turn it on before sheet-paint")
+    print(run_paint(db, sheets_service(), sid, confirm=a.confirm))
+
+
 def cmd_seed_coverage(a: argparse.Namespace) -> None:
     from gtm.coverage import load_metros, seed_coverage
 
@@ -237,6 +290,21 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("kind")
     q.add_argument("flags", nargs=argparse.REMAINDER)
     q.set_defaults(fn=cmd_enqueue)
+    si = sub.add_parser("import-sheet", help="import the leads sheet tabs (dry run unless --confirm)")
+    si.add_argument("--confirm", action="store_true")
+    si.add_argument("--tab", help="only this tab")
+    si.set_defaults(fn=cmd_import_sheet)
+    sv = sub.add_parser("verify-sheet", help="Hunter-verify sheet emails of a batch (0.5 credit each; needs --confirm)")
+    sv.add_argument("--batch", required=True)
+    sv.add_argument("--confirm", action="store_true")
+    sv.add_argument("--limit", type=int)
+    sv.set_defaults(fn=cmd_verify_sheet)
+    sq = sub.add_parser("sheet-queue", help="refresh the Queue tab (dry run unless --confirm)")
+    sq.add_argument("--confirm", action="store_true")
+    sq.set_defaults(fn=cmd_sheet_queue)
+    sp = sub.add_parser("sheet-paint", help="paint sheet row colours from lead status (dry run unless --confirm)")
+    sp.add_argument("--confirm", action="store_true")
+    sp.set_defaults(fn=cmd_sheet_paint)
     t = sub.add_parser("tz-backfill", help="set tz on leads that have none (free)")
     t.set_defaults(fn=cmd_tz_backfill)
     return p

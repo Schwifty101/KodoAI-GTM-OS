@@ -13,7 +13,7 @@ Read section 0, then `CLAUDE.md`. Section 0 is the current state and is enough t
 | Plan 3a scrape and batches backend (coverage walk, batches of 100, time zones, fetch fallback) | BUILT, merged |
 | Plan 3b `/scrape` and `/batches` pages, `--named-only` retry, `batch_no_spend` view | BUILT, merged (PR #6). Browser run caught 4 bugs, fixed (`8f167b3`) |
 | Plan 4 drafts in the database, sample-first review, send scheduler, Pending follow-ups, send via Gmail API | BUILT and merged (PR #11; 727 tests pass). ACCEPTED LIVE 2026-11-15 on the VM (deployed, queue idle), recipient only the owner's own Gmail: draft jobs, approve in the browser, Start sending and Pause in the browser, the VM send thread sent Touch 1/2/3 (one Gmail thread), a bounce and a model-classified reply were read and acted on by the VM, memory peaked at 118 MB cgroup / 124 MB RSS with at least 560 MB free (enrich of 3 real leads and signals of 1 included, 5 s sampling). The first real Houston send is ON HOLD by the owner until the whole flow is signed off. Sending rules, ramp, pause and the rehearsal switch: see CLAUDE.md, Sending. Design: `docs/superpowers/specs/2026-11-14-plan4-drafts-and-sending-design.md`; plan: `docs/superpowers/plans/2026-11-14-plan4-drafts-and-sending.md` |
-| Plan 5 sheet import and manual queue | NOT written |
+| Plan 5 sheet import and manual queue | Built through Task 12 (CLI, worker kinds, morning queue schedule); pending acceptance and migration 0015; nothing run live |
 | Plan 6 metrics, Home, Replies pages | NOT written |
 | Email copy and angle strategy | PARKED: `docs/NEXT-email-strategy.md` |
 
