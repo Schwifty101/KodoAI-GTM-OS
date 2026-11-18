@@ -40,12 +40,14 @@ def _cleanup(db):
     db.table("suppression").delete().like("domain", "test-sheetimp-%").execute()
     db.table("suppression").delete().like("email", "test_sheetimp_%").execute()
     db.table("leads").delete().like("name", "TEST_sheetimp%").execute()
-    for b in {x["batch_id"] for x in leads if x["batch_id"]}:
-        db.table("batches").delete().eq("id", b).execute()
+    ids = [x["batch_id"] for x in leads if x["batch_id"]]
+    if ids:  # only TEST_-named batches, never a real one
+        db.table("batches").delete().in_("id", ids).like("name", "TEST_%").execute()
 
 
 @pytest.fixture
-def db():
+def db(monkeypatch):
+    monkeypatch.setattr("gtm.sheet_import.BATCH_NAME", "TEST_Sheet import")
     d = get_db()
     _cleanup(d)
     yield d
@@ -67,3 +69,11 @@ def test_dry_run_writes_nothing_and_confirm_is_idempotent(db, monkeypatch):
     assert _counts(db) == (4, 1, 3)  # green and red: email + domain each; one lead; three tracked rows
     again = run_import_sheet(db, object(), "sheet", confirm=True)
     assert again.leads == [] and again.suppress == [] and _counts(db) == (4, 1, 3)
+
+
+def test_leads_land_in_a_test_named_batch(db, monkeypatch):
+    _fake_read(monkeypatch)
+    run_import_sheet(db, object(), "sheet", confirm=True)
+    ids = [x["batch_id"] for x in db.table("leads").select("batch_id").like("name", "TEST_sheetimp%").execute().data]
+    names = {b["name"] for b in db.table("batches").select("name").in_("id", ids).execute().data}
+    assert names and all(n.startswith("TEST_") for n in names)

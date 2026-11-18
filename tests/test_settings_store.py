@@ -87,5 +87,7 @@ def test_sending_on_defaults_false_and_is_a_bool():
 def test_sheet_defaults():
     want = {"sheet_id": "", "sheet_queue_size": 5, "sheet_queue_on": False, "sheet_queue_hour_utc": 13,
             "sheet_writeback_on": False, "import_hunter_allowance_credits": 0.0}
+    from gtm.settings_store import DEFAULTS
+
     for k, v in want.items():
-        assert setting(k) == v and type(setting(k)) is type(v)
+        assert DEFAULTS[k] == v and type(DEFAULTS[k]) is type(v)
