@@ -117,6 +117,21 @@ def test_sheet_format_passes_override_id_and_prints_only_six_chars(monkeypatch, 
     assert seen["sid"] == "abc123xyz" and seen["merge_only"] is True and "abc123" in out and "abc123xyz" not in out
 
 
+def test_sheet_format_blocked_exits_1_without_traceback_or_extra_message(monkeypatch, capsys):
+    import gtm.settings_store as ss
+    import gtm.sheet as sheet
+    import gtm.sheet_format as sf
+
+    def boom(*a, **k):
+        raise sf.Blocked("Utah: merged cells")
+    monkeypatch.setattr(ss, "setting", lambda key, db=None: "SID123456")
+    monkeypatch.setattr(sheet, "sheets_service", lambda: object())
+    monkeypatch.setattr(sf, "run_format", boom)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["sheet-format"])
+    assert e.value.code == 1 and "merged cells" not in capsys.readouterr().err
+
+
 def test_sheet_format_merge_flags_are_exclusive():
     p = cli.build_parser()
     assert p.parse_args(["sheet-format", "--merge-only"]).merge_only and p.parse_args(["sheet-format", "--no-merge"]).no_merge

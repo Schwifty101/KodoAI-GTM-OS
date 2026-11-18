@@ -240,6 +240,55 @@ def test_merge_blocked_by_table_merged_cells_or_filter_before_any_write(extra, c
     assert svc.batches == [] and "BLOCKED" in capsys.readouterr().out
 
 
+def box(r0, r1, c0, c1):
+    return {"startRowIndex": r0, "endRowIndex": r1, "startColumnIndex": c0, "endColumnIndex": c1}
+
+
+H10 = [cell(h) for h in "business,maps_category,website,buyer_name,buyer_role,linkedin_url,email,email_person,other_people,maps_url".split(",")]
+
+
+def test_merges_only_in_notes_columns_do_not_block_formatting(capsys):
+    rows = [H10] + [[cell(f"r{i}", G if i == 2 else None)] + [cell("x")] * 9 for i in range(8)]
+    notes = [box(3 + i, 4 + i, 14, 26) for i in range(15)]  # columns O-Z, outside the 10 data columns
+    svc = Svc(full(sheet("Newyork", rows, merges=notes)))
+    sf.run_format(svc, "id", confirm=True)
+    assert svc.batches and "merged cells in notes columns O-Z ignored: 15" in capsys.readouterr().out
+
+
+def test_merge_over_data_columns_of_a_restyled_row_still_blocks():
+    rows = [H10, [cell("a")] + [cell("x")] * 9]
+    svc = Svc(full(sheet("Newyork", rows, merges=[box(1, 2, 8, 12)])))  # columns I-L overlap column I, J
+    with pytest.raises(sf.Blocked):
+        sf.run_format(svc, "id")
+
+
+def test_merge_over_the_staging_columns_blocks_the_utah_merge_but_far_columns_do_not():
+    svc = Svc(utah(merges=[box(25, 26, 30, 31)]))  # staging is columns U..AH (20..33)
+    with pytest.raises(sf.Blocked):
+        sf.run_format(svc, "id")
+    sf.run_format(Svc(utah(merges=[box(25, 26, 40, 41)])), "id")  # beyond the staging: only reported
+
+
+def test_blocked_prints_every_tab_then_nothing_written_and_other_tabs_still_preview(capsys):
+    bad_ny = sheet("Newyork", [H10, [cell("a")] + [cell("x")] * 9], merges=[box(1, 2, 0, 3)], gid=8)
+    ok_tx = sheet("Texas", [HDR, [cell("t", G), cell(), cell()]], gid=9)
+    svc = Svc(full(sheet("Utah", b1_rows() + b2_rows(), tables=[{"name": "Table_1"}]), bad_ny, ok_tx))
+    with pytest.raises(sf.Blocked):
+        sf.run_format(svc, "id")
+    out = capsys.readouterr().out
+    assert out.count("BLOCKED:") == 2 and "Utah" in out and "Newyork" in out and out.strip().splitlines()[-1] == "Nothing was written."
+    assert svc.batches == []
+
+
+def test_blocked_confirm_writes_nothing_even_for_clean_tabs():
+    bad = sheet("Newyork", [H10, [cell("a")] + [cell("x")] * 9], merges=[box(1, 2, 0, 3)], gid=8)
+    ok = sheet("Texas", [HDR, [cell("t", G), cell(), cell()]], gid=9)
+    svc = Svc(full(bad, ok))
+    with pytest.raises(sf.Blocked):
+        sf.run_format(svc, "id", confirm=True)
+    assert svc.batches == []
+
+
 def test_merged_range_above_block_two_does_not_block_merge():
     svc = Svc(*[utah(merges=[{"startRowIndex": 0, "endRowIndex": 2}])] * 1)
     sf.run_format(svc, "id")  # dry run: no raise

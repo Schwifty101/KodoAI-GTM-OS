@@ -121,9 +121,14 @@ def cmd_sheet_paint(a: argparse.Namespace) -> None:
 
 def cmd_sheet_format(a: argparse.Namespace) -> None:
     from gtm.sheet import sheets_service
-    from gtm.sheet_format import run_format
+    from gtm.sheet_format import Blocked, run_format
 
-    run_format(sheets_service(), _sheet_id(a), confirm=a.confirm, tab=a.tab, merge_only=a.merge_only, no_merge=a.no_merge)
+    try:
+        run_format(sheets_service(), _sheet_id(a), confirm=a.confirm, tab=a.tab, merge_only=a.merge_only, no_merge=a.no_merge)
+    except Blocked:
+        sys.exit(1)  # every BLOCKED line and "Nothing was written." are already printed
+    except ValueError as e:
+        sys.exit(str(e))
 
 
 def cmd_seed_coverage(a: argparse.Namespace) -> None:

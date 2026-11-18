@@ -30,8 +30,25 @@ def get_sheet(svc, sheet_id: str) -> dict:
     return svc.spreadsheets().get(spreadsheetId=sheet_id, includeGridData=True, fields=_FIELDS).execute()
 
 
+class Blocked(ValueError):
+    """Something a write cannot safely cross; every BLOCKED line is already printed. The CLI exits 1 without a traceback."""
+
+
 def _span(r: dict) -> tuple[int, int]:
     return (r.get("startRowIndex", 0), r.get("endRowIndex", END))
+
+
+def _box(r: dict) -> tuple[int, int, int, int]:
+    """(row start, row end, column start, column end), 0-based, ends exclusive."""
+    return (*_span(r), r.get("startColumnIndex", 0), r.get("endColumnIndex", END))
+
+
+def _letters(i: int) -> str:
+    out = ""
+    while True:
+        out, i = chr(65 + i % 26) + out, i // 26 - 1
+        if i < 0:
+            return out
 
 
 def read_grid(resp: dict, tabs: list[str]) -> dict[str, dict]:
@@ -52,8 +69,8 @@ def read_grid(resp: dict, tabs: list[str]) -> dict[str, dict]:
             "gid": s["properties"]["sheetId"], "cols": s["properties"].get("gridProperties", {}).get("columnCount", 26), "rows": rows,
             "cf": [[_span(r) for r in c.get("ranges", [])] for c in s.get("conditionalFormats", [])],
             "tables": [t.get("name", "?") for t in s.get("tables", [])], "table_spans": [_span(t.get("range", {})) for t in s.get("tables", [])],
-            "merges": [_span(r) for r in s.get("merges", [])],
-            "filters": ([_span(s["basicFilter"].get("range", {}))] if "basicFilter" in s else []) + [_span(f.get("range", {})) for f in s.get("filterViews", [])],
+            "merges": [_box(r) for r in s.get("merges", [])],
+            "filters": ([_box(s["basicFilter"].get("range", {}))] if "basicFilter" in s else []) + [_box(f.get("range", {})) for f in s.get("filterViews", [])],
             "banded": [(b["bandedRangeId"], _span(b.get("range", {}))) for b in s.get("bandedRanges", [])]}
     return out
 
@@ -92,13 +109,25 @@ def _rows_txt(s: int, e: int) -> str:
     return f"{s + 1}-{'end' if e >= END else e}"
 
 
-def blockers(tab: str, g: dict, from_row: int, merge: bool) -> list[str]:
-    """Things a write cannot safely cross, at rows >= from_row: merged cells, filters (any, when merging) and Tables (when merging)."""
-    out = [f"{tab}: merged cells at rows {_rows_txt(s, e)}" for s, e in g["merges"] if e > from_row - 1]
-    out += [f"{tab}: filter at rows {_rows_txt(s, e)}" for s, e in g["filters"] if merge or e > from_row - 1]
+def blockers(tab: str, g: dict, from_row: int, col_end: int, merge: bool) -> tuple[list[str], list[str]]:
+    """(blocked, notes). A merge or filter blocks only if it overlaps the cells a write will touch: rows >= from_row (any row for a
+    filter when merging) and columns [0, col_end). One entirely outside is only noted. Tables block a merge."""
+    out, noted = [], []
+    for kind, boxes in (("merged cells", g["merges"]), ("filter", g["filters"])):
+        for rs, re_, cs, ce in boxes:
+            rows_hit = re_ > from_row - 1 or (merge and kind == "filter")
+            if rows_hit and cs < col_end:
+                out.append(f"{tab}: {kind} at rows {_rows_txt(rs, re_)}, columns {_letters(cs)}-{_letters(min(ce, 10**3) - 1)}")
+            elif rows_hit:
+                noted.append((kind, cs, ce))
+    notes = []
+    for kind in ("merged cells", "filter"):
+        n = [(cs, ce) for k, cs, ce in noted if k == kind]
+        if n:
+            notes.append(f"{tab}: {kind} in notes columns {_letters(min(c for c, _ in n))}-{_letters(min(max(c for _, c in n), 702) - 1)} ignored: {len(n)}")
     if merge:
         out += [f"{tab}: Table {n} (Format > Convert to range first)" for n in g["tables"]]
-    return out
+    return out, notes
 
 
 def plan_tab(tab: str, g: dict) -> tuple[list[dict], dict[str, int]]:
@@ -115,7 +144,6 @@ def plan_tab(tab: str, g: dict) -> tuple[list[dict], dict[str, int]]:
                 "fields": "userEnteredFormat(backgroundColor,textFormat.foregroundColor,textFormat.bold)"}})
             continue
         data_rows.append(no)
-        w = max(width, len(cells))
         m = row_mark(cells)
         if m:
             if any(colour_of(bg) != m for _, bg in cells[:width]) or len(cells) < width:  # partial or mixed: widen to the whole row
@@ -123,9 +151,9 @@ def plan_tab(tab: str, g: dict) -> tuple[list[dict], dict[str, int]]:
                 reqs.append({"repeatCell": {"range": _rng(gid, no, width), "cell": {"userEnteredFormat": {
                     "backgroundColor": {"red": 0, "green": 0, "blue": 0, **PURE[m]}}}, "fields": "userEnteredFormat.backgroundColor"}})
             # a mixed row's cells beyond the header width that are not pure stay untouched (outside the standard's columns)
-        elif any(bg and not _is_white(bg) for _, bg in cells):
+        elif any(bg and not _is_white(bg) for _, bg in cells[:width]):  # notes columns past the header are not ours
             n["cleared"] += 1
-            reqs.append({"repeatCell": {"range": _rng(gid, no, w), "cell": {"userEnteredFormat": {}}, "fields": "userEnteredFormat.backgroundColor"}})
+            reqs.append({"repeatCell": {"range": _rng(gid, no, width), "cell": {"userEnteredFormat": {}}, "fields": "userEnteredFormat.backgroundColor"}})
     bad = [i for i, ranges in enumerate(g["cf"]) if any(any(s < r <= e for r in data_rows) for s, e in ranges)]
     n["cf_total"], n["cf_deleted"] = len(g["cf"]), len(bad)
     banded = [i for i, (s, e) in g["banded"] if any(s < r <= e for r in data_rows)]
@@ -214,7 +242,7 @@ def plan_merge(tab: str, g: dict) -> dict | None:
                 new.pop()
             expected[no - shift], marks[no - shift] = new, row_mark(c)
         merged.append({"block": k + 1, "first": blks[k][0][0], "last": last[k]})
-    return {"tab": tab, "n": len(blks), "merged": merged, "requests": reqs, "expected": expected, "marks": marks, "added": target[len(names1):]}
+    return {"tab": tab, "n": len(blks), "merged": merged, "requests": reqs, "expected": expected, "marks": marks, "col_end": width + nstage, "added": target[len(names1):]}
 
 
 def _merge_snapshot(tab: str, g: dict) -> str:
@@ -239,39 +267,60 @@ def run_format(svc, sheet_id: str, confirm: bool = False, tab: str | None = None
     if confirm:
         print("sheet-format --confirm: do not edit the sheet during the run; worker sheet jobs must be off.")
     grid = read_grid(get_sheet(svc, sheet_id), tabs)
-    blocked, merges = [], []
+    blocked, merges, preview, bad = [], [], [], set()  # bad: tabs with a blocker (no formatting preview for them)
     for t, g in grid.items():
         hdrs = [i for i, (_, c) in enumerate(g["rows"]) if _is_header(c)]
         if g["rows"] and (not hdrs or hdrs[0] > 0):
             blocked.append(f"{t}: non-blank rows above the first header (row {g['rows'][0][0]})")
+            bad.add(t)
             continue
         if len(hdrs) > 1 and not no_merge:
             if t not in MERGE_TARGET:
-                print(f"{t}: {len(hdrs)} blocks, needs a target header; left alone")
+                preview.append(f"{t}: {len(hdrs)} blocks, needs a target header; left alone")
                 continue
             try:
-                merges.append(plan_merge(t, g))
+                m = plan_merge(t, g)
             except ValueError as e:
                 blocked.append(str(e))
+                bad.add(t)
                 continue
-            blocked += blockers(t, g, g["rows"][hdrs[1]][0], merge=True)
-    if not merges and not merge_only:
-        for t, g in grid.items():
-            if g["rows"]:
-                blocked += blockers(t, g, g["rows"][0][0], merge=False)
-    if blocked:
-        for b in blocked:
-            print("BLOCKED:", b)
-        raise ValueError("; ".join(blocked))
-    # Step F: fold every later block under block 1 (its own batchUpdate per tab, re-read, verified cell by cell); then stop
+            bl, notes = blockers(t, g, g["rows"][hdrs[1]][0], m["col_end"], merge=True)
+            blocked += bl
+            preview += notes
+            if bl:
+                bad.add(t)
+            else:
+                merges.append(m)
     if merges:
         for m in merges:
             for b in m["merged"]:
-                print(f"{m['tab']}: {m['n']} blocks -> 1: block {b['block']} rows {b['first']}-{b['last']} ({b['last'] - b['first'] + 1} rows) "
-                      f"{'merging' if confirm else 'merged'} under block 1; columns added: {', '.join(m['added'])}")
+                preview.append(f"{m['tab']}: {m['n']} blocks -> 1: block {b['block']} rows {b['first']}-{b['last']} ({b['last'] - b['first'] + 1} rows) "
+                               f"{'merging' if confirm else 'merged'} under block 1; columns added: {', '.join(m['added'])}")
+        preview.append("formatting steps are planned after the merge: rerun")
+    elif not merge_only:
+        per_tab, report = {}, {}
+        for t, g in grid.items():
+            hdr_w = max((_width(c) for _, c in g["rows"] if _is_header(c)), default=0)
+            bl, notes = blockers(t, g, g["rows"][0][0], hdr_w, merge=False) if g["rows"] else ([], [])
+            blocked += bl
+            preview += notes
+            if bl:
+                bad.add(t)
+            if t in bad:
+                continue
+            per_tab[t], report[t] = plan_tab(t, g)
+    if blocked:
         if not confirm:
-            print("formatting steps are planned after the merge: rerun" + ("" if merge_only else " (without --confirm this is a dry run: nothing written)"))
+            print("\n".join(preview))
+        for b in blocked:
+            print("BLOCKED:", b)
+        print("Nothing was written.")
+        raise Blocked("; ".join(blocked))
+    if merges:
+        if not confirm:
+            print("\n".join(preview))
             return {}
+        print("\n".join(preview))
         snaps = {}
         for m in merges:
             snaps[m["tab"]] = _merge_snapshot(m["tab"], grid[m["tab"]])
@@ -286,13 +335,16 @@ def run_format(svc, sheet_id: str, confirm: bool = False, tab: str | None = None
         print("verified: merge rows and marks match")
         print("merge done and verified; run sheet-format again for the formatting steps")
         return {}
+    if preview:
+        print("\n".join(preview))
     if merge_only:
         print("no merge needed")
         return {}
-    before, report, per_tab = marks_of(grid), {}, {}
+    before = marks_of(grid)
     for t, g in grid.items():
-        r, n = plan_tab(t, g)
-        per_tab[t], report[t] = r, n
+        if t not in report:
+            continue
+        r, n = per_tab[t], report[t]
         print(f"{t}: {n['marked']} rows widened to full-row marks, {n['cleared']} rows cleared of tints, {n['headers']} header rows styled, "
               f"{n['cf_deleted']} of {n['cf_total']} conditional rules deleted, {n['banded']} banded ranges deleted, {n['tables']} tables")
         for name in g["tables"]:
