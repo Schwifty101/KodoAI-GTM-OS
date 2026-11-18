@@ -68,3 +68,52 @@ def test_mailbox_unpause_restarts_the_ramp(monkeypatch):
     cli.cmd_mailbox(argparse.Namespace(action="unpause", address="x@example.com"))
     assert seen["update"] == {"paused": False, "paused_reason": None, "ramp_from": date.today().isoformat()}
     assert seen["table"] == "mailboxes" and seen["eq"] == ("address", "x@example.com")
+
+
+SHEET_CMDS = [["import-sheet"], ["verify-sheet", "--batch", "b1"], ["sheet-queue"], ["sheet-paint"]]
+
+
+@pytest.mark.parametrize("argv", SHEET_CMDS)
+def test_sheet_commands_parse_and_confirm_defaults_false(argv):
+    assert cli.build_parser().parse_args(argv).confirm is False
+    assert cli.build_parser().parse_args([*argv, "--confirm"]).confirm is True
+
+
+@pytest.mark.parametrize("argv", SHEET_CMDS)
+def test_sheet_commands_refuse_when_sheet_id_empty(monkeypatch, argv):
+    import gtm.settings_store as ss
+    import gtm.sheet as sheet
+
+    monkeypatch.setattr(ss, "setting", lambda key, db=None: "")
+    monkeypatch.setattr(cli, "get_db", lambda: None)
+    monkeypatch.setattr(sheet, "sheets_service", lambda: pytest.fail("built a Sheets service"))
+    with pytest.raises(SystemExit, match="sheet_id"):
+        cli.main([*argv, "--confirm"])
+
+
+def test_verify_sheet_refuses_without_confirm(monkeypatch, capsys):
+    import gtm.settings_store as ss
+    import gtm.sheet_verify as sv
+
+    monkeypatch.setattr(ss, "setting", lambda key, db=None: "sid")
+    monkeypatch.setattr(cli, "HunterPool", lambda *a, **k: pytest.fail("built a pool"))
+    monkeypatch.setattr(sv, "run_verify_sheet", lambda *a, **k: pytest.fail("verified"))
+
+    class Q:
+        data = [{"id": 1}, {"id": 2}]
+        not_ = property(lambda self: self)
+
+        def __getattr__(self, name):
+            return lambda *a, **k: self
+
+        def execute(self):
+            return self
+
+    class DB:
+        def table(self, name):
+            return Q()
+
+    monkeypatch.setattr(cli, "get_db", lambda: DB())
+    with pytest.raises(SystemExit, match="--confirm"):
+        cli.main(["verify-sheet", "--batch", "b1"])
+    assert "0.5 x 2" in capsys.readouterr().out

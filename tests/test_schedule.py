@@ -71,3 +71,35 @@ def test_a_real_walk_job_today_does_not_block_and_is_left_alone():
         assert db.table("jobs").select("status").eq("id", real).execute().data[0]["status"] == "queued"
     finally:
         db.table("jobs").delete().eq("id", real).execute()
+
+
+class _Jobs:
+    """Fake jobs table: queue_tick only asks 'any sheet-queue job since midnight?'."""
+    def __init__(self, existing=()):
+        self.data = list(existing)
+
+    def __getattr__(self, name):
+        return lambda *a, **k: self
+
+    def execute(self):
+        return self
+
+
+def _qt(monkeypatch, on=True, hour=7, existing=()):
+    cfg = {"sheet_queue_on": on, "sheet_queue_hour_utc": hour}
+    monkeypatch.setattr(schedule, "setting", lambda key, db=None: cfg[key])
+    calls = []
+    monkeypatch.setattr(schedule, "enqueue", lambda db, kind, payload=None, **kw: calls.append((kind, payload)) or "job1")
+    return calls, _Jobs(existing)
+
+
+def test_queue_tick_enqueues_once_per_day_and_respects_switch_and_hour(monkeypatch):
+    now = datetime(2026, 11, 18, 8, 0, tzinfo=timezone.utc)
+    calls, fake = _qt(monkeypatch, on=False)
+    assert schedule.queue_tick(fake, now) is None and not calls  # switch off
+    calls, fake = _qt(monkeypatch, hour=9)
+    assert schedule.queue_tick(fake, now) is None and not calls  # hour not reached
+    calls, fake = _qt(monkeypatch, existing=[{"id": 1}])
+    assert schedule.queue_tick(fake, now) is None and not calls  # already queued today, any status
+    calls, fake = _qt(monkeypatch)
+    assert schedule.queue_tick(fake, now) == "job1" and calls == [("sheet-queue", {"argv": ["--confirm"]})]
