@@ -14,7 +14,9 @@ from gtm.replies import FREE_MAIL
 from gtm.scrape import _domain
 from gtm.sheet import read_tab
 from gtm.sheet_map import TAB_STATE, MappedRow, map_tab
+from gtm.tz import lead_tz
 
+BATCH_NAME = "Sheet import"
 REASON = {"green": "sheet-sent", "red": "sheet-dropped"}
 PLACE_ID = re.compile(r"place_id[:=](ChIJ[\w-]+)|\b(ChIJ[\w-]+)")
 HASHED = ("name", "website", "owner_name", "owner_title", "owner_linkedin")
@@ -50,14 +52,14 @@ def _usable_domain(d: str | None) -> str | None:
     return d
 
 
-def _agent(row: MappedRow) -> bool:
-    t = f"{row.fields.get('owner_name', '')} {row.fields.get('owner_title', '')}".lower()
+def _agent(f: dict) -> bool:
+    t = f"{f.get('owner_name') or ''} {f.get('owner_title') or ''}".lower()
     return "registered agent" in t or "service of process" in t
 
 
 def lead_fields(row: MappedRow) -> dict:
     """The sheet-owned fields of a lead; a registered-agent buyer is no owner."""
-    f, ag = row.fields, _agent(row)
+    f, ag = row.fields, _agent(row.fields)
     return {"name": f.get("name"), "website": f.get("website") or None, "domain": _domain(f.get("website")),
             "owner_name": None if ag else f.get("owner_name") or None, "owner_title": None if ag else f.get("owner_title") or None,
             "owner_linkedin": f.get("owner_linkedin") or None, "owner_email": row.emails[0] if row.emails else None}
@@ -107,7 +109,7 @@ def plan_import(rows: list[MappedRow], have_emails: set[str], have_domains: set[
             domains |= {x["domain"] for x in new if "domain" in x}
             track["match"] = ("email", r.emails[0].lower()) if r.emails else ("domain", d)
         elif not r.emails:
-            if r.fields.get("owner_name") and not _agent(r):
+            if r.fields.get("owner_name") and not _agent(r.fields):
                 p.left_for_queue += 1
             continue
         else:
@@ -126,6 +128,7 @@ def plan_import(rows: list[MappedRow], have_emails: set[str], have_domains: set[
             # ponytail: only the first address of a multi-email cell is kept; the rest are dropped
             p.leads.append({"place_id": key, **lf, "category": cat, "categories": [cat] if cat else [],
                             "city": r.fields.get("city") or None, "state": r.fields.get("state") or None,
+                            "tz": lead_tz(r.fields.get("state"), r.fields.get("city")),
                             "email_source": "sheet", "email_verified": False, "status": "scraped"})
             places.add(key)
             emails.add(r.emails[0])
@@ -182,13 +185,17 @@ def plan_sync(rows: list[MappedRow], tracked: dict, leads_by_id: dict[str, dict]
                     s.frozen.append((t["lead_id"], diff))  # hash stays old: the difference is reported every run
             else:
                 if "owner_email" in diff:
-                    diff |= {"status": "cleaned", "email_verified": False}
+                    diff |= {"email_source": "sheet", "email_verified": False}
+                    if lead["status"] not in ("scraped", "rejected"):
+                        diff["status"] = "cleaned"
                     s.reverify.append(t["lead_id"])
                 if diff:
                     s.updates.append((t["lead_id"], diff))
                 patch["content_hash"] = h
         elif h != t.get("content_hash"):
             patch["content_hash"] = h
+        if t.get("sheet_row_no") != r.row_no:
+            patch["sheet_row_no"] = r.row_no
         s.touched.append((k, patch))
     tabs = {r.tab for r in rows}
     s.orphaned = [k for k, t in tracked.items() if k[0] in tabs and k not in seen and not t.get("orphaned")]
@@ -253,7 +260,7 @@ def run_import_sheet(db, svc, sheet_id: str, confirm: bool = False, tab: str | N
             sup_id[("email", x["email"].lower()) if x["email"] else ("domain", x["domain"])] = x["id"]
     lead_id = {x["place_id"]: x["id"] for x in leads}
     if total.leads:
-        name = f"Sheet import {date.today()}"
+        name = f"{BATCH_NAME} {date.today()}"
         have = db.table("batches").select("id").eq("name", name).limit(1).execute().data
         batch = have[0]["id"] if have else db.table("batches").insert({"name": name}).execute().data[0]["id"]
         for i in range(0, len(total.leads), 200):

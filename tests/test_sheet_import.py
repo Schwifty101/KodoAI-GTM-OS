@@ -44,7 +44,8 @@ def test_uncoloured_row_with_email_becomes_scraped_lead_with_sheet_source():
     assert lead == {"place_id": "ChIJabc_DEF-123", "name": "Glow Lab", "website": "https://www.glowlab.example/x",
                     "domain": "glowlab.example", "category": "Med spa", "categories": ["Med spa"], "city": "Austin", "state": "TX",
                     "owner_name": "Dana Fox", "owner_title": "Owner", "owner_linkedin": "https://linkedin.com/in/dana",
-                    "owner_email": "dana@glowlab.example", "email_source": "sheet", "email_verified": False, "status": "scraped"}
+                    "owner_email": "dana@glowlab.example", "email_source": "sheet", "email_verified": False, "status": "scraped",
+                    "tz": "America/Chicago"}
 
 
 def test_place_id_from_maps_url_else_domain_key():
@@ -94,13 +95,27 @@ def lead(status="scraped", **kw):
             "owner_email": "dana@glowlab.example", "email_source": "sheet", **kw}
 
 
-def test_changed_email_updates_lead_and_queues_reverify():
+def test_changed_email_on_scraped_lead_keeps_status_and_sets_sheet_source():
     old = mrow()
     new = mrow(emails=("new@glowlab.example",), owner_title="Founder")
     s = plan_sync([new], {KEY: tr(old)}, {"L1": lead()})
     assert s.updates == [("L1", {"owner_title": "Founder", "owner_email": "new@glowlab.example",
-                                 "status": "cleaned", "email_verified": False})]
+                                 "email_source": "sheet", "email_verified": False})]
     assert s.reverify == ["L1"] and s.frozen == [] and s.orphaned == []
+
+
+def test_changed_email_on_cleaned_lead_stays_cleaned_and_rejected_is_untouched():
+    new = mrow(emails=("new@glowlab.example",))
+    for status, want in (("cleaned", {"status": "cleaned"}), ("enriched", {"status": "cleaned"}), ("no_buyer", {"status": "cleaned"}), ("rejected", {})):
+        s = plan_sync([new], {KEY: tr(mrow())}, {"L1": lead(status)})
+        assert s.updates == [("L1", {"owner_email": "new@glowlab.example", "email_source": "sheet", "email_verified": False, **want})]
+
+
+def test_moved_row_refreshes_sheet_row_no():
+    s = plan_sync([mrow(no=9)], {KEY: tr(mrow(), sheet_row_no=2)}, {"L1": lead()})
+    assert s.touched[0][1]["sheet_row_no"] == 9
+    s = plan_sync([mrow(no=2)], {KEY: tr(mrow(), sheet_row_no=2)}, {"L1": lead()})
+    assert "sheet_row_no" not in s.touched[0][1]
 
 
 @pytest.mark.parametrize("status", ["drafted", "sent", "replied", "booked", "bounced", "suppressed", "unsubscribed"])
@@ -187,7 +202,7 @@ def test_finder_email_is_kept_and_not_reset():
     new = mrow(emails=("new@glowlab.example",))
     s = plan_sync([new], {KEY: tr(mrow())}, {"L1": lead(email_source="hunter")})
     assert s.updates == [] and s.reverify == [] and s.finder_email_kept == 1
-    s = plan_sync([new], {KEY: tr(mrow())}, {"L1": lead(email_source="hunter", owner_email=None)})
+    s = plan_sync([new], {KEY: tr(mrow())}, {"L1": lead("cleaned", email_source="hunter", owner_email=None)})
     assert s.reverify == ["L1"] and s.updates[0][1]["status"] == "cleaned"
 
 
