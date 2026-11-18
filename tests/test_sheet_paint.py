@@ -134,7 +134,7 @@ def test_run_paint_previews_then_paints_and_records(monkeypatch, capsys):
     assert run_paint(db, object(), "sid", confirm=True) == 1
     assert painted == [("Utah", [(5, 3, "red")])]
     (filt, upd), = db.updates
-    assert filt == ("id", "row-1") and upd["colour_written"] == "red" and upd["written_at"]
+    assert filt == ("id", "row-1") and upd["colour_written"] == "red" and upd["colour_seen"] == "red" and upd["written_at"]
     settings_store.clear_cache()
 
 

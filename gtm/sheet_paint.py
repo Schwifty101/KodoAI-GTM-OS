@@ -93,5 +93,5 @@ def run_paint(db, svc, sheet_id: str, confirm: bool = False) -> int:
         # record right after the paint; a crash between the two leaves a paint that reads as an owner mark (accepted ceiling)
         now = datetime.now(timezone.utc).isoformat()
         for n, _, c in cells:
-            db.table("sheet_rows").update({"colour_written": c, "written_at": now}).eq("id", ids[(tab, n)]).execute()
+            db.table("sheet_rows").update({"colour_written": c, "colour_seen": c or "none", "written_at": now}).eq("id", ids[(tab, n)]).execute()
     return len(plan)
