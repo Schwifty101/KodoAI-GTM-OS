@@ -112,6 +112,13 @@ def cmd_sheet_paint(a: argparse.Namespace) -> None:
     print(run_paint(db, sheets_service(), sid, confirm=a.confirm))
 
 
+def cmd_sheet_format(a: argparse.Namespace) -> None:
+    from gtm.sheet import sheets_service
+    from gtm.sheet_format import run_format
+
+    run_format(sheets_service(), _sheet_id(), confirm=a.confirm, tab=a.tab)
+
+
 def cmd_seed_coverage(a: argparse.Namespace) -> None:
     from gtm.coverage import load_metros, seed_coverage
 
@@ -305,6 +312,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("sheet-paint", help="paint sheet row colours from lead status (dry run unless --confirm)")
     sp.add_argument("--confirm", action="store_true")
     sp.set_defaults(fn=cmd_sheet_paint)
+    sf = sub.add_parser("sheet-format", help="normalise sheet colours, headers, conditional formats (dry run unless --confirm)")
+    sf.add_argument("--confirm", action="store_true")
+    sf.add_argument("--tab", help="only this tab")
+    sf.set_defaults(fn=cmd_sheet_format)
     t = sub.add_parser("tz-backfill", help="set tz on leads that have none (free)")
     t.set_defaults(fn=cmd_tz_backfill)
     return p
