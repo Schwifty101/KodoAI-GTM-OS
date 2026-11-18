@@ -6,6 +6,7 @@ from gtm.budget import BudgetExceeded
 from gtm.buyer import is_decision_maker, is_role_email, pick_buyer
 from gtm.costs import spend_context
 from gtm.hunter import OutOfCredits
+from gtm.select import _blocklists, blocked_reason
 from gtm.status import Status
 
 
@@ -21,11 +22,15 @@ def verify_lead(pool, lead: dict, email: str, bucket: str) -> bool:
 
 def run_verify_sheet(db, pool, batch_id: str, limit: int | None = None, bucket: str = "hunter_import") -> dict[str, int]:
     """pool is always supplied by the caller (the CLI refuses without --confirm)."""
-    q = (db.table("leads").select("id,owner_name,owner_title,owner_email").eq("batch_id", batch_id).eq("status", Status.CLEANED.value)
+    q = (db.table("leads").select("id,domain,owner_name,owner_title,owner_email").eq("batch_id", batch_id).eq("status", Status.CLEANED.value)
          .eq("email_source", "sheet").eq("email_verified", False).not_.is_("owner_email", "null"))
     rows = (q.limit(limit) if limit else q).execute().data
     counts: dict[str, int] = {}
+    suppressed, contacted = _blocklists(db)
     for done, r in enumerate(rows):
+        if blocked_reason(r, suppressed, contacted):
+            counts["blocked"] = counts.get("blocked", 0) + 1  # suppressed or already contacted: no credit, stays cleaned
+            continue
         if not ((r.get("owner_name") or "").strip() and is_decision_maker(r.get("owner_title"))):
             counts["skipped"] = counts.get("skipped", 0) + 1  # no named owner or not a decision-maker: left for the normal enrich route
             continue

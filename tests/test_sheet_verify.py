@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from gtm.budget import BudgetExceeded
 from gtm.hunter import OutOfCredits
 from gtm.sheet_verify import run_verify_sheet
@@ -99,6 +101,19 @@ def test_lead_without_owner_or_decision_maker_title_stays_cleaned_and_is_skipped
         pool = Pool()
         assert run_verify_sheet(FakeDB(ls), pool, "b") == {"skipped": 1} and not pool.calls
         assert ls[0]["status"] == "cleaned"
+
+
+@pytest.fixture(autouse=True)
+def _no_blocks(monkeypatch):
+    monkeypatch.setattr("gtm.sheet_verify._blocklists", lambda db: (set(), set()), raising=False)
+
+
+def test_blocked_leads_spend_nothing_and_stay_cleaned(monkeypatch):
+    monkeypatch.setattr("gtm.sheet_verify._blocklists", lambda db: ({"dana@spa.com", "bad.com"}, {"sent.com"}), raising=False)
+    ls = [lead("1"), lead("2", owner_email="x@bad.com"), lead("3", owner_email="y@sent.com"), lead("4", owner_email="z@ok.com")]
+    pool = Pool()
+    assert run_verify_sheet(FakeDB(ls), pool, "b") == {"blocked": 3, "enriched": 1}
+    assert [c[0] for c in pool.calls] == ["z@ok.com"] and [r["status"] for r in ls] == ["cleaned"] * 3 + ["enriched"]
 
 
 def test_limit_caps_leads_and_already_verified_are_skipped():
