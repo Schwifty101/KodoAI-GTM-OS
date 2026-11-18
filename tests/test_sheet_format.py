@@ -13,9 +13,9 @@ def cell(text="x", bg=None):
     return v
 
 
-def sheet(title, rows, cf=None, tables=None, gid=7, cols=26):
+def sheet(title, rows, cf=None, tables=None, gid=7, cols=26, **extra):
     return {"properties": {"sheetId": gid, "title": title, "gridProperties": {"columnCount": cols}}, "conditionalFormats": cf or [], "tables": tables or [],
-            "data": [{"rowData": [{"values": r} for r in rows]}]}
+            "data": [{"rowData": [{"values": r} for r in rows]}], **extra}
 
 
 HDR = [cell("business"), cell("website"), cell("email")]
@@ -219,3 +219,111 @@ def test_multi_block_tab_without_target_is_left_alone(capsys):
     sf.run_format(svc, "id", confirm=True)
     assert "Newyork: 2 blocks, needs a target header; left alone" in capsys.readouterr().out
     assert not any("cutPaste" in r or "deleteDimension" in r for b in svc.batches for r in b)
+
+
+# ---- fix round 1 ----
+def utah(**extra):
+    return full(sheet("Utah", b1_rows() + b2_rows(), **extra))
+
+
+@pytest.mark.parametrize("extra", [
+    {"tables": [{"name": "Table_1"}]},
+    {"merges": [{"startRowIndex": 25, "endRowIndex": 26, "startColumnIndex": 0, "endColumnIndex": 2}]},
+    {"basicFilter": {"range": {"startRowIndex": 0, "endRowIndex": 19}}},
+    {"filterViews": [{"filterViewId": 1, "range": {}}]},
+])
+@pytest.mark.parametrize("confirm", [False, True])
+def test_merge_blocked_by_table_merged_cells_or_filter_before_any_write(extra, confirm, capsys):
+    svc = Svc(utah(**extra))
+    with pytest.raises(ValueError, match="Utah"):
+        sf.run_format(svc, "id", confirm=confirm)
+    assert svc.batches == [] and "BLOCKED" in capsys.readouterr().out
+
+
+def test_merged_range_above_block_two_does_not_block_merge():
+    svc = Svc(*[utah(merges=[{"startRowIndex": 0, "endRowIndex": 2}])] * 1)
+    sf.run_format(svc, "id")  # dry run: no raise
+
+
+def test_formatting_blocked_by_merged_cells_in_restyled_rows(capsys):
+    svc = Svc(full(sheet("Utah", [HDR, [cell(), cell("s", G), cell()]], merges=[{"startRowIndex": 1, "endRowIndex": 2}])))
+    with pytest.raises(ValueError, match="Utah"):
+        sf.run_format(svc, "id")
+    assert svc.batches == [] and "BLOCKED" in capsys.readouterr().out
+
+
+def test_grid_narrower_than_target_keeps_target_columns():
+    svc = Svc(full(sheet("Utah", b1_rows() + b2_rows(), cols=15)))
+    with pytest.raises(SystemExit):  # the fake never applies the write: verification fails, only the requests matter
+        sf.run_format(svc, "id", confirm=True)
+    first = svc.batches[0]
+    assert first[0]["appendDimension"]["length"] == 19
+    assert first[-1]["deleteDimension"]["range"] == {"sheetId": 7, "dimension": "COLUMNS", "startIndex": 20, "endIndex": 34}
+
+
+def test_block_one_text_past_its_header_is_refused():
+    b1 = b1_rows()
+    b1[4] = b1[4] + [cell("stray")]
+    svc = Svc(full(sheet("Utah", b1 + b2_rows())))
+    with pytest.raises(ValueError, match="Utah.*row 5"):
+        sf.run_format(svc, "id", confirm=True)
+    assert svc.batches == []
+
+
+def test_mark_outside_block_two_header_width_is_refused(capsys):
+    b2 = b2_rows()
+    b2[3] = b2[3] + [cell("")] * 9 + [cell("", G)]  # colour in column Z of row 23
+    svc = Svc(full(sheet("Utah", b1_rows() + b2)))
+    with pytest.raises(ValueError, match="mark outside the header width at Utah row 23"):
+        sf.run_format(svc, "id")
+    assert "BLOCKED" in capsys.readouterr().out and svc.batches == []
+
+
+def test_merge_is_its_own_run_and_skips_formatting(capsys):
+    before, after = merge_states()
+    svc = Svc(before, after)
+    sf.run_format(svc, "id", confirm=True)
+    assert len(svc.batches) == 1 and "merge done and verified; run sheet-format again for the formatting steps" in capsys.readouterr().out
+
+
+def test_dry_run_with_merge_says_formatting_is_planned_after(capsys):
+    sf.run_format(Svc(merge_states()[0]), "id")
+    assert "formatting steps are planned after the merge: rerun" in capsys.readouterr().out
+
+
+def test_no_merge_flag_formats_unmerged_tab_and_merge_only_skips_formatting():
+    svc = Svc(merge_states()[0])
+    sf.run_format(svc, "id", no_merge=True)
+    svc2 = Svc(full(sheet("Utah", [HDR, [cell("s", G), cell(), cell()]])))
+    sf.run_format(svc2, "id", confirm=True, merge_only=True)
+    assert svc2.batches == []
+
+
+def test_formatting_is_one_batch_per_tab_whatever_the_size():
+    rows = [HDR] + [[cell("a"), cell("b", G), cell()] for _ in range(1500)]
+    svc = Svc(full(sheet("Utah", rows)))
+    sf.run_format(svc, "id", confirm=True)
+    assert len(svc.batches) == 1 and len(svc.batches[0]) == 1501
+
+
+def test_failed_write_prints_snapshot_path_and_restore_hint_and_exits(tmp_path, capsys):
+    class Boom(Svc):
+        def batchUpdate(self, spreadsheetId, body):
+            raise RuntimeError("quota")
+    with pytest.raises(SystemExit) as e:
+        sf.run_format(Boom(full(sheet("Utah", [HDR, [cell("s", G), cell(), cell()]]))), "id", confirm=True)
+    out = capsys.readouterr().out
+    assert e.value.code == 1 and str(tmp_path) in out and "File > Version history" in out and "do not edit the sheet" in out
+
+
+def test_rows_above_the_first_header_are_refused():
+    svc = Svc(full(sheet("Utah", [[cell("note")], HDR, [cell(), cell("s", G), cell()]])))
+    with pytest.raises(ValueError, match="Utah.*above the first header"):
+        sf.run_format(svc, "id", confirm=True)
+    assert svc.batches == []
+
+
+def test_banded_ranges_over_data_are_deleted_and_reported(capsys):
+    svc = Svc(full(sheet("Utah", [HDR, [cell(), cell(), cell()]], bandedRanges=[{"bandedRangeId": 5, "range": {"startRowIndex": 0, "endRowIndex": 50}}])))
+    sf.run_format(svc, "id", confirm=True)
+    assert {"deleteBanding": {"bandedRangeId": 5}} in svc.batches[0] and "1 banded" in capsys.readouterr().out

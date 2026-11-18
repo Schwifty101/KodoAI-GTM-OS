@@ -108,12 +108,13 @@ def _no_blocks(monkeypatch):
     monkeypatch.setattr("gtm.sheet_verify._blocklists", lambda db: (set(), set()), raising=False)
 
 
-def test_blocked_leads_spend_nothing_and_stay_cleaned(monkeypatch):
+def test_blocked_leads_spend_nothing_and_become_suppressed(monkeypatch):
     monkeypatch.setattr("gtm.sheet_verify._blocklists", lambda db: ({"dana@spa.com", "bad.com"}, {"sent.com"}), raising=False)
     ls = [lead("1"), lead("2", owner_email="x@bad.com"), lead("3", owner_email="y@sent.com"), lead("4", owner_email="z@ok.com")]
     pool = Pool()
     assert run_verify_sheet(FakeDB(ls), pool, "b") == {"blocked": 3, "enriched": 1}
-    assert [c[0] for c in pool.calls] == ["z@ok.com"] and [r["status"] for r in ls] == ["cleaned"] * 3 + ["enriched"]
+    assert [c[0] for c in pool.calls] == ["z@ok.com"] and [r["status"] for r in ls] == ["suppressed"] * 3 + ["enriched"]
+    assert all(r["reject_reason"] == "sheet: already contacted or suppressed" for r in ls[:3])  # enrich does not check suppression
 
 
 def test_limit_caps_leads_and_already_verified_are_skipped():

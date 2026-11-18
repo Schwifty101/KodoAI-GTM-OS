@@ -91,6 +91,39 @@ def test_sheet_commands_refuse_when_sheet_id_empty(monkeypatch, argv):
         cli.main([*argv, "--confirm"])
 
 
+@pytest.mark.parametrize("argv", [["import-sheet"], ["sheet-format"], ["sheet-queue"], ["sheet-paint"]])
+def test_sheet_id_flag_overrides_setting(monkeypatch, argv):
+    import gtm.settings_store as ss
+
+    seen = []
+    monkeypatch.setattr(ss, "setting", lambda key, db=None: True if key == "sheet_writeback_on" else "SETTINGID")
+    monkeypatch.setattr(cli, "get_db", lambda: None)
+    assert cli.build_parser().parse_args([*argv, "--sheet-id", "abc123xyz"]).sheet_id == "abc123xyz"
+    assert cli._sheet_id(cli.build_parser().parse_args([*argv, "--sheet-id", "abc123xyz"])) == "abc123xyz"
+    assert cli._sheet_id(cli.build_parser().parse_args(argv)) == "SETTINGID"
+
+
+def test_sheet_format_passes_override_id_and_prints_only_six_chars(monkeypatch, capsys):
+    import gtm.settings_store as ss
+    import gtm.sheet as sheet
+    import gtm.sheet_format as sf
+
+    seen = {}
+    monkeypatch.setattr(ss, "setting", lambda key, db=None: pytest.fail("read the setting"))
+    monkeypatch.setattr(sheet, "sheets_service", lambda: object())
+    monkeypatch.setattr(sf, "run_format", lambda svc, sid, **kw: seen.update(sid=sid, **kw))
+    cli.main(["sheet-format", "--sheet-id", "abc123xyz", "--merge-only"])
+    out = capsys.readouterr().out
+    assert seen["sid"] == "abc123xyz" and seen["merge_only"] is True and "abc123" in out and "abc123xyz" not in out
+
+
+def test_sheet_format_merge_flags_are_exclusive():
+    p = cli.build_parser()
+    assert p.parse_args(["sheet-format", "--merge-only"]).merge_only and p.parse_args(["sheet-format", "--no-merge"]).no_merge
+    with pytest.raises(SystemExit):
+        p.parse_args(["sheet-format", "--merge-only", "--no-merge"])
+
+
 def test_verify_sheet_refuses_without_confirm(monkeypatch, capsys):
     import gtm.settings_store as ss
     import gtm.sheet_verify as sv
@@ -103,7 +136,7 @@ def test_verify_sheet_refuses_without_confirm(monkeypatch, capsys):
     monkeypatch.setattr(sv, "run_verify_sheet", lambda *a, **k: pytest.fail("verified"))
 
     class Q:
-        data = [{"id": 1}, {"id": 2}]
+        data = [{"id": 1, "owner_name": "A B", "owner_title": "Owner"}, {"id": 2, "owner_name": "C D", "owner_title": "Founder"}]
         not_ = property(lambda self: self)
 
         def __getattr__(self, name):
@@ -130,8 +163,11 @@ def test_verify_sheet_estimate_excludes_blocked_leads(monkeypatch, capsys):
     monkeypatch.setattr(sel, "_blocklists", lambda db: ({"bad.com"}, {"sent.com"}))
 
     class Q:
-        data = [{"id": 1, "owner_email": "a@bad.com", "domain": "bad.com"}, {"id": 2, "owner_email": "b@sent.com"},
-                {"id": 3, "owner_email": "c@ok.com", "domain": "ok.com"}]
+        o = {"owner_name": "A B", "owner_title": "Owner"}
+        data = [{"id": 1, "owner_email": "a@bad.com", "domain": "bad.com", **o}, {"id": 2, "owner_email": "b@sent.com", **o},
+                {"id": 3, "owner_email": "c@ok.com", "domain": "ok.com", **o},
+                {"id": 4, "owner_email": "d@ok.com", "owner_name": None, "owner_title": "Owner"},  # skipped later: no owner
+                {"id": 5, "owner_email": "e@ok.com", "owner_name": "E F", "owner_title": "Practice Manager"}]  # skipped: not a decision-maker
         not_ = property(lambda self: self)
 
         def __getattr__(self, name):

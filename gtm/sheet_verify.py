@@ -29,7 +29,8 @@ def run_verify_sheet(db, pool, batch_id: str, limit: int | None = None, bucket: 
     suppressed, contacted = _blocklists(db)
     for done, r in enumerate(rows):
         if blocked_reason(r, suppressed, contacted):
-            counts["blocked"] = counts.get("blocked", 0) + 1  # suppressed or already contacted: no credit, stays cleaned
+            counts["blocked"] = counts.get("blocked", 0) + 1  # suppressed or already contacted: no credit; a side state, as enrich would not check
+            db.table("leads").update({"status": Status.SUPPRESSED.value, "reject_reason": "sheet: already contacted or suppressed"}).eq("id", r["id"]).execute()
             continue
         if not ((r.get("owner_name") or "").strip() and is_decision_maker(r.get("owner_title"))):
             counts["skipped"] = counts.get("skipped", 0) + 1  # no named owner or not a decision-maker: left for the normal enrich route

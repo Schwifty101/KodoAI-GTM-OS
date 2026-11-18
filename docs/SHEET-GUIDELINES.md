@@ -6,7 +6,7 @@ Follow these and the importer reads your marks exactly as you meant them.
 - Only two colours mean anything: **pure green #00FF00 = sent**, **pure red #FF0000 = dropped**.
 - Colour the **whole row** (column A to the last header column). A row with both colours counts as red.
 - Never use these two colours for anything else.
-- No other fills, no banded rows, no conditional formatting, no Table styling. Pastel greens, cream, blue and teal fills are noise and get cleared.
+- No other fills, no banded rows, no conditional formatting, no Table styling. Pastel greens, cream, blue and teal fills are noise and get cleared; banded rows (Format > Alternating colors) and conditional rules over data rows are deleted by the tool. Table styling is not: convert each Table to a plain range by hand.
 
 ## 2. Headers
 - Row 1, and the first row of any second block, is the only header: **dark grey fill, white bold text**. Its first cell is `business` or `Company`.
@@ -30,6 +30,8 @@ Follow these and the importer reads your marks exactly as you meant them.
 - The OS paints status colours back only when write-back is on, and never over a mark you made.
 
 ## 6. Tidy up
-- `uv run python -m gtm.cli sheet-format` is a dry run (counts only, changes nothing). Read it first.
-- `uv run python -m gtm.cli sheet-format --confirm` applies it (`--tab Utah` for one tab). It saves your marks to `.secrets/sheet_marks_snapshot_*.json`, re-reads the sheet afterwards and prints FAIL (exit 1) if any mark changed.
-- It cannot remove Tables. Per table: select it, Format > Convert to range.
+- Before you start: do not edit the sheet during the run, and the worker's sheet jobs must be off.
+- `uv run python -m gtm.cli sheet-format` is a dry run (counts only, changes nothing). Read it first. It prints `BLOCKED: ...` and exits non-zero if a Table, a filter or merged cells sit where it would write, if a header is unknown, or if there are rows above the header.
+- `sheet-format --confirm` first merges a tab's extra block under block 1 (Utah) and stops; run it again for the formatting steps. `--merge-only` and `--no-merge` pick one. `--tab Utah` limits it to one tab; `--sheet-id ID` rehearses on a copy of the sheet (not saved; `import-sheet`, `sheet-queue` and `sheet-paint` take it too).
+- Safety: it saves a local snapshot under `.secrets/` first, then re-reads the sheet and prints FAIL (exit 1) if anything differs. The check compares cell values and pure green/red marks only. The merge moves cells with `cutPaste` (PASTE_NORMAL), which carries links, notes and formats along, but the check does not compare them. On FAIL restore from the xlsx backup or File > Version history.
+- It cannot remove Tables. Per table: select it, Format > Convert to range (it refuses to merge a tab that still has one).
