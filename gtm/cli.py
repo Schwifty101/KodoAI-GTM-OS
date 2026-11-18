@@ -82,7 +82,7 @@ def cmd_import_sheet(a: argparse.Namespace) -> None:
 def cmd_verify_sheet(a: argparse.Namespace) -> None:
     from gtm.sheet_verify import run_verify_sheet
 
-    sid, db = _sheet_id(), get_db()
+    db = get_db()
     q = (db.table("leads").select("id").eq("batch_id", a.batch).eq("status", "cleaned").eq("email_source", "sheet")
          .eq("email_verified", False).not_.is_("owner_email", "null"))
     n = len((q.limit(a.limit) if a.limit else q).execute().data)

@@ -79,7 +79,7 @@ def test_sheet_commands_parse_and_confirm_defaults_false(argv):
     assert cli.build_parser().parse_args([*argv, "--confirm"]).confirm is True
 
 
-@pytest.mark.parametrize("argv", SHEET_CMDS)
+@pytest.mark.parametrize("argv", [c for c in SHEET_CMDS if c[0] != "verify-sheet"])  # verify-sheet needs no sheet
 def test_sheet_commands_refuse_when_sheet_id_empty(monkeypatch, argv):
     import gtm.settings_store as ss
     import gtm.sheet as sheet
