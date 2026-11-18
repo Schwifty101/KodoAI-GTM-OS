@@ -252,6 +252,21 @@ def _merge_snapshot(tab: str, g: dict) -> str:
     return str(p)
 
 
+def _reread(svc, sheet_id: str, tabs: list[str], snap: str) -> dict[str, dict]:
+    try:
+        return read_grid(get_sheet(svc, sheet_id), tabs)
+    except Exception as e:  # the write is done; only the check could not run
+        print(f"FAIL: could not re-read the sheet to verify ({type(e).__name__}). Snapshot: {snap}. {RESTORE}")
+        sys.exit(1)
+
+
+def _header_blockers(tab: str, g: dict, row_no: int, cols: int) -> list[str]:
+    """Merged cells or filters over header row `row_no` within the first `cols` columns (the merge run rewrites that row)."""
+    return [f"{tab}: {kind} over header row {row_no}, columns {_letters(cs)}-{_letters(min(ce, 10**3) - 1)}"
+            for kind, boxes in (("merged cells", g["merges"]), ("filter", g["filters"]))
+            for rs, re_, cs, ce in boxes if rs <= row_no - 1 < re_ and cs < cols]
+
+
 def _send(svc, sheet_id: str, reqs: list[dict], snap: str) -> None:
     try:
         svc.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute()
@@ -285,6 +300,7 @@ def run_format(svc, sheet_id: str, confirm: bool = False, tab: str | None = None
                 bad.add(t)
                 continue
             bl, notes = blockers(t, g, g["rows"][hdrs[1]][0], m["col_end"], merge=True)
+            bl += _header_blockers(t, g, g["rows"][hdrs[0]][0], len(MERGE_TARGET[t]))
             blocked += bl
             preview += notes
             if bl:
@@ -326,7 +342,7 @@ def run_format(svc, sheet_id: str, confirm: bool = False, tab: str | None = None
             snaps[m["tab"]] = _merge_snapshot(m["tab"], grid[m["tab"]])
             print("merge snapshot:", snaps[m["tab"]])
             _send(svc, sheet_id, m["requests"], snaps[m["tab"]])
-        new = read_grid(get_sheet(svc, sheet_id), tabs)
+        new = _reread(svc, sheet_id, tabs, ", ".join(snaps.values()))
         for m in merges:
             rows = new[m["tab"]]["rows"]
             if {no: _sig(c) for no, c in rows} != m["expected"] or {no: row_mark(c) for no, c in rows if no in m["marks"]} != m["marks"]:
@@ -359,7 +375,7 @@ def run_format(svc, sheet_id: str, confirm: bool = False, tab: str | None = None
     for t, reqs in per_tab.items():
         for i in range(0, len(reqs), MAX_REQUESTS):
             _send(svc, sheet_id, reqs[i:i + MAX_REQUESTS], snap)
-            after = marks_of(read_grid(get_sheet(svc, sheet_id), [t]))
+            after = marks_of(_reread(svc, sheet_id, [t], snap))
             if after != {k: v for k, v in before.items() if k[0] == t}:
                 print(f"FAIL: marks changed on {t} ({len(set(before.items()) - set(after.items()))} lost or recoloured). Snapshot: {snap}. {RESTORE}")
                 sys.exit(1)

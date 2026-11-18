@@ -289,9 +289,43 @@ def test_blocked_confirm_writes_nothing_even_for_clean_tabs():
     assert svc.batches == []
 
 
-def test_merged_range_above_block_two_does_not_block_merge():
-    svc = Svc(*[utah(merges=[{"startRowIndex": 0, "endRowIndex": 2}])] * 1)
-    sf.run_format(svc, "id")  # dry run: no raise
+def test_merge_over_header_row_one_blocks_the_merge_run(capsys):
+    for extra in ({"merges": [box(0, 2, 0, 3)]}, {"basicFilter": {"range": box(0, 19, 5, 8)}}):
+        svc = Svc(utah(**extra))
+        with pytest.raises(sf.Blocked):
+            sf.run_format(svc, "id", confirm=True)
+        assert svc.batches == []
+    assert "BLOCKED" in capsys.readouterr().out
+
+
+def test_merge_in_block_one_data_rows_outside_the_written_columns_does_not_block():
+    sf.run_format(Svc(utah(merges=[box(3, 6, 0, 3)])), "id")  # data rows, header row 1 untouched
+    sf.run_format(Svc(utah(merges=[box(0, 2, 30, 31)])), "id")  # row 1 but beyond the 20 header columns
+
+
+def test_post_write_reread_failure_prints_snapshot_and_restore_hint(capsys):
+    before, _ = merge_states()
+
+    class Svc2(Svc):
+        def get(self, **kw):
+            if self.gets:
+                return super().get(**kw)
+            raise RuntimeError("read quota")
+    svc = Svc2(before)
+    svc.gets = [before, before]  # first get answers; after the pop the list stays non-empty, so force failure below
+    calls = {"n": 0}
+    orig = Svc2.get
+
+    def get(self, **kw):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise RuntimeError("read quota")
+        return orig(self, **kw)
+    Svc2.get = get
+    with pytest.raises(SystemExit) as e:
+        sf.run_format(svc, "id", confirm=True)
+    out = capsys.readouterr().out
+    assert e.value.code == 1 and "sheet_merge_snapshot_" in out and "File > Version history" in out
 
 
 def test_formatting_blocked_by_merged_cells_in_restyled_rows(capsys):
