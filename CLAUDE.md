@@ -8,6 +8,7 @@ KodoAI GTM OS for med spa outreach. Spec: `docs/superpowers/specs/2026-11-09-kod
 - `uv run pytest -q` runs the suite. Tests marked `db` hit the real Supabase project and clean up after themselves.
 - `uv run python -m gtm.cli <pass>` runs a pass: scrape, clean, enrich, signals, select, draft, followups, send, replies. Sending rules: see Sending below.
   - `enqueue <kind> -- <flags>` queues a pass as a job; `worker [--poll 15]` runs queued jobs (plus `check-drafts`, `redraft`) and the send tick on its own thread.
+  - `sheet-format [--confirm] [--tab T]` (CLI only) normalises sheet colours, headers and conditional rules; dry run by default, verifies marks after writing. Standard: `docs/SHEET-GUIDELINES.md`.
   - Sheet passes (read `sheet_id` from Settings; dry run unless `--confirm`; also worker job kinds): `import-sheet [--tab T]`, `verify-sheet --batch ID [--limit N]` (0.5 Hunter credit per email, bucket `hunter_import`, refuses without `--confirm`), `sheet-queue` (daily on the worker when `sheet_queue_on`), `sheet-paint` (needs `sheet_writeback_on`; `sheet_queue_on` gates only the daily schedule, not a manual `enqueue sheet-queue --confirm`). Needs migration 0015 and the first real sheet write is a hard gate: see `docs/runbooks/cloud-runner.md`.
   - `mailbox add|unpause`; `import-history FILE` (Notion history into suppression).
   - `walk [--tiles N]` scrapes and cleans the next uncovered tiles of the coverage table; `seed-coverage` fills it from `gtm/data/metros.csv`; `tz-backfill` sets `leads.tz` (free). `select` numbers batches of 100.
