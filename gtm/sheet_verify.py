@@ -26,6 +26,9 @@ def run_verify_sheet(db, pool, batch_id: str, limit: int | None = None, bucket: 
     rows = (q.limit(limit) if limit else q).execute().data
     counts: dict[str, int] = {}
     for done, r in enumerate(rows):
+        if not ((r.get("owner_name") or "").strip() and is_decision_maker(r.get("owner_title"))):
+            counts["skipped"] = counts.get("skipped", 0) + 1  # no named owner or not a decision-maker: left for the normal enrich route
+            continue
         try:
             with spend_context(batch_id=batch_id, lead_id=r["id"]):
                 buyer = verify_lead(pool, r, r["owner_email"], bucket)

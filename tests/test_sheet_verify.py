@@ -93,10 +93,12 @@ def test_budget_exceeded_stops_and_leaves_lead_cleaned():
         assert [r["status"] for r in ls] == ["cleaned", "cleaned"] and len(pool.calls) == 1
 
 
-def test_lead_without_a_decision_maker_title_is_no_buyer():
-    ls = [lead(owner_title="Practice Manager")]
-    pool = Pool()
-    assert run_verify_sheet(FakeDB(ls), pool, "b") == {"no_buyer": 1} and not pool.calls  # no credit spent on a sure fail
+def test_lead_without_owner_or_decision_maker_title_stays_cleaned_and_is_skipped():
+    for kw in ({"owner_title": "Practice Manager"}, {"owner_name": None}, {"owner_name": "  "}):
+        ls = [lead(**kw)]
+        pool = Pool()
+        assert run_verify_sheet(FakeDB(ls), pool, "b") == {"skipped": 1} and not pool.calls
+        assert ls[0]["status"] == "cleaned"
 
 
 def test_limit_caps_leads_and_already_verified_are_skipped():
