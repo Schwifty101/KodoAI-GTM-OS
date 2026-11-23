@@ -62,9 +62,9 @@ def lead(i="1", **kw):
             "owner_name": "Dana White", "owner_title": "Owner", **kw}
 
 
-def test_valid_score_80_decision_maker_becomes_enriched():
+def test_valid_score_75_decision_maker_becomes_enriched():
     ls = [lead()]
-    pool = Pool(score=80)
+    pool = Pool(score=75)
     assert run_verify_sheet(FakeDB(ls), pool, "b") == {"enriched": 1}
     assert ls[0]["status"] == "enriched" and ls[0]["email_verified"] is True and pool.calls == [("dana@spa.com", "hunter_import")]
 

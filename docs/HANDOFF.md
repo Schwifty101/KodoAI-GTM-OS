@@ -138,7 +138,7 @@ All Python is run as `uv run python -m gtm.cli <pass>` from the repo root. Lead 
 | `gtm/apify.py` | Actor run with hard `maxTotalChargeUsd` (min 0.50), picks key with most remaining budget |
 | `gtm/scrape.py` | `new_batch`, `scrape_input`, `place_to_lead`, `scrape_city` (insert-new-only; default queries "med spa","aesthetics clinic","botox" with website filter) |
 | `gtm/clean.py` | `clean_decision` + `run_clean`: closed, no_website (booking/social platform domains, plus tenant suffixes like `*.as.me`, `*.acuityscheduling.com`, `*.squareup.com`), not_us, `not_a_clinic` (academy/school/training/university/college in name or categories; a real med spa named "Academy" is a known miss), category, day_spa, chain (chains.txt or brand repeated >=3 in batch), duplicate_domain (most reviews wins). `chains.txt` now has `ovme` (uncommitted edit seen 2026-11-11); it matches lead names, not domains |
-| `gtm/buyer.py` | `is_role_email`, `is_decision_maker` (MedSpa section 3), `pick_buyer` (verification `valid` AND score >= 80, role addresses never) |
+| `gtm/buyer.py` | `is_role_email`, `is_decision_maker` (MedSpa section 3), `pick_buyer` (verification `valid` AND score >= 75, role addresses never) |
 | `gtm/hunter.py` | `HunterPool`: Domain Search, Email Finder, key rotation, `OutOfCredits` |
 | `gtm/sitescrape.py` | Free owner-name scrape of About/Team/Contact pages + JSON-LD; `http_fetch` |
 | `gtm/search.py` | `serper_search` |
@@ -216,7 +216,7 @@ Commands, flags and the job queue: see CLAUDE.md, Commands. Cost facts not state
 
 ### 5a. Enrich in detail (as of 2026-11-11)
 
-- **Buyer rule:** named decision-maker (founder/owner/CEO/president/COO/executive director; MedSpa section 3) plus an email with verification `valid` AND score >= 80. Owner ruling 2026-11-10: personal or business email both fine if verified; `accept_all` stays out. A role address never qualifies.
+- **Buyer rule:** named decision-maker (founder/owner/CEO/president/COO/executive director; MedSpa section 3) plus an email with verification `valid` AND score >= 75 (owner ruling 2026-11-23; was 80). Owner ruling 2026-11-10: personal or business email both fine if verified; `accept_all` stays out. A role address never qualifies.
 - **Finders, in order, stop at first verified buyer:** `site` (free site scrape for a name, then Hunter Email Finder), `search` ("owner of <domain>" Serper search, LLM reads results, code guard, then Email Finder), `research` (Gemini loop with web_search + fetch_page; max 6 turns, 8 searches, 10 fetches per lead; runs only for leads with no named owner; then Email Finder), `prospeo` (Enrich Person for each named owner, `only_verified_email`; 1 credit only on a find; calls spaced 2 s, 429 retried; VERIFIED counts as score 100 because Prospeo gives no score).
 - **Opt-in via `--finders`:** `hunter` (Domain Search; Houston run: 33 credits for 1 enriched lead) and `harvest` (HarvestAPI LinkedIn; no emails found in ~22 lookups, ~$0.004/profile). Email Finder inside site/search spent 19 credits for 4 enriched.
 - **`research` code guard:** the name must appear verbatim in fetched text or a search snippet, the text must be about THIS business, a decision-maker title or "founded by" must be near the name, first AND last name required, directory/list pages rejected, Medical Director / Managing Member / Partner alone rejected. Wrong-attribution lesson: it once put the owner of a different clinic on Miliv Med Spa; the owner confirmed the correct names for that and one other lead by hand.
@@ -241,7 +241,7 @@ Commands, flags and the job queue: see CLAUDE.md, Commands. Cost facts not state
 - Target 200 ready-to-email leads a week. More mailboxes will be added later (multi-mailbox from day one).
 - Opt-outs are detected from replies and honoured automatically.
 - Footer fields `POSTAL_ADDRESS`, `AD_DISCLOSURE`, `OPT_OUT_LINE` are deliberately EMPTY, knowing CAN-SPAM requires all three (FTC guide read 2026-11-09; penalties up to $53,088 per email; not legal advice). The builder must not invent them or block sending on empty.
-- Hunter plan decision still pending (2026-11-11); do not buy until the owner decides. Email rule ruling 2026-11-10: verification `valid` AND score >= 80, personal or business email both fine, `accept_all` excluded. No paid Apify top-up without asking.
+- Hunter plan decision still pending (2026-11-11); do not buy until the owner decides. Email rule ruling 2026-11-10: verification `valid` AND score >= 80 (lowered to 75 on 2026-11-23), personal or business email both fine, `accept_all` excluded. No paid Apify top-up without asking.
 - Send is always a separate explicit step from draft.
 - Gate answers (2026-11-10): ramp/cap defaults accepted, later recalibrated from sending history (section 7).
 
@@ -351,7 +351,7 @@ Rules: CLAUDE.md Rules. Also:
 | 2 | First real send, ON HOLD by the owner until the whole flow is signed off: small batch via Review, Drafts and Send pages; live-verifies thread and bounce reading on real recipients | Assistant drives; owner approves each paid/send step |
 | 3 | Hunter plan decision (pending). Prospeo free credits renew 2026-11-24 (83 left) | Owner decides |
 | 4 | Chains: `ovme` added to `chains.txt` (matches by name); check other multi-location groups with the same pattern when they appear | Assistant |
-| 5 | Name > email is the bottleneck (accept_all, score < 80): decide whether to accept `accept_all` with a lower bar or buy more verification credits | Owner decides |
+| 5 | Name > email is the bottleneck (accept_all, score < 75): decide whether to accept `accept_all` with a lower bar or buy more verification credits | Owner decides |
 | 6 | Confirm Workspace plan (paid vs trial) for kodoai.xyz send limits | Owner |
 | 7 | Add mailboxes (each needs warm-up and DNS check) for 200/week | Owner |
 | 8 | Richer signal sources (Instagram/Facebook posts, Google Business updates, job boards, news; not measured) | Owner decides; assistant measures |

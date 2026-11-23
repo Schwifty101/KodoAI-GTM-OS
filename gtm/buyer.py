@@ -39,7 +39,7 @@ def seniority(title: str) -> int:
     return 2
 
 
-MIN_SCORE = 80  # Hunter confidence (owner rule, 2026-11-10): `valid` alone is not enough
+MIN_SCORE = 75  # Hunter confidence (owner rule 2026-11-23, was 80 from 2026-11-10): `valid` alone is not enough
 
 
 def pick_buyer(candidates: list[dict]) -> dict | None:

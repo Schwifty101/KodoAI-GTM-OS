@@ -15,7 +15,7 @@
 - Read colours from `userEnteredFormat.backgroundColor` only. Pure green `(0,1,0)` = sent, pure red `(1,0,0)` = dropped; any other fill means nothing. A row with both counts as red.
 - Green and red rows become `suppression` rows only (reasons `sheet-sent`, `sheet-dropped`), never leads. Entries hold the exact email(s) and the website domain; never a free-mail or platform domain (reuse `gtm.replies.FREE_MAIL` and `gtm.clean.PLATFORM_DOMAINS`, as `gtm/import_history.py` does).
 - Uncoloured rows with an email become leads with status `scraped`, `email_source='sheet'`, `email_verified=false`; they go through the normal `clean`. `place_id` is the Maps place id parsed from `maps_url`, else `domain:<domain>`.
-- Enriched needs Hunter `valid` and score >= 80, a decision-maker title and a non-role address (`gtm.buyer.pick_buyer`); `accept_all` and `webmail` fail. A sheet `email_verification` value never skips Hunter.
+- Enriched needs Hunter `valid` and score >= 75, a decision-maker title and a non-role address (`gtm.buyer.pick_buyer`); `accept_all` and `webmail` fail. A sheet `email_verification` value never skips Hunter.
 - Field map (only these are read): `name, category, website, owner_name, owner_title, owner_linkedin, owner_email, maps_url, city`, plus `state` from the tab name (Utah UT, Newyork NY, Texas TX).
 - Sync is one way (sheet to OS). A lead at `drafted` or later is never changed by the sheet. New colours add suppression only; nothing is un-suppressed.
 - The OS never overwrites an owner-applied colour. It writes only data-row colours and the `Queue` tab.

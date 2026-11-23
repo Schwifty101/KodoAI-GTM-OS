@@ -41,7 +41,9 @@ def test_pick_buyer_takes_verified_decision_maker():
     [cand(position=None)],
     [cand(position="Practice Manager")],
     [cand(email=None)],
-    [cand(score=79)],
+    [cand(score=74)],
+    [cand(score=72)],
+    [cand(verification_status="accept_all", score=95)],
     [cand(score=None)],
     [],
 ])
@@ -49,8 +51,9 @@ def test_pick_buyer_rejects_role_unverified_untitled_or_non_decision_maker(bad):
     assert pick_buyer(bad) is None
 
 
-def test_pick_buyer_accepts_score_exactly_80():
-    assert pick_buyer([cand(score=80)])
+def test_pick_buyer_score_boundary_75():
+    assert pick_buyer([cand(score=74)]) is None
+    assert pick_buyer([cand(score=75)])
 
 
 def test_pick_buyer_prefers_most_senior():
