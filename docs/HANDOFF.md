@@ -1,8 +1,8 @@
-# HANDOFF: KodoAI GTM OS (updated 2026-11-17)
+# HANDOFF: KodoAI GTM OS (updated 2026-11-23)
 
 Read section 0, then `CLAUDE.md`. Section 0 is the current state and is enough to continue. Sections 1-11 are reference (written 2026-11-11, patched 2026-11-14). Anything not checked is marked **unverified**.
 
-## 0. Where things stand (2026-11-17)
+## 0. Where things stand (2026-11-23)
 
 ### (a) Status
 
@@ -13,7 +13,7 @@ Read section 0, then `CLAUDE.md`. Section 0 is the current state and is enough t
 | Plan 3a scrape and batches backend (coverage walk, batches of 100, time zones, fetch fallback) | BUILT, merged |
 | Plan 3b `/scrape` and `/batches` pages, `--named-only` retry, `batch_no_spend` view | BUILT, merged (PR #6). Browser run caught 4 bugs, fixed (`8f167b3`) |
 | Plan 4 drafts in the database, sample-first review, send scheduler, Pending follow-ups, send via Gmail API | BUILT and merged (PR #11; 727 tests pass). ACCEPTED LIVE 2026-11-15 on the VM (deployed, queue idle), recipient only the owner's own Gmail: draft jobs, approve in the browser, Start sending and Pause in the browser, the VM send thread sent Touch 1/2/3 (one Gmail thread), a bounce and a model-classified reply were read and acted on by the VM, memory peaked at 118 MB cgroup / 124 MB RSS with at least 560 MB free (enrich of 3 real leads and signals of 1 included, 5 s sampling). The first real Houston send is ON HOLD by the owner until the whole flow is signed off. Sending rules, ramp, pause and the rehearsal switch: see CLAUDE.md, Sending. Design: `docs/superpowers/specs/2026-11-14-plan4-drafts-and-sending-design.md`; plan: `docs/superpowers/plans/2026-11-14-plan4-drafts-and-sending.md` |
-| Plan 5 sheet import and manual queue | Built through Task 12 (CLI, worker kinds, morning queue schedule); pending acceptance and migration 0015; nothing run live |
+| Plan 5 sheet import, colour write-back, manual queue | BUILT and merged (PR #16, plus follow-ups pushed straight to `main`: `sheet-format`, import of ALL uncoloured rows, `verify-sheet` suppression skip, test fixes, Hunter rule 75). Migration 0015 applied 2026-11-18. The real sheet was cleaned and imported 2026-11-18 (section (h)). NOT done: VM deploy of Plan 5, first colour paint (`sheet-paint`), first Queue-tab write (`sheet-queue`) |
 | Plan 6 metrics, Home, Replies pages | NOT written |
 | Email copy and angle strategy | PARKED: `docs/NEXT-email-strategy.md` |
 
@@ -32,7 +32,7 @@ Plans: `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` (six-plan roadmap),
 
 | Item | Fact |
 |---|---|
-| Supabase | Project KodoAI-GTM-OS, id `alvxsbnfthvaiquhytig`, Tokyo. Migrations 0001-0014 all applied (0013 Plan 4 draft/send columns, 0014 `mailboxes.allowance_today`/`allowance_date`): 0009 job heartbeat, 0010 `coverage` + `leads.batch_no` + `leads.tz`, 0011 `claim_job(include_test)` (a live worker never claims test-marked jobs), 0012 `batch_no_spend` view |
+| Supabase | Project KodoAI-GTM-OS, id `alvxsbnfthvaiquhytig`, Tokyo. Migrations 0001-0015 all applied (0013 Plan 4 draft/send columns, 0014 `mailboxes.allowance_today`/`allowance_date`, 0015 Plan 5 `sheet_rows` table and `leads.owner_linkedin`): 0009 job heartbeat, 0010 `coverage` + `leads.batch_no` + `leads.tz`, 0011 `claim_job(include_test)` (a live worker never claims test-marked jobs), 0012 `batch_no_spend` view |
 | Google accounts (owner-confirmed 2026-11-14) | Workspace admin `soban@sobanahmad.dev` (primary domain `sobanahmad.dev`, secondary `kodoai.xyz`, paid plan). Sending mailbox `soban@kodoai.xyz`: owns GCP project `kodoai-gtm-os` (number 343452321933), which holds only the Gmail API Desktop OAuth client (consent screen Internal; the client file and token live in git-ignored `.secrets/`). Personal `sobanahmad2003@gmail.com`: the `gcloud` login and owner of `gen-lang-client-0603350481` (Vertex Gemini and the Google credit). Two projects, two jobs; the OS never logs into `sobanahmad.dev` |
 | GCP | Project `gen-lang-client-0603350481`, full pay-as-you-go account (upgraded before 2027-02-09, nothing is deleted). Budget alert "GTM OS monthly" $20 USD at 50/90/100 percent (warns, does not cap). `allow_paid_gemini` (off by default) is the only Gemini spend guard |
 | GCP APIs enabled | compute, secretmanager, cloudbilling, apikeys, billingbudgets, geocoding-backend (plus pre-existing iap) |
@@ -50,6 +50,19 @@ Plans: `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` (six-plan roadmap),
 | Spend so far | Apify month about $5.8; tile tuning spike $3.13; Serper about 33 credits in tests; Geocoding about 1,300 requests (free tier) |
 | Apify | Free credit ends 2026-11-24; balances about $4.7 and $4.7 on 2026-11-13. Daily cap default $2 (no stored row); a spike needs a temporary raise to 4.5 with the stored row deleted afterwards |
 | Schedule | `walk_schedule_enabled` is OFF by owner decision and stays off until the owner says so. The owner adds Apify credit only when the free credit runs out or when the OS is fully built and ready to start campaigns |
+
+### (h) Plan 5 live state (2026-11-23; counts from the owner's session, NOT re-queried after 2026-11-23 14:31 UTC)
+
+| Item | State |
+|---|---|
+| The sheet | Google Sheet "MedSpa", owner `soban@kodoai.xyz`; id saved in the Settings key `sheet_id` (never in the repo). The OS reads and writes it through the Gmail OAuth client with a separate token `.secrets/token_sheets.json` (git-ignored). Standard for the sheet: `docs/SHEET-GUIDELINES.md` |
+| Sheet cleanup, 2026-11-18 (`sheet-format`, verified) | Utah's two stacked blocks merged into ONE table (header A-T, 44 data rows); every tab: marks widened to the full row (90 green = sent, 26 red = dropped), the Newyork conditional-format rule deleted (it hid the real marks), headers one style, Tables converted to plain ranges by the owner. Way back: the owner's named version "pre sheet-format" in the sheet's version history, the xlsx backup `~/Downloads/MedSpa.xlsx`, local snapshots in `.secrets/sheet_*_snapshot_*.json` |
+| Import, 2026-11-18 (`import-sheet --confirm`) | Batch `Sheet import 2026-11-18` id `d42122b1-fc46-4518-8bfe-ac9af06e6f18`: 88 suppression rows (43 `sheet-sent`, 45 `sheet-dropped`), 201 NEW `scraped` leads for ALL uncoloured rows with or without an email (Texas 74, Newyork 126, Utah 1), 332 `sheet_rows` tracking rows. The owner's Notion history (Batch01-03, 218 emails) was already 100 percent in `suppression` |
+| Pipeline on that batch | `clean` (strict, owner decision): 105 kept, 96 rejected (78 category, 12 no_website, 6 day_spa) + 3 rejected by hand (a training school, a float spa, an IV-therapy clinic). `verify-sheet` spent 10.5 credits: 14 verified, 7 no_buyer, 12 skipped (contact not a decision-maker). `enrich` added about 13 verified (all via `site+hunter` / `search+hunter`). `signals` 15 signalled (all relevance-led, 0 signal-led), `select` picked 10 (`batch_no` 1, awaiting the owner's approval on `/review`; nothing drafted). Last known statuses: rejected 99, no_buyer 74 (43 named with no email, 14 unnamed), enriched 12 (waiting for `signals`), selected 10, signalled 2 (no handoff), cleaned 4 |
+| Hunter | Rule is now `valid` AND score >= 75 (owner 2026-11-23, was 80; `accept_all` still fails). Four free keys: on 2026-11-18 key1 0, key2 about 34, key3 32, key4 50 credits left (about 116 total after the enrich runs; re-check with the free `GET /v2/account` before big runs). `import_hunter_allowance_credits` = 25 (10.5 spent). Hunter Email Finder on the full names already saved from the sheet found NOTHING (8 of 8 in a direct test; no lead has source `saved+hunter`), so the low enrich yield is Hunter lacking data for these small clinics, not a code bug. The `saved` finder is on branch `worktree-agent-ac9ed7ba3835b3420` (`bcee407`), NOT merged, recommended to discard. A full tally on the 43 named leads was still running on 2026-11-23 |
+| Caps | `cap_serper_queries_day` raised to 1200 temporarily (default 700; set it back). Serper all-time use 1,195 credits on 2026-11-18, balance not visible from here. The "paid page fetch fallback" is on and spends Apify (about $0.67 in 3 hours of enrich); Apify free credit ends 2026-11-24 |
+| Queue and write-back | The owner turned `sheet_queue_on` on, but the VM still runs pre-Plan-5 code, so NOTHING runs until a deploy (gates: store the Sheets token as Secret Manager secret `sheets-token`, queue idle, owner's yes). `sheet_writeback_on` is off |
+| Known issues | (1) Status `signalled` means "the signals pass ran", `select` is the real gate (no handoff = not selected): proposed fix is to keep such a lead visibly not selected with a stored reason, not built. (2) `enrich` does not check suppression (`verify-sheet` now marks blocked leads `suppressed`). (3) `clean` ICP is strict: Google category exactly "Medical spa" or a name with med spa / medical spa / aesthetic; the word list for schools lacks "education". (4) Long runs on the owner's Mac were interrupted by network drops (ConnectError, ReadTimeout, SSL EOF); re-running is safe, leads already processed are saved. (5) The owner's sheet marks are read from the colour the owner typed (`userEnteredFormat`), never from conditional formats |
 
 ### (e) OWNER DECISION 2026-11-14: data sources
 

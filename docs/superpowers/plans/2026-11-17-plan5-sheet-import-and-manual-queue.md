@@ -1,5 +1,7 @@
 # Plan 5: Sheet import, colour write-back and manual queue — Implementation Plan
 
+> **Status 2026-11-23: BUILT and merged (PR #16).** Later changes made outside this plan: `sheet-format` and `docs/SHEET-GUIDELINES.md`, import of ALL uncoloured rows, `verify-sheet` suppression skip, Hunter rule 75. Live state: `docs/HANDOFF.md` section 0(h).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Import the owner's MedSpa Google Sheet into the OS (suppression from coloured rows, candidate leads from uncoloured rows), keep it in sync one way, paint row colours back, and run a daily ContactOut manual queue through a `Queue` tab.
