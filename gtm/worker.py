@@ -11,7 +11,7 @@ from gtm.db import get_db
 from gtm.gmail import gmail_service
 from gtm.jobs import claim, finish, heartbeat, requeue_stale
 from gtm.llm import complete_reply_json
-from gtm.schedule import queue_tick, tick
+from gtm.schedule import paint_tick, queue_tick, tick
 from gtm.send import send_tick
 
 ALLOWED = {"scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "walk", "check-drafts", "redraft", "import-sheet", "verify-sheet", "sheet-queue", "sheet-paint"}
@@ -92,6 +92,7 @@ def main(poll_seconds: int = 15) -> None:
             try:
                 tick(db)
                 queue_tick(db)
+                paint_tick(db)
             except Exception as e:  # a schedule error must never stop the loop
                 print(f"schedule tick failed: {type(e).__name__}: {e}")
             if not run_one(db):
