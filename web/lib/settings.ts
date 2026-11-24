@@ -36,7 +36,7 @@ export const SETTING_FIELDS: SettingField[] = [
   { key: "sheet_queue_hour_utc", label: "Sheet queue hour (UTC, 0-23)", type: "int", group: "Sheet", def: 13, min: 0, max: 23 },
   { key: "sheet_writeback_on", label: "Write status colours back to the sheet", type: "bool", group: "Sheet", def: false },
   { key: "import_hunter_allowance_credits", label: "Hunter credits allowed for sheet imports", type: "float", group: "Sheet", def: 0, min: 0 },
-  { key: "autopilot_on", label: "Autopilot on", type: "bool", group: "Autopilot", def: false },
+  { key: "autopilot_on", label: "Autopilot on", type: "bool", group: "Autopilot", def: false, readonly: true },
   { key: "autopilot_limit_usd", label: "Autopilot spend limit (USD, 0 = no limit)", type: "float", group: "Autopilot", def: 2, min: 0 },
   { key: "autopilot_target", label: "Autopilot target leads per batch", type: "int", group: "Autopilot", def: 100, min: 1 },
   { key: "autopilot_state", label: "Autopilot state", type: "text", group: "Autopilot", def: "off", readonly: true },

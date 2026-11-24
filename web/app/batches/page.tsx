@@ -42,7 +42,11 @@ export default function Batches() {
   const startedAt = String(vals.autopilot_started_at ?? "");
   useEffect(() => {
     if (!ready || !startedAt) return setSpent(null);
-    autopilotSpent(startedAt).then(setSpent, () => setSpent(null));
+    const tick = () => autopilotSpent(startedAt).then(setSpent, () => setSpent(null));
+    tick();
+    if (vals.autopilot_on !== true) return;
+    const t = setInterval(tick, 30_000);
+    return () => clearInterval(t);
   }, [ready, startedAt, vals.autopilot_on]);
   if (!ready) return null;
 
@@ -84,7 +88,7 @@ export default function Batches() {
           <button disabled={!noLimit && (limit === "" || Number(limit) < 0)} onClick={apStart}>{startedAt ? "Start / Resume" : "Start"}</button>{" "}
           <button disabled={!apOn} onClick={() => apRun(pauseAutopilot)}>Pause</button>
         </p>
-        <p className="muted">Resume starts the spend count again from now. Autopilot never approves leads or sends.</p>
+        <p className="muted">The limit counts Apify and Gemini dollars only; Hunter, Serper and Prospeo log credits and are bounded by their daily caps. Resume starts the spend count again from now. Autopilot never approves leads or sends.</p>
       </div>
 
       <h2>Batches of {BATCH_SIZE}</h2>

@@ -22,6 +22,8 @@ try {
   await startAutopilot(2.5);
   let s = await read();
   check("start: on, limit 2.5, state running", s.autopilot_on === true && s.autopilot_limit_usd === 2.5 && s.autopilot_state === "running");
+  const ts = Object.fromEntries(((await admin.from("settings").select("key,updated_at").in("key", KEYS)).data ?? []).map((r) => [r.key, r.updated_at]));
+  check("start: started_at written before on", ts.autopilot_started_at < ts.autopilot_on);
   check("start: started_at is now", Math.abs(Date.parse(s.autopilot_started_at as string) - t0) < 60_000);
 
   const before = await read();
