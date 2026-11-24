@@ -5,7 +5,7 @@ from typing import Any
 
 from gtm.db import get_db
 
-DEFAULTS: dict[str, bool | int | float | str] = {
+DEFAULTS: dict[str, bool | int | float | str | dict] = {
     "monthly_budget_pkr": 25000, "pkr_per_usd": 276, "weekly_target": 200,
     "allow_paid_gemini": False, "paid_gemini_monthly_cap_usd": 0.0,
     "credit_end_date": "2027-02-09", "credit_balance_usd": 298.0, "credit_balance_as_of": "2026-11-12",
@@ -25,6 +25,9 @@ DEFAULTS: dict[str, bool | int | float | str] = {
     # Plan 5: sheet import and manual queue
     "sheet_id": "", "sheet_queue_size": 5, "sheet_queue_on": False, "sheet_queue_hour_utc": 13,
     "sheet_writeback_on": False, "import_hunter_allowance_credits": 0.0,
+    # Autopilot: state and started_at are written by the controller/UI; limit 0 = no limit; batch_base = leads already in a batch outside the OS
+    "autopilot_on": False, "autopilot_limit_usd": 2.0, "autopilot_started_at": "", "autopilot_state": "off",
+    "autopilot_target": 100, "batch_base": {"3": 32},
 }
 TTL = 60
 _cache: dict[str, tuple[float, Any]] = {}
@@ -34,6 +37,8 @@ def _ok(key: str, v: Any) -> bool:
     d = DEFAULTS[key]
     if isinstance(d, bool) or isinstance(v, bool):
         return isinstance(d, bool) and isinstance(v, bool)
+    if key == "autopilot_limit_usd":
+        return isinstance(v, (int, float)) and v >= 0
     if isinstance(d, float):
         return isinstance(v, (int, float))
     if key in ("credit_end_date", "credit_balance_as_of"):

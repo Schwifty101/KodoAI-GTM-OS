@@ -4,7 +4,8 @@ from gtm.db import get_db
 from gtm.settings_store import clear_cache, set_setting, setting
 
 pytestmark = pytest.mark.db
-KEYS = ["monthly_budget_pkr", "weekly_target", "paid_gemini_monthly_cap_usd", "credit_balance_usd", "credit_end_date"]
+KEYS = ["monthly_budget_pkr", "weekly_target", "paid_gemini_monthly_cap_usd", "credit_balance_usd", "credit_end_date",
+        "autopilot_on", "autopilot_limit_usd", "autopilot_started_at", "autopilot_state", "autopilot_target", "batch_base"]
 db = get_db()
 
 
@@ -91,3 +92,16 @@ def test_sheet_defaults():
 
     for k, v in want.items():
         assert DEFAULTS[k] == v and type(DEFAULTS[k]) is type(v)
+
+
+def test_autopilot_defaults_and_types():
+    assert (setting("autopilot_on"), setting("autopilot_limit_usd"), setting("autopilot_started_at"),
+            setting("autopilot_state"), setting("autopilot_target"), setting("batch_base")) == (False, 2.0, "", "off", 100, {"3": 32})
+    set_setting(db, "autopilot_limit_usd", 0)  # 0 = no limit
+    assert setting("autopilot_limit_usd") == 0
+    for bad in ("x", -1):
+        with pytest.raises(ValueError):
+            set_setting(db, "autopilot_limit_usd", bad)
+    db.table("settings").upsert({"key": "batch_base", "value": "x"}).execute()
+    clear_cache()
+    assert setting("batch_base") == {"3": 32}
