@@ -1,5 +1,5 @@
 // Mirror of DEFAULTS in gtm/settings_store.py: scripts/verify.mts asserts keys and defaults equal the Python ones.
-export type SettingField = { key: string; label: string; type: "int" | "float" | "bool" | "date" | "text"; group: string; def: boolean | number | string; min?: number; max?: number };
+export type SettingField = { key: string; label: string; type: "int" | "float" | "bool" | "date" | "text"; group: string; def: boolean | number | string | Record<string, number>; min?: number; max?: number; readonly?: boolean };
 
 export const SETTING_FIELDS: SettingField[] = [
   { key: "monthly_budget_pkr", label: "Monthly budget (PKR)", type: "int", group: "Budget", def: 25000 },
@@ -36,6 +36,12 @@ export const SETTING_FIELDS: SettingField[] = [
   { key: "sheet_queue_hour_utc", label: "Sheet queue hour (UTC, 0-23)", type: "int", group: "Sheet", def: 13, min: 0, max: 23 },
   { key: "sheet_writeback_on", label: "Write status colours back to the sheet", type: "bool", group: "Sheet", def: false },
   { key: "import_hunter_allowance_credits", label: "Hunter credits allowed for sheet imports", type: "float", group: "Sheet", def: 0, min: 0 },
+  { key: "autopilot_on", label: "Autopilot on", type: "bool", group: "Autopilot", def: false },
+  { key: "autopilot_limit_usd", label: "Autopilot spend limit (USD, 0 = no limit)", type: "float", group: "Autopilot", def: 2, min: 0 },
+  { key: "autopilot_target", label: "Autopilot target leads per batch", type: "int", group: "Autopilot", def: 100, min: 1 },
+  { key: "autopilot_state", label: "Autopilot state", type: "text", group: "Autopilot", def: "off", readonly: true },
+  { key: "autopilot_started_at", label: "Autopilot started at", type: "text", group: "Autopilot", def: "", readonly: true },
+  { key: "batch_base", label: "Leads already in a batch outside the OS (JSON)", type: "text", group: "Autopilot", def: { "3": 32 }, readonly: true },
   { key: "fetch_fallback", label: "Read blocked pages through a paid fallback", type: "bool", group: "Page fetching", def: true },
 ];
 
@@ -57,6 +63,7 @@ export const GROUPS: [string, string][] = [
   ["API prices", "Third-party prices, unconfirmed; they only change what the cost views show."],
   ["Daily caps", "Each cap is in the provider's own unit and is checked before every paid call; 0 blocks the provider."],
   ["Page fetching", ""],
+  ["Autopilot", "Runs the pipeline passes by itself within the spend limit. Start and Pause live on Batches; the state and start time are written by the controller."],
   ["Sheet", "The MedSpa sheet: its id, the daily ContactOut queue and the colour write-back. Both switches stay off until the owner turns them on; the Hunter allowance is a one-off lifetime budget for the sheet import and defaults to 0 (nothing can be spent)."],
 ];
 // Shown on their own pages, never on Settings.

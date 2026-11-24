@@ -66,7 +66,7 @@ await admin.from("mailboxes").delete().eq("id", mb!.id);
 // Task 6: settings and jobs actions
 const pyDefaults = JSON.parse(execFileSync("uv", ["run", "python", "-c", "import json;from gtm.settings_store import DEFAULTS;print(json.dumps(DEFAULTS))"], { cwd: "..", encoding: "utf8" }));
 check("SETTING_FIELDS keys and defaults equal the Python DEFAULTS",
-  JSON.stringify(SETTING_FIELDS.map((f) => f.key).sort()) === JSON.stringify(Object.keys(pyDefaults).sort()) && SETTING_FIELDS.every((f) => f.def === pyDefaults[f.key]));
+  JSON.stringify(SETTING_FIELDS.map((f) => f.key).sort()) === JSON.stringify(Object.keys(pyDefaults).sort()) && SETTING_FIELDS.every((f) => JSON.stringify(f.def) === JSON.stringify(pyDefaults[f.key])));
 const fld = (k: string) => SETTING_FIELDS.find((f) => f.key === k)!;
 check("validSetting enforces ranges",
   !validSetting(fld("walk_hour_utc"), 24) && !validSetting(fld("walk_hour_utc"), -1) && validSetting(fld("walk_hour_utc"), 0) && validSetting(fld("walk_hour_utc"), 23)
