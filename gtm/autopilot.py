@@ -52,6 +52,7 @@ class AutoState:
 class Decision:
     state: str  # off | running | waiting_approval | paused: <reason>
     enqueue: tuple | None = None
+    n: int | None = None  # draft only: approved leads waiting, stored in the job payload so more approvals redraft but stuck leads do not loop
 
 
 STAGES = [("clean", "scraped", []), ("verify-sheet", "sheet_email_cleaned", ["--confirm"]), ("enrich", "cleaned", []),
@@ -76,8 +77,9 @@ def decide(s: AutoState) -> Decision:
         if kind == "verify-sheet" and not s.verify_allowed:
             continue
         for b in s.batches:
-            if getattr(b, field_) and (kind, b.batch_id) not in s.tried:
-                return Decision("running", (kind, ["--batch", b.batch_id, *extra]))
+            n = getattr(b, field_)
+            if n and ((kind, b.batch_id, n) if kind == "draft" else (kind, b.batch_id)) not in s.tried:
+                return Decision("running", (kind, ["--batch", b.batch_id, *extra]), n if kind == "draft" else None)
     if s.current_fill + s.in_flight >= s.target or s.unapproved_selected >= s.target:
         return Decision("waiting_approval")
     if not s.tiles_left:
@@ -115,10 +117,11 @@ def load_state(db, now: datetime) -> AutoState:
     for j in jobs:
         argv = (j["payload"] or {}).get("argv", [])
         if j["status"] == "done" and "--batch" in argv:
-            tried.add((j["kind"], argv[argv.index("--batch") + 1]))
+            key = (j["kind"], argv[argv.index("--batch") + 1])
+            tried.add((*key, j["payload"].get("n")) if j["kind"] == "draft" else key)
     open_job = bool(db.table("jobs").select("id").in_("kind", PIPELINE).in_("status", ["queued", "running"]).limit(1).execute().data)
     # one pass over every lead still moving through the pipeline, counted per source batch in Python (no per-batch queries)
-    leads = fetch_all(lambda: db.table("leads").select("batch_id,status,email_source,email_verified,owner_email,approved").in_("status", ["scraped", "cleaned", "enriched", "signalled", "selected"]).order("id"))
+    leads = fetch_all(lambda: db.table("leads").select("batch_id,status,email_source,email_verified,owner_email,approved,reject_reason").in_("status", ["scraped", "cleaned", "enriched", "signalled", "selected"]).order("id"))
     stages: dict[str, BatchStage] = {}
     unapproved = 0
     for r in leads:
@@ -130,6 +133,8 @@ def load_state(db, now: datetime) -> AutoState:
             else:
                 unapproved += 1
             continue
+        if st == "signalled" and r["reject_reason"]:
+            continue  # select skipped it (no_handoff, no_email, already_contacted): it never advances, so it neither blocks nor throttles
         setattr(b, st, getattr(b, st) + 1)
         if st == "cleaned" and r["email_source"] == "sheet" and r["email_verified"] is False and r["owner_email"]:
             b.sheet_email_cleaned += 1
@@ -153,4 +158,6 @@ def autopilot_tick(db, now: datetime | None = None) -> str | None:
     d = decide(load_state(db, now)) if setting("autopilot_on", db) else Decision("off")
     if setting("autopilot_state", db) != d.state:
         set_setting(db, "autopilot_state", d.state)
-    return enqueue(db, d.enqueue[0], {"argv": d.enqueue[1]}) if d.enqueue else None
+    if not d.enqueue:
+        return None
+    return enqueue(db, d.enqueue[0], {"argv": d.enqueue[1], **({"n": d.n} if d.n else {})})

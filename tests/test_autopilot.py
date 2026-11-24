@@ -184,3 +184,40 @@ def test_tick_enqueues_one_job_and_writes_state(world, monkeypatch):
     assert ap.autopilot_tick(db, NOW) is None and len(calls) == 1
     cfg["autopilot_on"] = False
     assert ap.autopilot_tick(db, NOW) is None and cfg["autopilot_state"] == "off" and len(calls) == 1
+
+
+def test_draft_again_when_more_approved_after_done_job():
+    assert decide(S(tried={("draft", "b1", 2)}, batches=[B(approved_undrafted=5)])).enqueue == ("draft", ["--batch", "b1"])
+    assert decide(S(batches=[B(approved_undrafted=5)])).n == 5
+
+
+def test_draft_not_repeated_when_count_unchanged():
+    assert decide(S(tried={("draft", "b1", 2)}, current_fill=100, batches=[B(approved_undrafted=2)])).enqueue is None
+
+
+def test_tick_puts_draft_count_in_payload(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ap, "enqueue", lambda db, kind, payload=None, **kw: calls.append((kind, payload)) or "j")
+    monkeypatch.setattr(ap, "load_state", lambda db, now: AutoState(on=True, batches=[B(approved_undrafted=4)]))
+    monkeypatch.setattr(ap, "setting", lambda key, db=None: {"autopilot_on": True, "autopilot_state": "running"}[key])
+    monkeypatch.setattr(ap, "set_setting", lambda db, key, v: None)
+    assert ap.autopilot_tick(None, NOW) == "j" and calls == [("draft", {"argv": ["--batch", "b1"], "n": 4})]
+
+
+@pytest.mark.db
+def test_skipped_signalled_leads_are_not_counted(world):
+    db, bid, cfg = world
+    s0 = ap.load_state(db, NOW)
+    for i in (1, 2, 3):
+        lead(db, bid, i, "signalled", reject_reason="no_handoff")
+    lead(db, bid, 4, "signalled")
+    s = ap.load_state(db, NOW)
+    assert next(x for x in s.batches if x.batch_id == bid).signalled == 1
+    assert s.in_flight - s0.in_flight == 1
+
+
+@pytest.mark.db
+def test_load_state_records_draft_count_from_done_job(world):
+    db, bid, cfg = world
+    db.table("jobs").insert({"kind": "draft", "status": "done", "created_at": NOW.isoformat(), "payload": {"argv": ["--batch", bid], "n": 2, "test": "ap"}}).execute()
+    assert ("draft", bid, 2) in ap.load_state(db, NOW).tried
