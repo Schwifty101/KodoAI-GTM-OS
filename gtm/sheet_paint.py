@@ -1,7 +1,7 @@
 """Colour write-back: paint the sheet row of a tracked lead green or red, never over the owner's marks."""
 from datetime import datetime, timezone
 
-from gtm.sheet import QUEUE_TAB, paint_rows, read_tab
+from gtm.sheet import QUEUE_TAB, paint_rows, read_tab, write_cells
 from gtm.settings_store import setting
 
 GREEN = {"sent", "replied", "booked"}
@@ -44,7 +44,7 @@ def plan_paint(tracked_rows: list[dict], live: dict[tuple[str, int, str], list[s
     out = []
     for t in tracked_rows:
         colours = live.get((t["tab"], t["block"], t["row_key"]))
-        if t["tab"] == QUEUE_TAB or colours is None:
+        if t["tab"] == QUEUE_TAB or colours is None or t.get("suppression_only"):
             continue
         written, want, width = t.get("colour_written"), t["desired"], t["width"]
         ours = is_ours(colours, width, written)
@@ -58,21 +58,32 @@ def plan_paint(tracked_rows: list[dict], live: dict[tuple[str, int, str], list[s
     return out
 
 
+def plan_status(tracked: list[dict], live_status: dict[tuple[str, int, str], str], cols: dict[str, int]) -> list[tuple[str, int, int, str]]:
+    """(tab, row_no, col, value) only where the live os_status cell differs from the desired value."""
+    return [(t["tab"], t["sheet_row_no"], cols[t["tab"]], t["status_value"]) for t in tracked
+            if t["tab"] in cols and live_status.get((t["tab"], t["block"], t["row_key"]), "") != t["status_value"]]
+
+
 def _tracked_and_live(db, svc, sheet_id: str):
-    """Tracked sheet_rows (with the lead's state), the live colours of each row, and the count of skipped rows.
+    """Returns (tracked, live colours, skipped count, live os_status cells, {tab: (header_row_no, os_col, exists)}).
+    Tracked rows carry the lead's state; suppression-only rows (owner marks) take status_value from their colour.
     A tracked row is found by its row_key over the whole tab (sorting is safe); sheet_row_no is the LIVE row number
     (stored value kept as stored_row_no). A key missing or appearing twice in the tab is skipped and counted."""
     from gtm.db import fetch_all
     from gtm.sheet_import import place_key
-    from gtm.sheet_map import map_tab  # block numbers and header widths
+    from gtm.sheet_map import _is_header, map_tab # block numbers and header widths
 
     data = fetch_all(lambda: db.table("sheet_rows")
-                     .select("id,tab,block,row_key,sheet_row_no,colour_written,queue_state,leads(status,owner_name,owner_email)")
-                     .not_.is_("lead_id", "null").eq("orphaned", False).order("id"))
-    tracked, live, moved = [], {}, 0
+                     .select("id,tab,block,row_key,sheet_row_no,colour_written,colour_seen,queue_state,suppression_id,leads(status,owner_name,owner_email)")
+                     .eq("orphaned", False).order("id"))
+    tracked, live, moved, live_status, hdr = [], {}, 0, {}, {}
     for tab in sorted({r["tab"] for r in data} - {QUEUE_TAB}):
         rows = read_tab(svc, sheet_id, tab)
         by_no = {r.row_no: r for r in rows}
+        heads = [r for r in rows if _is_header(r)]
+        if heads:  # one os_status column per tab: the existing one, else right of the widest header
+            found = [(r.row_no, *os_col(r.cells)) for r in heads]
+            hdr[tab] = next((f for f in found if f[2]), None) or (found[0][0], max(f[1] for f in found), False)
         at = {}  # row_key -> [(row_no, width)]
         for m in map_tab(tab, rows):
             try:
@@ -81,33 +92,49 @@ def _tracked_and_live(db, svc, sheet_id: str):
                 pass
         for r in (r for r in data if r["tab"] == tab):
             lead, here = r.get("leads"), at.get(r["row_key"], [])
-            if not lead:
+            if not lead and not r.get("suppression_id"):
                 continue
             if len(here) != 1:
                 moved += 1  # key deleted or duplicated in the tab: never paint a guessed row
                 continue
             no, width = here[0]
-            tracked.append({**r, "stored_row_no": r["sheet_row_no"], "sheet_row_no": no, "width": width, "desired": desired_colour(
-                lead["status"], lead.get("owner_name"), lead.get("owner_email"), r.get("queue_state"))})
-            live[(tab, r["block"], r["row_key"])] = by_no[no].colours
-    return tracked, live, moved
+            base = {**r, "stored_row_no": r["sheet_row_no"], "sheet_row_no": no, "width": width}
+            if lead:
+                args = (lead["status"], lead.get("owner_name"), lead.get("owner_email"), r.get("queue_state"))
+                tracked.append({**base, "desired": desired_colour(*args), "status_value": os_status_value(*args)})
+            else:  # owner mark with no lead: value follows the colour the owner applied; never repainted
+                tracked.append({**base, "desired": None, "suppression_only": True,
+                                "status_value": _STATUS_OF.get(r.get("colour_seen"), "open")})
+            key = (tab, r["block"], r["row_key"])
+            live[key] = by_no[no].colours
+            if tab in hdr:
+                cells = by_no[no].cells
+                live_status[key] = cells[hdr[tab][1]] if len(cells) > hdr[tab][1] else ""
+    return tracked, live, moved, live_status, hdr
 
 
 def run_paint(db, svc, sheet_id: str, confirm: bool = False) -> int:
     if not setting("sheet_writeback_on", db):
         raise RuntimeError("sheet write-back is off (setting sheet_writeback_on)")
-    tracked, live, moved = _tracked_and_live(db, svc, sheet_id)
+    tracked, live, moved, live_status, hdr = _tracked_and_live(db, svc, sheet_id)
     plan = plan_paint(tracked, live)
+    status = plan_status(tracked, live_status, {t: h[1] for t, h in hdr.items()})
     for tab, row_no, width, colour in plan:
         print(f"{tab} row {row_no} (A..{width}): {colour or 'clear'}")
+    for tab, row_no, _, value in status:
+        print(f"{tab} row {row_no}: os_status {value}")
     print(f"{moved} rows moved (skipped)")
     print(f"{len(plan)} rows" + ("" if confirm else " (preview; --confirm to paint)"))
+    print(f"{len(status)} status cells")
     if confirm:  # follow the owner's sort: keep the stored row number current
         for t in tracked:
             if t.get("stored_row_no", t["sheet_row_no"]) != t["sheet_row_no"]:
                 db.table("sheet_rows").update({"sheet_row_no": t["sheet_row_no"]}).eq("id", t["id"]).execute()
-    if not confirm or not plan:
+    if not confirm:
         return len(plan)
+    for tab in sorted({s[0] for s in status}):
+        head = [] if hdr[tab][2] else [(hdr[tab][0], hdr[tab][1], STATUS_HEADER)]  # header once, when missing
+        write_cells(svc, sheet_id, tab, head + [(n, c, v) for t, n, c, v in status if t == tab])
     ids = {(t["tab"], t["sheet_row_no"]): t["id"] for t in tracked}
     for tab in sorted({p[0] for p in plan}):
         cells = [(n, w, c) for t, n, w, c in plan if t == tab]
