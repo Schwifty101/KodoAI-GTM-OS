@@ -345,7 +345,7 @@ def build_parser() -> argparse.ArgumentParser:
     rb.add_argument("--to", dest="to_no", type=int, required=True)
     rb.add_argument("--confirm", action="store_true")
     rb.set_defaults(fn=cmd_renumber_batch)
-    t = sub.add_parser("tz-backfill",help="set tz on leads that have none (free)")
+    t = sub.add_parser("tz-backfill", help="set tz on leads that have none (free)")
     t.set_defaults(fn=cmd_tz_backfill)
     return p
 
