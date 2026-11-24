@@ -41,7 +41,26 @@ export async function saveSetting(key: string, value: unknown) {
   await ok(supabase.from("settings").upsert({ key, value, updated_at: new Date().toISOString() }));
 }
 
-/** Queue a worker job: `argv` is the CLI pass arguments, e.g. ["--batch", "B1"]. */
+/** Start or Resume Autopilot with a new spend limit (0 = no limit); the spend clock restarts now. A negative limit throws before anything is written. */
+export async function startAutopilot(limitUsd: number) {
+  const lim = SETTING_FIELDS.find((x) => x.key === "autopilot_limit_usd")!;
+  if (!validSetting(lim, limitUsd)) throw new Error("the limit must be 0 (no limit) or more");
+  await saveSetting("autopilot_limit_usd", limitUsd);
+  await saveSetting("autopilot_started_at", new Date().toISOString());
+  await saveSetting("autopilot_state", "running");
+  await saveSetting("autopilot_on", true);
+}
+
+export const pauseAutopilot = () => saveSetting("autopilot_on", false);
+
+/** USD recorded in cost_log since `since` (read-only). ponytail: sums client-side, so PostgREST's 1000-row cap would undercount; move to a view if a run logs more. */
+export async function autopilotSpent(since: string): Promise<number> {
+  const { data, error } = await supabase.from("cost_log").select("usd").gte("created_at", since);
+  if (error) throw new Error(error.message);
+  return (data ?? []).reduce((a, r) => a + Number(r.usd), 0);
+}
+
+/** Queue a worker job:`argv` is the CLI pass arguments, e.g. ["--batch", "B1"]. */
 export const enqueueJob = (kind: string, argv: string[]) => ok(supabase.from("jobs").insert({ kind, payload: { argv } }));
 
 export const cancelJob = (id: string) => ok(supabase.from("jobs").update({ status: "cancelled" }).eq("id", id).eq("status", "queued"));

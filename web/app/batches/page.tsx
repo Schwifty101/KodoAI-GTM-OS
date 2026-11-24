@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
 import { useSettings } from "@/lib/useSettings";
+import { autopilotSpent, pauseAutopilot, startAutopilot } from "@/lib/actions";
 import { STATUSES, type BatchMetrics, type Job, type SpendRow } from "@/lib/types";
 import { BATCH_SIZE, creditState, fillLabel, loadBatchNos, loadRetryCandidates, retryLater, retryOpen, type BatchNoRow, type RetryRow } from "@/lib/batches";
 
@@ -11,7 +12,10 @@ const money = (n: number) => `$${n.toFixed(n < 0.1 ? 4 : 2)}`;
 
 export default function Batches() {
   const ready = useRequireSession();
-  const { vals } = useSettings(ready);
+  const { vals, reload } = useSettings(ready);
+  const [limit, setLimit] = useState("2");
+  const [noLimit, setNoLimit] = useState(false);
+  const [spent, setSpent] = useState<number | null>(null);
   const [nos, setNos] = useState<BatchNoRow[]>([]);
   const [runs, setRuns] = useState<BatchMetrics[]>([]);
   const [retry, setRetry] = useState<RetryRow[]>([]);
@@ -35,7 +39,19 @@ export default function Batches() {
     setLoaded(true);
   }, []);
   useEffect(() => { if (ready) load(); }, [ready, load]);
+  const startedAt = String(vals.autopilot_started_at ?? "");
+  useEffect(() => {
+    if (!ready || !startedAt) return setSpent(null);
+    autopilotSpent(startedAt).then(setSpent, () => setSpent(null));
+  }, [ready, startedAt, vals.autopilot_on]);
   if (!ready) return null;
+
+  const apOn = vals.autopilot_on === true;
+  const apLimit = Number(vals.autopilot_limit_usd ?? 0);
+  const apRun = async (fn: () => Promise<void>) => {
+    try { await fn(); await reload(); setErr(""); } catch (e) { setErr((e as Error).message); }
+  };
+  const apStart = () => apRun(() => startAutopilot(noLimit ? 0 : Number(limit)));
 
   const credits = creditState(spend, vals);
   const allBlocked = credits.every((c) => c.blocked);
@@ -53,6 +69,23 @@ export default function Batches() {
       <h1>Batches</h1>
       <p className="muted">A batch is {BATCH_SIZE} verified, selected owners (numbered when a lead becomes selected, never renumbered). Leads that are scraped but not yet selected belong to a scrape run, listed below.</p>
       {err && <p className="err">{err}</p>}
+
+      <div className="card">
+        <h2>Autopilot</h2>
+        <p>
+          {String(vals.autopilot_state ?? "off")} {apOn ? <span className="pill">on</span> : <span className="pill bad">off</span>}
+        </p>
+        <p>
+          Spent {spent === null ? "-" : money(spent)} of {apLimit === 0 ? "no limit" : money(apLimit)}{startedAt && ` since ${startedAt.slice(0, 16).replace("T", " ")}`}
+        </p>
+        <p>
+          <label>Limit (USD) <input type="number" min="0" step="0.5" value={limit} disabled={noLimit} onChange={(e) => setLimit(e.target.value)} /></label>{" "}
+          <label><input type="checkbox" checked={noLimit} onChange={(e) => setNoLimit(e.target.checked)} /> No limit</label>{" "}
+          <button disabled={!noLimit && (limit === "" || Number(limit) < 0)} onClick={apStart}>{startedAt ? "Start / Resume" : "Start"}</button>{" "}
+          <button disabled={!apOn} onClick={() => apRun(pauseAutopilot)}>Pause</button>
+        </p>
+        <p className="muted">Resume starts the spend count again from now. Autopilot never approves leads or sends.</p>
+      </div>
 
       <h2>Batches of {BATCH_SIZE}</h2>
       {!loaded ? <p className="muted">Loading…</p> : nos.length === 0 ? <p className="muted">No batch numbers yet: leads get one when select picks them.</p> : (
