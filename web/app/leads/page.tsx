@@ -65,7 +65,7 @@ export default function Leads() {
               <tr className="row" onClick={() => setOpen(open === l.id ? null : l.id)}>
                 <td>{l.name}<div className="muted">{l.domain}</div></td>
                 <td>{[l.city, l.state].filter(Boolean).join(", ")}</td>
-                <td><span className={`pill ${l.status === "selected" || l.status === "sent" ? "ok" : l.status === "rejected" || l.status === "bounced" ? "bad" : ""}`}>{l.status}</span></td>
+                <td><span className={`pill ${l.status === "selected" || l.status === "sent" ? "ok" : l.status === "rejected" || l.status === "bounced" ? "bad" : ""}`}>{l.status}</span>{l.status === "signalled" && l.reject_reason && <div className="muted">not selected: {l.reject_reason}</div>}</td>
                 <td>{l.owner_name ?? <span className="muted">none</span>}<div className="muted">{l.owner_title}</div></td>
                 <td>{l.vector ?? ""}</td>
                 <td>{l.vector ? (l.signal_led ? "signal-led" : "relevance-led") : ""}</td>

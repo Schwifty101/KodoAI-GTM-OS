@@ -104,3 +104,12 @@ def test_reason_falls_back_to_the_observed_evidence_when_the_model_fails(signall
     run_select(db, boom, bid)
     r = row(db, 0)
     assert r["status"] == "selected" and "Hiring a front desk coordinator" in r["select_reason"]
+
+
+@pytest.mark.db
+def test_lead_without_a_handoff_stays_signalled_with_the_reason_stored(signalled):
+    db, bid = signalled
+    db.table("leads").update({"signal": {"current_signal": None, "relevant_handoff": None}}).eq("place_id", "TEST_3").execute()
+    run_select(db, lambda s, p: {"reason": "ok"}, bid)
+    d = row(db, 3)
+    assert (d["status"], d["reject_reason"]) == ("signalled", "no_handoff")
