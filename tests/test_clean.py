@@ -36,7 +36,7 @@ def test_as_me_only_matches_as_a_domain_suffix():
 
 
 @pytest.mark.parametrize("kw", [{"name": "Beyond Beauty Academy"}, {"categories": ["Medical spa", "Beauty school"]},
-                                {"categories": ["Medical spa", "Training centre"]}, {"name": "Aesthetics Training Institute"}])
+                                {"categories": ["Medical spa", "Training centre"]}, {"name": "Aesthetics Training Institute"}, {"name": "TEST_ Laser Education Center"}])
 def test_training_school_is_rejected_as_not_a_clinic(kw):
     assert clean_decision(lead(**kw)) == "not_a_clinic"
 

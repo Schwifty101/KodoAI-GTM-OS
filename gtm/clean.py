@@ -25,7 +25,7 @@ PLATFORM_DOMAINS = ("instagram.", "facebook.", "linktr.ee", "square.site", "vaga
 # Matched as a domain suffix (a substring like "as.me" would hit "atlas.medical.com").
 PLATFORM_SUFFIXES = ("as.me", "acuityscheduling.com", "squareup.com", "setmore.com", "calendly.com", "carrd.co", "fresha.com", "styleseat.com", "mindbodyonline.com")
 # Training schools are not clinics. ponytail: word match on name/categories; a real med spa named "... Academy" is a known miss.
-SCHOOL_WORDS = re.compile(r"\b(academy|school|training|university|college)\b", re.I)
+SCHOOL_WORDS = re.compile(r"\b(academy|school|training|university|college|education)\b", re.I)
 ON_ICP_NAME = re.compile(r"med ?spa|medical spa|aesthetic", re.I)
 CHAIN_MIN = 3  # same brand this many times in one batch means a multi-location group, not an independent
 CHAINS = [ln.strip().lower() for ln in (Path(__file__).parent / "data" / "chains.txt").read_text().splitlines() if ln.strip() and not ln.startswith("#")]
