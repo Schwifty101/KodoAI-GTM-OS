@@ -25,6 +25,11 @@ def b2row(confirmed="", check=""):
     return ["Sun Spa", "Provo", "sun.example", "", "Kim Roe", "Founder", "", "", "", confirmed, check, "kim@sun.example"]
 
 
+def test_os_status_header_is_outside_the_width():
+    rows = [row("Utah", 1, ["business", "website", "os_status"]), row("Utah", 2, ["Glow", "https://glow.example", "open"])]
+    assert map_tab("Utah", rows)[0].width == 2
+
+
 def test_utah_two_blocks_have_separate_headers():
     rows = [row("Utah", 1, H1), row("Utah", 2, data()), row("Utah", 20, H2), row("Utah", 21, b2row())]
     out = blocks(rows)

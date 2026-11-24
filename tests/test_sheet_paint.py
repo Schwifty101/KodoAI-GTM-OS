@@ -272,3 +272,61 @@ def test_confirm_writes_header_once_then_values(monkeypatch):
     run_paint(FakeDb(True), object(), "sid", confirm=True)
     assert calls["cells"] == [[(5, 20, "dropped")]]
     settings_store.clear_cache()
+
+
+def _sheet(monkeypatch, rows):
+    monkeypatch.setattr(sheet_paint, "read_tab", lambda svc, sid, tab: rows)
+
+
+def test_os_status_header_does_not_widen_the_paint_width(monkeypatch):
+    sheet = [SheetRow("Utah", 1, ["business", "website", "os_status"], [None] * 3),
+             SheetRow("Utah", 2, ["A", "https://a.example", "open"], ["red", "red", None])]  # our earlier paint, A..2
+    _sheet(monkeypatch, sheet)
+    rec = {**_tr("a", 2, "a.example"), "colour_written": "red"}  # lead is now sent: repaint green
+    tracked, live, moved, live_status, hdr = sheet_paint._tracked_and_live(Q([rec]), object(), "sid")
+    assert tracked[0]["width"] == 2 and hdr == {"Utah": (1, 2, True)}
+    assert plan_paint(tracked, live) == [("Utah", 2, 2, "green")]  # recognised as ours, not an owner mark
+
+
+def test_missing_os_status_goes_past_the_longest_row_of_the_tab(monkeypatch):
+    sheet = [SheetRow("Utah", 1, ["business", "website"], [None] * 2),
+             SheetRow("Utah", 2, ["A", "https://a.example", "", "", "note"], [None] * 5)]
+    _sheet(monkeypatch, sheet)
+    _, _, _, _, hdr = sheet_paint._tracked_and_live(Q([_tr("a", 2, "a.example")]), object(), "sid")
+    assert hdr == {"Utah": (1, 5, False)}
+
+
+def test_one_live_row_claimed_by_two_records_is_skipped_and_counted(monkeypatch):
+    _sheet(monkeypatch, [SheetRow("Utah", 1, ["business", "website"], [None] * 2), _sr(2, "A", "a.example")])
+    data = [_tr("b1", 2, "a.example", block=1), _tr("b2", 2, "a.example", block=2)]
+    tracked, live, moved, *_ = sheet_paint._tracked_and_live(Q(data), object(), "sid")
+    assert tracked == [] and moved == 2
+
+
+def test_owner_mark_decides_os_status(monkeypatch):
+    sheet = [SheetRow("Utah", 1, ["business", "website"], [None] * 2),
+             SheetRow("Utah", 2, ["A", "https://a.example"], ["red", "red"]),
+             SheetRow("Utah", 3, ["B", "https://b.example"], ["green", "green"])]
+    _sheet(monkeypatch, sheet)
+    data = [_tr("a", 2, "a.example", status="sent"), _tr("b", 3, "b.example", status="rejected")]
+    tracked, live, *_ = sheet_paint._tracked_and_live(Q(data), object(), "sid")
+    assert {t["id"]: t["status_value"] for t in tracked} == {"a": "dropped", "b": "sent"}
+    assert plan_paint(tracked, live) == []
+
+
+def test_status_column_past_az_is_refused(monkeypatch):
+    sheet = [SheetRow("Utah", 1, ["business", "website"], [None] * 2),
+             SheetRow("Utah", 2, ["A", "https://a.example"] + [""] * 49 + ["far"], [None] * 52)]
+    _sheet(monkeypatch, sheet)
+    with pytest.raises(RuntimeError, match="past AZ"):
+        sheet_paint._tracked_and_live(Q([_tr("a", 2, "a.example")]), object(), "sid")
+
+
+def test_preview_skips_stored_row_number_update(monkeypatch):
+    settings_store.clear_cache()
+    r = {**row("red"), "id": "row-1", "stored_row_no": 7, "status_value": "dropped"}
+    monkeypatch.setattr(sheet_paint, "_tracked_and_live", lambda db, svc, sid: ([r], live_of(r, [None] * 3), 0, {}, {}))
+    db = FakeDb(True)
+    run_paint(db, object(), "sid")
+    assert db.updates == []
+    settings_store.clear_cache()

@@ -39,6 +39,10 @@ def is_ours(row_colours: list[str | None], width: int, written: str | None) -> b
     return bool(written) and len(row_colours) >= width and all(c == written for c in row_colours[:width])
 
 
+def owner_mark(t: dict, colours: list[str | None]) -> bool:
+    return not is_ours(colours, t["width"], t.get("colour_written")) and any(colours)
+
+
 def plan_paint(tracked_rows: list[dict], live: dict[tuple[str, int, str], list[str | None]]) -> list[tuple[str, int, int, str | None]]:
     """tracked: tab, block, row_key, sheet_row_no, width, colour_written, desired. Returns (tab, row_no, width, colour)."""
     out = []
@@ -48,7 +52,7 @@ def plan_paint(tracked_rows: list[dict], live: dict[tuple[str, int, str], list[s
             continue
         written, want, width = t.get("colour_written"), t["desired"], t["width"]
         ours = is_ours(colours, width, written)
-        if not ours and any(colours):
+        if owner_mark(t, colours):
             continue  # the owner's mark wins
         if want == written:
             continue  # already as desired, or the owner cleared our paint and the state has not moved
@@ -71,7 +75,7 @@ def _tracked_and_live(db, svc, sheet_id: str):
     (stored value kept as stored_row_no). A key missing or appearing twice in the tab is skipped and counted."""
     from gtm.db import fetch_all
     from gtm.sheet_import import place_key
-    from gtm.sheet_map import _is_header, map_tab # block numbers and header widths
+    from gtm.sheet_map import _is_header, map_tab  # block numbers and header widths
 
     data = fetch_all(lambda: db.table("sheet_rows")
                      .select("id,tab,block,row_key,sheet_row_no,colour_written,colour_seen,queue_state,suppression_id,leads(status,owner_name,owner_email)")
@@ -83,13 +87,17 @@ def _tracked_and_live(db, svc, sheet_id: str):
         heads = [r for r in rows if _is_header(r)]
         if heads:  # one os_status column per tab: the existing one, else right of the widest header
             found = [(r.row_no, *os_col(r.cells)) for r in heads]
-            hdr[tab] = next((f for f in found if f[2]), None) or (found[0][0], max(f[1] for f in found), False)
+            # missing: right of the longest row of the tab, so it never lands on text past the header
+            hdr[tab] = next((f for f in found if f[2]), None) or (found[0][0], max(len(r.cells) for r in rows), False)
+            if hdr[tab][1] >= 52:  # read_tab reads A:AZ only
+                raise RuntimeError(f"{tab}: os_status column would be past AZ; move the notes columns left")
         at = {}  # row_key -> [(row_no, width)]
         for m in map_tab(tab, rows):
             try:
                 at.setdefault(place_key(m), []).append((m.row_no, m.width))
             except ValueError:
                 pass
+        cand = []
         for r in (r for r in data if r["tab"] == tab):
             lead, here = r.get("leads"), at.get(r["row_key"], [])
             if not lead and not r.get("suppression_id"):
@@ -97,16 +105,25 @@ def _tracked_and_live(db, svc, sheet_id: str):
             if len(here) != 1:
                 moved += 1  # key deleted or duplicated in the tab: never paint a guessed row
                 continue
-            no, width = here[0]
+            cand.append((r, lead, *here[0]))
+        claims = [c[2] for c in cand]
+        for r, lead, no, width in cand:
+            if claims.count(no) > 1:
+                moved += 1  # two tracked records claim one live row (same key in two blocks)
+                continue
             base = {**r, "stored_row_no": r["sheet_row_no"], "sheet_row_no": no, "width": width}
+            colours = by_no[no].colours
             if lead:
                 args = (lead["status"], lead.get("owner_name"), lead.get("owner_email"), r.get("queue_state"))
-                tracked.append({**base, "desired": desired_colour(*args), "status_value": os_status_value(*args)})
+                t = {**base, "desired": desired_colour(*args), "status_value": os_status_value(*args)}
+                if owner_mark(t, colours):  # the owner's colour decides, as it does for the paint
+                    t["status_value"] = _STATUS_OF["red" if "red" in colours else "green"]
+                tracked.append(t)
             else:  # owner mark with no lead: value follows the colour the owner applied; never repainted
                 tracked.append({**base, "desired": None, "suppression_only": True,
                                 "status_value": _STATUS_OF.get(r.get("colour_seen"), "open")})
             key = (tab, r["block"], r["row_key"])
-            live[key] = by_no[no].colours
+            live[key] = colours
             if tab in hdr:
                 cells = by_no[no].cells
                 live_status[key] = cells[hdr[tab][1]] if len(cells) > hdr[tab][1] else ""

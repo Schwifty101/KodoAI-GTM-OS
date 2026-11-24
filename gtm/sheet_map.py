@@ -72,7 +72,8 @@ def map_tab(tab: str, rows: list[SheetRow]) -> list[MappedRow]:
     out = []
     headers = [r for r in rows if _is_header(r)]
     for n, (hm, data) in enumerate(blocks(rows, tab), start=1):
-        width = len(headers[n - 1].cells)
+        hc = [c.strip().lower() for c in headers[n - 1].cells]
+        width = hc.index("os_status") if "os_status" in hc else len(hc)  # the OS-owned status column is outside the painted width
         for r in data:
             f = {k: _cell(r.cells, hm.get(k)) for k in set(hm) - {"owner_linkedin_check"}}
             f["owner_linkedin"] = f.get("owner_linkedin") or _cell(r.cells, hm.get("owner_linkedin_check"))

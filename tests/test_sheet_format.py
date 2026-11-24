@@ -21,6 +21,10 @@ def sheet(title, rows, cf=None, tables=None, gid=7, cols=26, **extra):
 HDR = [cell("business"), cell("website"), cell("email")]
 
 
+def test_width_stops_at_os_status():
+    assert sf._width([(t, None) for t in ("business", "website", "OS_Status")]) == 2
+
+
 def full(*sheets):
     return {"sheets": list(sheets)}
 
