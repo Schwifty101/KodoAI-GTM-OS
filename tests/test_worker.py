@@ -185,6 +185,29 @@ def test_a_failing_tick_does_not_stop_the_later_ticks(monkeypatch, capsys):
     assert "walk tick failed" in out and "queue tick failed" in out
 
 
+def test_autopilot_tick_runs_after_the_other_ticks_and_survives_their_failure(monkeypatch, capsys):
+    called = []
+
+    def boom(db):
+        raise RuntimeError("x")
+
+    def stop(db):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(worker.threading, "Thread", lambda **kw: type("T", (), {"start": lambda s: None})())
+    monkeypatch.setattr(worker, "get_db", lambda: object())
+    monkeypatch.setattr(worker, "requeue_stale", lambda db: None)
+    monkeypatch.setattr(worker.signal, "signal", lambda *a: None)
+    monkeypatch.setattr(worker, "tick", boom)
+    monkeypatch.setattr(worker, "queue_tick", boom)
+    monkeypatch.setattr(worker, "paint_tick", boom)
+    monkeypatch.setattr(worker, "autopilot_tick", lambda db: called.append("autopilot"))
+    monkeypatch.setattr(worker, "run_one", stop)
+    worker.main()
+    assert called == ["autopilot"]
+    assert "paint tick failed" in capsys.readouterr().out
+
+
 def test_send_loop_survives_an_exception(monkeypatch):
     calls = []
 

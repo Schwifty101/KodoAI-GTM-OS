@@ -6,6 +6,7 @@ import signal
 import threading
 import time
 
+from gtm.autopilot import autopilot_tick
 from gtm.budget import BudgetExceeded
 from gtm.db import get_db
 from gtm.gmail import gmail_service
@@ -89,7 +90,7 @@ def main(poll_seconds: int = 15) -> None:
             if time.monotonic() - last_sweep > 300:
                 requeue_stale(db)
                 last_sweep = time.monotonic()
-            for name, fn in (("walk", tick), ("queue", queue_tick), ("paint", paint_tick)):
+            for name, fn in (("walk", tick), ("queue", queue_tick), ("paint", paint_tick), ("autopilot", autopilot_tick)):
                 try:
                     fn(db)
                 except Exception as e:  # a schedule error must never stop the loop or the later ticks
