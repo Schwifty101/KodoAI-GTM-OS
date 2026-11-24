@@ -5,7 +5,7 @@ The owner works in batches of 100 outreach leads (Notion Batch01-03). Today noth
 
 ## Goals
 - One switch, "Autopilot": while on, the OS scrapes, cleans, verifies, enriches, signals and selects until the current batch holds 100 leads, then keeps going into the next batch.
-- An owner-set expense limit (USD) per run; a clear paused reason; Resume after adding credit.
+- An owner-set expense limit (USD) per run, or no limit (stored as 0; the daily provider caps still apply); a clear paused reason; Resume after adding credit.
 - Batch numbering that matches Notion: Batch03 already holds 32 leads (30 sent, 2 bounced, checked 2026-11-24), so OS leads fill Batch03 from lead 33, then Batch04 opens at 100.
 
 ## Non-goals and anti-goals
