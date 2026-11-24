@@ -12,7 +12,7 @@ from gtm.apify import MIN_CAP, run_places
 from gtm.db import fetch_all, get_db
 from gtm.tz import lead_tz
 from gtm.clean import run_clean
-from gtm.batches import BATCH_SIZE, assign_batches
+from gtm.batches import BATCH_SIZE, assign_batches, renumber
 from gtm.config import get_settings
 from gtm.enrich import hunter_domain_finder, run_enrich, site_owner_finder
 from gtm.harvest import HarvestClient, harvest_finder
@@ -218,6 +218,11 @@ def cmd_tz_backfill(a: argparse.Namespace) -> None:
     print(f"tz set on {n} of {len(rows)} leads")
 
 
+def cmd_renumber_batch(a: argparse.Namespace) -> None:
+    n = renumber(get_db(), a.from_no, a.to_no, a.confirm)
+    print(f"{n} selected leads {'moved' if a.confirm else 'would move'} from batch {a.from_no} to {a.to_no}")
+
+
 def cmd_mailbox(a: argparse.Namespace) -> None:
     if a.action == "unpause":
         get_db().table("mailboxes").update({"paused": False, "paused_reason": None, "ramp_from": date.today().isoformat()}).eq("address", a.address).execute()  # the ramp restarts at 20 and the bounce window forgets the spike
@@ -335,7 +340,12 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--merge-only", action="store_true", help="only step F (merge blocks), then stop")
     ex.add_argument("--no-merge", action="store_true", help="skip step F; format the tab as it is")
     sf.set_defaults(fn=cmd_sheet_format)
-    t = sub.add_parser("tz-backfill", help="set tz on leads that have none (free)")
+    rb = sub.add_parser("renumber-batch", help="move selected leads from batch N to M (dry run unless --confirm)")
+    rb.add_argument("--from", dest="from_no", type=int, required=True)
+    rb.add_argument("--to", dest="to_no", type=int, required=True)
+    rb.add_argument("--confirm", action="store_true")
+    rb.set_defaults(fn=cmd_renumber_batch)
+    t = sub.add_parser("tz-backfill",help="set tz on leads that have none (free)")
     t.set_defaults(fn=cmd_tz_backfill)
     return p
 

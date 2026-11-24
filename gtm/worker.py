@@ -58,7 +58,7 @@ def run_one(db, run_pass=_run_pass, include_test: bool = False) -> str | None:
         finish(db, job["id"], "cancelled", error="interrupted")
         raise
     except BudgetExceeded as e:
-        finish(db, job["id"], "paused_budget", error=str(e))
+        finish(db, job["id"], "paused_budget", error=f"[{e.kind}] {e}")
     except SystemExit as e:
         finish(db, job["id"], "failed", error=f"exited: {e.code}")
     except Exception as e:

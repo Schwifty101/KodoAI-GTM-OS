@@ -2,6 +2,7 @@
 from collections import Counter
 
 from gtm.db import fetch_all
+from gtm.settings_store import setting
 
 BATCH_SIZE = 100
 
@@ -30,6 +31,17 @@ def assign_batches(db, lead_ids: list[str] | None = None) -> int:
     if not new:
         return 0
     counts = Counter(r["batch_no"] for r in fetch_all(lambda: db.table("leads").select("id,batch_no").not_.is_("batch_no", "null").order("id")))
+    for k, v in setting("batch_base", db).items():  # leads already in a batch outside the OS
+        counts[int(k)] += v
     for r, no in zip(new, plan_numbers(dict(counts), len(new))):
         db.table("leads").update({"batch_no": no}).eq("id", r["id"]).execute()
     return len(new)  # ponytail: two concurrent selects could race on the same batch; one worker runs selects serially
+
+
+def renumber(db, old: int, new: int, confirm: bool = False) -> int:
+    """Move selected leads from batch old to new; returns how many match (moved only with confirm)."""
+    q = db.table("leads").select("id").eq("batch_no", old).eq("status", "selected")
+    ids = [r["id"] for r in fetch_all(lambda: q.order("id"))]
+    if confirm and ids:
+        db.table("leads").update({"batch_no": new}).in_("id", ids).execute()
+    return len(ids)

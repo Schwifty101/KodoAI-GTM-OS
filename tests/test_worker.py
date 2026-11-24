@@ -30,6 +30,15 @@ def _boom(exc):
     return f
 
 
+@pytest.mark.parametrize("exc,msg", [(BudgetExceeded("cap"), "[credit] cap"), (BudgetExceeded("cap", kind="daily"), "[daily] cap")])
+def test_paused_budget_error_carries_kind_prefix(monkeypatch, exc, msg):
+    done = []
+    monkeypatch.setattr(worker, "claim", lambda d, **k: {"id": "j1", "kind": "clean", "payload": {}})
+    monkeypatch.setattr(worker, "finish", lambda d, i, s, result=None, error=None: done.append((s, error)))
+    run_one(None, run_pass=_boom(exc))
+    assert done == [("paused_budget", msg)]
+
+
 @pytest.mark.db
 def test_run_one_success_marks_done_with_output(clean):
     jid = enqueue(db, "clean", {"test": 1, "argv": ["--batch", "x"]})
@@ -93,7 +102,7 @@ def test_enrich_pass_hitting_the_budget_cap_finishes_the_job_paused_budget(monke
     monkeypatch.setattr(cli, "get_settings", lambda: MagicMock())
     monkeypatch.setattr(cli, "site_owner_finder", lambda pool: finder)
     worker.run_one(None)
-    assert done == [("j1", "paused_budget", "gemini cap")]
+    assert done == [("j1", "paused_budget", "[credit] gemini cap")]
 
 
 def test_run_one_keyboard_interrupt_cancels_the_job_and_reraises(monkeypatch):

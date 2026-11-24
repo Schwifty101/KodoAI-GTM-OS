@@ -6,7 +6,9 @@ from gtm.settings_store import setting
 
 
 class BudgetExceeded(RuntimeError):
-    pass
+    def __init__(self, message: str = "", kind: str = "credit"):
+        super().__init__(message)
+        self.kind = kind  # daily: retry after UTC midnight; credit: lifetime allowance or credit, needs the owner
 
 
 CAP_KEYS = {
@@ -54,4 +56,4 @@ def require(provider: str, amount: float = 1.0, db=None, now: datetime | None = 
     cap = setting(key, db)
     since = datetime(1970, 1, 1, tzinfo=timezone.utc) if provider == "hunter_import" else _midnight(now.date())
     if spent_since(db, provider, since) + amount > cap:
-        raise BudgetExceeded(f"{provider}: {'lifetime allowance' if provider == 'hunter_import' else 'daily cap'} {cap} reached ({key})")
+        raise BudgetExceeded(f"{provider}: {'lifetime allowance' if provider == 'hunter_import' else 'daily cap'} {cap} reached ({key})", "credit" if provider == "hunter_import" else "daily")
