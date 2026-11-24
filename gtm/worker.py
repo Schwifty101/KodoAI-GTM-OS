@@ -89,12 +89,11 @@ def main(poll_seconds: int = 15) -> None:
             if time.monotonic() - last_sweep > 300:
                 requeue_stale(db)
                 last_sweep = time.monotonic()
-            try:
-                tick(db)
-                queue_tick(db)
-                paint_tick(db)
-            except Exception as e:  # a schedule error must never stop the loop
-                print(f"schedule tick failed: {type(e).__name__}: {e}")
+            for name, fn in (("walk", tick), ("queue", queue_tick), ("paint", paint_tick)):
+                try:
+                    fn(db)
+                except Exception as e:  # a schedule error must never stop the loop or the later ticks
+                    print(f"{name} tick failed: {type(e).__name__}: {e}")
             if not run_one(db):
                 time.sleep(poll_seconds)
     except KeyboardInterrupt:
