@@ -19,6 +19,22 @@ def desired_colour(status: str, owner_name: str | None, owner_email: str | None,
     return None
 
 
+STATUS_HEADER = "os_status"
+_STATUS_OF = {"green": "sent", "red": "dropped", None: "open"}
+
+
+def os_status_value(status: str, owner_name: str | None, owner_email: str | None, queue_state: str | None) -> str:
+    return _STATUS_OF[desired_colour(status, owner_name, owner_email, queue_state)]
+
+
+def os_col(header_cells: list[str]) -> tuple[int, bool]:
+    """0-based column of the os_status header and whether it exists; else the cell right after the last header cell."""
+    for i, c in enumerate(header_cells):
+        if c.strip().lower() == STATUS_HEADER:
+            return i, True
+    return max((i for i, c in enumerate(header_cells) if c.strip()), default=-1) + 1, False
+
+
 def is_ours(row_colours: list[str | None], width: int, written: str | None) -> bool:
     return bool(written) and len(row_colours) >= width and all(c == written for c in row_colours[:width])
 

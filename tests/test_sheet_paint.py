@@ -2,7 +2,7 @@ import pytest
 
 from gtm import settings_store, sheet_paint
 from gtm.sheet import SheetRow
-from gtm.sheet_paint import desired_colour, is_ours, plan_paint, run_paint
+from gtm.sheet_paint import desired_colour, is_ours, os_col, os_status_value, plan_paint, run_paint
 
 
 @pytest.mark.parametrize("status,name,email,qs,want", [
@@ -18,6 +18,21 @@ from gtm.sheet_paint import desired_colour, is_ours, plan_paint, run_paint
 ])
 def test_desired_colour_table(status, name, email, qs, want):
     assert desired_colour(status, name, email, qs) == want
+
+
+@pytest.mark.parametrize("status,name,email,qs,want", [
+    ("sent", None, None, None, "sent"), ("replied", None, None, None, "sent"), ("rejected", None, None, None, "dropped"),
+    ("no_buyer", "Ann Lee", None, "waiting", "open"), ("no_buyer", "Ann Lee", None, "failed", "dropped"),
+    ("signalled", None, None, None, "open"),
+])
+def test_os_status_value_table(status, name, email, qs, want):
+    assert os_status_value(status, name, email, qs) == want
+
+
+def test_os_col_finds_existing_or_appends_after_last_header():
+    assert os_col([f"h{i}" for i in range(20)]) == (20, False)
+    assert os_col([f"h{i}" for i in range(21)] + ["os_status"]) == (21, True)
+    assert os_col(["a", "", "b", ""]) == (3, False)
 
 
 def row(desired, written=None, no=5, width=3, tab="Utah", block=1, key="k"):

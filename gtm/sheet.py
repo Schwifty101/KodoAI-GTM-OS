@@ -61,7 +61,7 @@ def read_tab(svc, sheet_id: str, tab: str) -> list[SheetRow]:
 
     try:
         resp = svc.spreadsheets().get(
-            spreadsheetId=sheet_id, ranges=[f"'{tab.replace(chr(39), chr(39) * 2)}'!A:Z"], includeGridData=True,
+            spreadsheetId=sheet_id, ranges=[f"'{tab.replace(chr(39), chr(39) * 2)}'!A:AZ"], includeGridData=True,
             fields="sheets.data.rowData.values(formattedValue,userEnteredFormat.backgroundColor)").execute()
     except HttpError as e:  # the real API answers 400 "Unable to parse range" for a missing tab
         if e.resp.status == 400:
@@ -99,6 +99,21 @@ def paint_rows(svc, sheet_id: str, tab: str, cells: list[tuple[int, int, str | N
         "range": {"sheetId": gid, "startRowIndex": row - 1, "endRowIndex": row, "startColumnIndex": 0, "endColumnIndex": width},
         "cell": {"userEnteredFormat": {"backgroundColor": {"red": 0, "green": 0, "blue": 0, **PURE[colour]} if colour else white}},
         "fields": "userEnteredFormat.backgroundColor"}} for row, width, colour in cells]
+    svc.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute()
+    return len(reqs)
+
+
+def write_cells(svc, sheet_id: str, tab: str, cells: list[tuple[int, int, str]]) -> int:
+    """cells = (row_no 1-based, col 0-based, text); values only, formatting untouched. One batchUpdate."""
+    if not cells:
+        return 0
+    gid = _sheet_ids(svc, sheet_id).get(tab)
+    if gid is None:
+        raise ValueError(f"tab {tab!r} not found in sheet")
+    reqs = [{"updateCells": {
+        "start": {"sheetId": gid, "rowIndex": row - 1, "columnIndex": col},
+        "rows": [{"values": [{"userEnteredValue": {"stringValue": text}}]}],
+        "fields": "userEnteredValue"}} for row, col, text in cells]
     svc.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute()
     return len(reqs)
 
