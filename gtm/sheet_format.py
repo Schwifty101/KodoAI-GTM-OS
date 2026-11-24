@@ -76,7 +76,8 @@ def read_grid(resp: dict, tabs: list[str]) -> dict[str, dict]:
 
 
 def _width(cells) -> int:
-    return max((i + 1 for i, (t, _) in enumerate(cells) if t.strip()), default=0)
+    cut = next((i for i, (t, _) in enumerate(cells) if t.strip().lower() == "os_status"), len(cells))  # OS-owned column is outside the width
+    return max((i + 1 for i, (t, _) in enumerate(cells[:cut]) if t.strip()), default=0)
 
 
 def _is_header(cells) -> bool:

@@ -49,7 +49,7 @@ def test_read_tab_ignores_effective_format():
     rows = read_tab(svc, "SID", "Texas")
     assert rows == [SheetRow("Texas", 1, ["a", "b"], ["green", None])]
     kw = svc.calls[0]
-    assert kw["spreadsheetId"] == "SID" and kw["includeGridData"] is True and kw["ranges"] == ["'Texas'!A:Z"]
+    assert kw["spreadsheetId"] == "SID" and kw["includeGridData"] is True and kw["ranges"] == ["'Texas'!A:AZ"]
     assert kw["fields"] == "sheets.data.rowData.values(formattedValue,userEnteredFormat.backgroundColor)"
     assert "effectiveFormat" not in kw["fields"]
 
@@ -94,7 +94,13 @@ def test_read_tab_real_api_400_for_missing_tab_raises_value_error():
 def test_read_tab_escapes_apostrophe_in_tab_title():
     svc = FakeSvc(_resp([_cell("a")], title="Bob's"))
     read_tab(svc, "SID", "Bob's")
-    assert svc.calls[0]["ranges"] == ["'Bob''s'!A:Z"]
+    assert svc.calls[0]["ranges"] == ["'Bob''s'!A:AZ"]
+
+
+def test_read_tab_reads_past_column_z():
+    svc = FakeSvc(_resp([_cell("a")]))
+    read_tab(svc, "SID", "Newyork")
+    assert svc.calls[0]["ranges"] == ["'Newyork'!A:AZ"]
 
 
 def test_revoked_refresh_token_raises_runtime_error(tmp_path, monkeypatch):
@@ -204,3 +210,16 @@ def test_read_tab_keeps_colours_of_trailing_format_only_cells():
     svc = FakeSvc(_resp([_cell(c, g) for c in "abcde"] + [_cell(None, g) for _ in range(5)]))
     row = read_tab(svc, "SID", "Texas")[0]
     assert row.cells == list("abcde") and row.colours == ["green"] * 10
+
+
+def test_write_cells_sends_one_batch_update_with_values_only():
+    svc = RecSvc(["Other", "Texas"])
+    assert sheet.write_cells(svc, "SID", "Texas", [(3, 20, "sent"), (7, 20, "open")]) == 2
+    batches = [kw for n, kw in svc.log if n == "batchUpdate"]
+    assert len(batches) == 1
+    r1, r2 = batches[0]["body"]["requests"]
+    assert r1["updateCells"]["start"] == {"sheetId": 101, "rowIndex": 2, "columnIndex": 20}
+    assert r1["updateCells"]["rows"] == [{"values": [{"userEnteredValue": {"stringValue": "sent"}}]}]
+    assert r1["updateCells"]["fields"] == "userEnteredValue"
+    assert r2["updateCells"]["start"]["rowIndex"] == 6
+    assert sheet.write_cells(svc, "SID", "Texas", []) == 0
