@@ -73,17 +73,20 @@ Group A (sequential first): Task 1, Task 2. Then Group B in parallel (disjoint f
 - [ ] **Step 3:** `cd web && npx tsc --noEmit`; `node --env-file=.env.local --env-file=../.env --import tsx scripts/settings_groups.mts`. Expected: pass.
 - [ ] **Step 4:** Commit `feat: settings sheet block`.
 
-### Task 5: /batches per-batch action row (Group B)
+### Task 5: /batches outreach cards and intake action row (Group B)
 **Files:** Modify `web/app/batches/page.tsx`, `web/lib/batches.ts`.
 **Interfaces:** Produces in `batches.ts`: `loadBatchJobs(): Promise<JobRow[]>` (jobs of kinds clean, verify-sheet, enrich, signals, select, import-sheet, last 200) and `countCleaned(batchId: string): Promise<number>`.
-- [ ] **Step 1:** Per-batch row (the scrape/import batches table, key `batches.id`): clean (confirm dialog, `enqueueJobOnce("clean",["--batch",id])`), verify-sheet (`PreviewApply`, cost "0.5 Hunter credit per email"), enrich (estimate: `countCleaned` times the Hunter/Prospeo credit per lead from `docs/spikes/owner_routes.md`, read that number there, do not invent it; confirm step requires typing the lead count), signals, select (confirm dialog). Each step uses `stepState`; greyed with the reason as title text.
+- [ ] **Step 0:** Outreach cards at the top: `loadOutreachBatches(): Promise<{batch_no: number; leads: number; selected: number; approved: number; drafted: number; sent: number; replied: number}[]>` grouped from `leads.batch_no` (non-null), shown as "Batch 03: 28 of 100". Intake section below, collapsed by default, rows labelled by created date and name, never the id.
+- [ ] **Step 1:** Per-intake-run row (the scrape/import batches table, key `batches.id`, id never shown): clean (confirm dialog, `enqueueJobOnce("clean",["--batch",id])`), verify-sheet (`PreviewApply`, cost "0.5 Hunter credit per email"), enrich (estimate: `countCleaned` times the Hunter/Prospeo credit per lead from `docs/spikes/owner_routes.md`, read that number there, do not invent it; confirm step requires typing the lead count), signals, select (confirm dialog). Each step uses `stepState`; greyed with the reason as title text.
 - [ ] **Step 2:** Add to `verify_batches.mts` a check for `loadBatchJobs` and `countCleaned` on the TEST batch (kind `enrich_test`, as that script already does).
 - [ ] **Step 3:** Run `node --env-file=.env.local --env-file=../.env --import tsx scripts/verify_batches.mts`. Expected: all ok.
 - [ ] **Step 4:** Commit `feat: batches action row`.
 
-### Task 6: /drafts Draft and /send Draft follow-ups (Group B)
-**Files:** Modify `web/app/drafts/page.tsx`, `web/app/send/page.tsx`, `web/lib/actions.ts` (two one-line exports).
-- [ ] **Step 1:** `draftBatch = (batchId: string) => enqueueJobOnce("draft", ["--batch", batchId])`, `draftFollowups = () => enqueueJobOnce("followups", [])`.
+### Task 6: /drafts Draft per outreach batch and /send Draft follow-ups (Group B)
+**Files:** Modify `gtm/cli.py`, `gtm/draft.py`, `tests/test_draft.py`, `web/app/drafts/page.tsx`, `web/app/send/page.tsx`, `web/lib/actions.ts` (two one-line exports).
+**Interfaces:** Produces `run_draft(db, llm, batch_id: str | None, today: date, only_mailboxes: set[str] | None = None, batch_no: int | None = None) -> int` (exactly one of `batch_id`, `batch_no`; `batch_no` selects `status=selected, approved=true, batch_no=N` across source batches) and CLI `draft --batch-no N` (argparse mutually exclusive with `--batch`, one required).
+- [ ] **Step 0 (Python, TDD):** failing test `test_draft_by_batch_no_takes_approved_selected_leads_across_source_batches` (`TEST_` leads in two `TEST` batches, same `batch_no`, one unapproved: only the approved two drafted; both args or neither raises). Implement, run `tests/test_draft.py` under the lock.
+- [ ] **Step 1:** `draftBatch = (batchNo: number) => enqueueJobOnce("draft", ["--batch-no", String(batchNo)])`, `draftFollowups = () => enqueueJobOnce("followups", [])`.
 - [ ] **Step 2:** Buttons with a confirm dialog (drafts are paid LLM calls on paid Gemini only if `allow_paid_gemini` is on; say so). Show "already queued" on the open-job error.
 - [ ] **Step 3:** Add two asserts to `verify_runnow.mts` using kinds `draft_test` and `followups_test` (open-job duplicate refused). Rerun Task 2 step 2 command. Expected: ok.
 - [ ] **Step 4:** Commit `feat: draft buttons`.

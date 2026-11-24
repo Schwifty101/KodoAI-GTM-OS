@@ -1,6 +1,6 @@
 # Plan 8 design: UI run-now actions and Preview/Apply
 
-Date 2026-11-24. Owner-approved scope: preview first, then apply. UI and a thin guard only; no worker or Python change.
+Date 2026-11-24. Owner-approved scope: preview first, then apply. UI and a thin guard; one small Python change (`draft --batch-no`); no worker change.
 
 ## Problem
 Every sheet and batch step is CLI-only today. The owner wants to run them from the OS, but a one-click paid or sheet-writing action is unsafe. The sheet passes already have a CLI dry run (`--confirm` writes); the UI must use it.
@@ -23,8 +23,10 @@ The guard therefore applies only to `--confirm`-bearing kinds (import-sheet, ver
 
 ## Screens
 1. **Settings, "Sheet" block**: Import now, Run queue now, Paint colours now (each PreviewApply); the `sheet_queue_on` and `sheet_writeback_on` switches grouped with them; one last-run line per kind from `jobs` (status, time, first output line). Paint Apply also needs `sheet_writeback_on` on, else disabled with the reason.
-2. **/batches per-batch action row** (rows of the scrape/import batches table, keyed by `batches.id`): clean, verify-sheet, enrich, signals, select. Order: import, clean, verify-sheet, enrich, signals, select. A step is greyed out until the previous step has a `done` job for that `--batch`; the reason shows on hover. Import counts as done when the batch is a sheet import.
-3. **/drafts**: Draft button for the batch (`draft --batch ID`, via enqueueJobOnce). **/send**: Draft follow-ups button (`followups`, via enqueueJobOnce).
+2. **/batches, two sections (owner 2026-11-24: the unit is the batch of 100, `leads.batch_no`; scrape/import ids are hidden).**
+   - **Outreach batches (top):** one card per `batch_no` (Batch 03, 04, ...): leads numbered so far out of 100, and counts selected, approved, drafted, sent, replied. The owner works here.
+   - **Intake (below, collapsed):** the scrape/import runs that feed the batch, shown by date and name (never the id). Each has the pipeline row: clean, verify-sheet, enrich, signals, select. The CLI passes take only a source `--batch`, so these steps stay per intake run until the autopilot plan replaces them with one "keep the batch filling" loop. A step is greyed until the previous step has a `done` job for that run (reason on hover). Import counts as done for a sheet import.
+3. **/drafts**: Draft button per outreach batch (`draft --batch-no N`, via enqueueJobOnce). `draft` gets a new optional `--batch-no N` (mutually exclusive with `--batch`, same selected-and-approved rule), the one Python change in this plan. **/send**: Draft follow-ups button (`followups`, via enqueueJobOnce).
 4. **Settings Jobs dropdown** keeps working. Missing kinds (import-sheet, verify-sheet, sheet-queue, sheet-paint) are added; for those, a `--confirm` in the argv is rejected by the same guard unless a done preview exists.
 
 ## Stays CLI-only
@@ -43,4 +45,4 @@ Plan 7 (`2026-11-24-plan7-os-status-design.md`, other author) changes `gtm/sheet
 Pure logic (guard, step ordering, last-run, estimate) is unit-tested with `node --test`-style tsx scripts; DB behaviour with a `web/scripts/verify_runnow.mts` under RLS; the UI with a real browser run (login by magic link, Preview on a test job, Apply disabled then enabled). Jobs for tests use kind `import-sheet_test`-style test kinds the live worker never claims (migration 0011 `include_test`).
 
 ## Out of scope
-Auto-chaining steps, scheduling, new CLI flags, a dry run for clean/enrich/signals/select/draft, metrics (Plan 6).
+Batch numbering (Notion Batch03 already holds 32; the OS must seed it, renumber the 28 selected leads from 1 to 3 and open Batch04 after 100) and the auto-fill loop: the autopilot plan. Until it ships the batch card shows what the database holds. Auto-chaining steps, scheduling, CLI flags other than `draft --batch-no`, a dry run for clean/enrich/signals/select/draft, metrics (Plan 6).
