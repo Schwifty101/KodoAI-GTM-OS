@@ -5,10 +5,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from gtm.batches import BATCH_SIZE
 from gtm.budget import spent_since
 from gtm.db import fetch_all
 from gtm.jobs import enqueue
+from gtm import settings_store
 from gtm.settings_store import set_setting, setting
 
 PIPELINE = ["walk", "clean", "verify-sheet", "enrich", "signals", "select", "draft"]
@@ -30,7 +30,6 @@ class BatchStage:
 @dataclass
 class AutoState:
     on: bool = False
-    paused_reason: str | None = None
     spent_usd: float = 0.0
     limit_usd: float = 0.0  # 0 = no limit
     started_at: str = ""
@@ -44,6 +43,8 @@ class AutoState:
     last_budget: tuple | None = None  # (kind, error) of the newest paused_budget job since start
     recent_failures: int = 0  # consecutive failed pipeline jobs, newest first
     tiles_left: bool = False
+    walk_dud: int = 0  # consecutive newest walk jobs that scraped 0 tiles (every tile failed)
+    out_of_credits: bool = False  # newest enrich/signals/verify-sheet job ended with out_of_credits > 0
     walk_tiles: int = 3  # not in the plan's field list: the walk argv needs it and decide is pure
     verify_allowed: bool = True  # not in the plan's field list: false once the import allowance cannot cover one more email
 
@@ -62,8 +63,6 @@ STAGES = [("clean", "scraped", []), ("verify-sheet", "sheet_email_cleaned", ["--
 def decide(s: AutoState) -> Decision:
     if not s.on:
         return Decision("off")
-    if s.paused_reason:
-        return Decision(f"paused: {s.paused_reason}")
     if s.open_job:
         return Decision("running")
     if s.limit_usd > 0 and s.spent_usd >= s.limit_usd:
@@ -71,6 +70,8 @@ def decide(s: AutoState) -> Decision:
     if s.last_budget:
         kind, err = s.last_budget
         return Decision("paused: daily cap" if kind == "daily" else f"paused: {err}")
+    if s.out_of_credits:
+        return Decision("paused: out of credits")
     if s.recent_failures >= 3:
         return Decision("paused: errors")
     for kind, field_, extra in STAGES:
@@ -84,6 +85,8 @@ def decide(s: AutoState) -> Decision:
         return Decision("waiting_approval")
     if not s.tiles_left:
         return Decision("paused: no tiles left")
+    if s.walk_dud >= 3:
+        return Decision("paused: walk found nothing (3 in a row)")
     return Decision("running", ("walk", ["--tiles", str(s.walk_tiles)]))
 
 
@@ -99,6 +102,54 @@ def _last_budget(jobs: list[dict], now: datetime) -> tuple | None:
     return None
 
 
+def _out(j: dict) -> str:
+    return (j.get("result") or {}).get("output") or ""
+
+
+def _walk_dud(jobs: list[dict]) -> int:
+    """Consecutive newest done walk jobs whose output says 'tiles': 0 (run_walk marks failed tiles and still ends done)."""
+    n = 0
+    for j in jobs:
+        if j["kind"] != "walk" or j["status"] != "done":
+            continue
+        m = re.search(r"'tiles': (\d+)", _out(j))
+        if not m or int(m.group(1)) > 0:
+            break
+        n += 1
+    return n
+
+
+def _out_of_credits(jobs: list[dict]) -> bool:
+    """The newest done enrich/signals/verify-sheet job reported out_of_credits > 0 (leads stay cleaned, so this is not a failure)."""
+    for j in jobs:
+        if j["kind"] in ("enrich", "signals", "verify-sheet") and j["status"] == "done":
+            m = re.search(r"'out_of_credits': (\d+)", _out(j))
+            return bool(m and int(m.group(1)) > 0)
+    return False
+
+
+def _tried(jobs: list[dict]) -> set:
+    """(kind, batch) passes already run since start; draft also carries the approved count it ran for. A user-cancelled job counts, a deploy-interrupted one reruns."""
+    tried = set()
+    for j in jobs:
+        argv = (j["payload"] or {}).get("argv", [])
+        if (j["status"] == "done" or (j["status"] == "cancelled" and j.get("error") != "interrupted")) and "--batch" in argv:
+            key = (j["kind"], argv[argv.index("--batch") + 1])
+            tried.add((*key, j["payload"].get("n")) if j["kind"] == "draft" else key)
+    return tried
+
+
+def _fresh(key: str, db):
+    """A setting read that skips the 60 s cache, so Pause and Start act at once."""
+    settings_store._cache.pop(key, None)
+    return setting(key, db)
+
+
+def _fill(fill: int, target: int) -> int:
+    """Leads in the current batch towards `target`: a batch holding target or more counts as full (0), so a target below 100 never stalls the walk."""
+    return fill % target if target > 0 else fill
+
+
 def _failures(jobs: list[dict]) -> int:
     n = 0
     for j in jobs:
@@ -110,16 +161,14 @@ def _failures(jobs: list[dict]) -> int:
 
 
 def load_state(db, now: datetime) -> AutoState:
-    started = setting("autopilot_started_at", db)
-    since = started or EPOCH.isoformat()
-    jobs = fetch_all(lambda: db.table("jobs").select("kind,payload,status,error,created_at,finished_at").in_("kind", PIPELINE).gte("created_at", since).order("created_at", desc=True).order("id"))
-    tried = set()
-    for j in jobs:
-        argv = (j["payload"] or {}).get("argv", [])
-        if j["status"] == "done" and "--batch" in argv:
-            key = (j["kind"], argv[argv.index("--batch") + 1])
-            tried.add((*key, j["payload"].get("n")) if j["kind"] == "draft" else key)
+    on = _fresh("autopilot_on", db)
+    # cheap exit: off, or a pipeline job is already queued or running, so no scan below is needed
     open_job = bool(db.table("jobs").select("id").in_("kind", PIPELINE).in_("status", ["queued", "running"]).limit(1).execute().data)
+    if not on or open_job:
+        return AutoState(on=on, open_job=open_job)
+    started = _fresh("autopilot_started_at", db)
+    since = started or EPOCH.isoformat()
+    jobs = fetch_all(lambda: db.table("jobs").select("kind,payload,status,error,result,created_at,finished_at").in_("kind", PIPELINE).gte("created_at", since).order("created_at", desc=True).order("id"))
     # one pass over every lead still moving through the pipeline, counted per source batch in Python (no per-batch queries)
     leads = fetch_all(lambda: db.table("leads").select("batch_id,status,email_source,email_verified,owner_email,approved,reject_reason").in_("status", ["scraped", "cleaned", "enriched", "signalled", "selected"]).order("id"))
     stages: dict[str, BatchStage] = {}
@@ -145,18 +194,20 @@ def load_state(db, now: datetime) -> AutoState:
     spent = sum(r["usd"] or 0 for r in fetch_all(lambda: db.table("cost_log").select("usd").gte("created_at", since).order("id")))
     tiles = bool(db.table("coverage").select("id").eq("status", "pending").limit(1).execute().data)
     allowance_left = setting("import_hunter_allowance_credits", db) - spent_since(db, "hunter_import", EPOCH)
+    target = _fresh("autopilot_target", db)
     return AutoState(
-        on=setting("autopilot_on", db), spent_usd=spent, limit_usd=setting("autopilot_limit_usd", db), started_at=started,
-        target=setting("autopilot_target", db), open_job=open_job, tried=tried, batches=list(stages.values()),
-        current_fill=0 if fill >= BATCH_SIZE else fill, in_flight=sum(b.cleaned + b.enriched + b.signalled for b in stages.values()),
+        on=on, spent_usd=spent, limit_usd=_fresh("autopilot_limit_usd", db), started_at=started,
+        target=target, open_job=False, tried=_tried(jobs), batches=list(stages.values()),
+        current_fill=_fill(fill, target), in_flight=sum(b.cleaned + b.enriched + b.signalled for b in stages.values()),
         unapproved_selected=unapproved, last_budget=_last_budget(jobs, now), recent_failures=_failures(jobs), tiles_left=tiles,
+        walk_dud=_walk_dud(jobs), out_of_credits=_out_of_credits(jobs),
         walk_tiles=setting("walk_tiles_per_run", db), verify_allowed=allowance_left >= VERIFY_CREDITS)
 
 
 def autopilot_tick(db, now: datetime | None = None) -> str | None:
     now = now or datetime.now(timezone.utc)
-    d = decide(load_state(db, now)) if setting("autopilot_on", db) else Decision("off")
-    if setting("autopilot_state", db) != d.state:
+    d = decide(load_state(db, now)) if _fresh("autopilot_on", db) else Decision("off")
+    if _fresh("autopilot_state", db) != d.state:
         set_setting(db, "autopilot_state", d.state)
     if not d.enqueue:
         return None

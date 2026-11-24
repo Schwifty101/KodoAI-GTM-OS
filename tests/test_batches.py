@@ -81,3 +81,18 @@ def test_renumber_dry_run_changes_nothing_and_confirm_moves_only_selected(select
     assert renumber(db, 9001, 9002, confirm=True) == 2
     after = state()
     assert after[ids[0]] == after[other] == 9002 and after[ids[1]] == 9001
+
+
+@pytest.mark.db
+def test_renumber_refuses_to_overfill_the_target_batch(selected, monkeypatch):
+    from gtm import batches
+    from gtm.batches import renumber
+
+    db, ids, other = selected
+    db.table("leads").update({"batch_no": 9001}).in_("id", ids).execute()
+    monkeypatch.setattr(batches, "setting", lambda k, db=None: {"9002": 99})  # 99 + 2 moved > 100
+    with pytest.raises(ValueError):
+        renumber(db, 9001, 9002, confirm=True)
+    assert {r["batch_no"] for r in db.table("leads").select("batch_no").in_("id", ids).execute().data} == {9001}
+    monkeypatch.setattr(batches, "setting", lambda k, db=None: {"9002": 98})
+    assert renumber(db, 9001, 9002, confirm=True) == 2
