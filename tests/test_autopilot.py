@@ -216,6 +216,56 @@ def test_skipped_signalled_leads_are_not_counted(world):
     assert s.in_flight - s0.in_flight == 1
 
 
+def J(kind, status="done", out="", error=None, argv=None, n=None):
+    return {"kind": kind, "status": status, "error": error, "payload": {"argv": argv if argv is not None else [], **({"n": n} if n else {})}, "result": {"output": out}}
+
+
+def test_walk_dud_counts_consecutive_newest_empty_walks():
+    dud, ok = J("walk", out="{'tiles': 0, 'queries': 0}\n"), J("walk", out="{'tiles': 2, 'new': 5}\n")
+    assert ap._walk_dud([dud, J("clean", argv=["--batch", "b"]), dud, ok, dud]) == 2
+    assert ap._walk_dud([ok, dud, dud, dud]) == 0
+
+
+def test_three_dud_walks_pause_before_another_walk():
+    d = decide(S(walk_dud=3, current_fill=10, tiles_left=True))
+    assert d.state == "paused: walk found nothing (3 in a row)" and d.enqueue is None
+    assert decide(S(walk_dud=2, current_fill=10, tiles_left=True)).enqueue[0] == "walk"
+
+
+def test_out_of_credits_in_newest_pass_output_pauses():
+    assert ap._out_of_credits([J("enrich", out="{'enriched': 1, 'out_of_credits': 4}"), J("signals", out="{}")])
+    assert not ap._out_of_credits([J("enrich", out="{'out_of_credits': 0}")])
+    assert not ap._out_of_credits([J("enrich", out="{'enriched': 2}"), J("enrich", out="{'out_of_credits': 4}")])  # the newest enrich was fine
+    d = decide(S(out_of_credits=True, batches=[B(scraped=5)]))
+    assert d.state == "paused: out of credits" and d.enqueue is None
+
+
+def test_user_cancelled_job_is_tried_but_interrupted_one_reruns():
+    jobs = [J("clean", "cancelled", error="cancelled by owner", argv=["--batch", "b1"]), J("enrich", "cancelled", error="interrupted", argv=["--batch", "b1"])]
+    assert ap._tried(jobs) == {("clean", "b1")}
+
+
+def test_full_batch_rule_follows_target():
+    assert ap._fill(60, 50) == 10 and ap._fill(50, 50) == 0 and ap._fill(60, 100) == 60 and ap._fill(100, 100) == 0
+    assert decide(S(target=50, current_fill=ap._fill(60, 50), tiles_left=True)).enqueue[0] == "walk"
+
+
+def test_open_job_returns_before_any_scan(world, monkeypatch):
+    db, bid, cfg = world
+    db.table("jobs").insert({"kind": "draft", "status": "queued", "run_after": (NOW + timedelta(days=3650)).isoformat(), "payload": {"argv": ["--batch", bid], "test": "ap"}}).execute()
+    monkeypatch.setattr(ap, "fetch_all", lambda build: pytest.fail("scanned despite an open job"))
+    s = ap.load_state(db, NOW)
+    assert s.open_job and s.batches == []
+
+
+def test_fresh_read_drops_the_cached_value_first(monkeypatch):
+    from gtm import settings_store
+
+    settings_store._cache["autopilot_on"] = (1e18, True)
+    monkeypatch.setattr(ap, "setting", lambda key, db=None: "autopilot_on" in settings_store._cache)  # True would mean a cached read
+    assert ap._fresh("autopilot_on", None) is False
+
+
 @pytest.mark.db
 def test_load_state_records_draft_count_from_done_job(world):
     db, bid, cfg = world

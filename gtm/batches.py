@@ -39,9 +39,12 @@ def assign_batches(db, lead_ids: list[str] | None = None) -> int:
 
 
 def renumber(db, old: int, new: int, confirm: bool = False) -> int:
-    """Move selected leads from batch old to new; returns how many match (moved only with confirm)."""
-    q = db.table("leads").select("id").eq("batch_no", old).eq("status", "selected")
-    ids = [r["id"] for r in fetch_all(lambda: q.order("id"))]
+    """Move selected leads from batch old to new; returns how many match (moved only with confirm). Refuses to overfill batch new."""
+    ids = [r["id"] for r in fetch_all(lambda: db.table("leads").select("id").eq("batch_no", old).eq("status", "selected").order("id"))]
+    there = len(fetch_all(lambda: db.table("leads").select("id").eq("batch_no", new).order("id")))
+    total = there + setting("batch_base", db).get(str(new), 0) + len(ids)
+    if total > BATCH_SIZE:
+        raise ValueError(f"batch {new} would hold {total} leads (max {BATCH_SIZE}): nothing moved")
     if confirm and ids:
         db.table("leads").update({"batch_no": new}).in_("id", ids).execute()
     return len(ids)
