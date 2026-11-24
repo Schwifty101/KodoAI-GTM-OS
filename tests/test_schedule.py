@@ -103,3 +103,34 @@ def test_queue_tick_enqueues_once_per_day_and_respects_switch_and_hour(monkeypat
     assert schedule.queue_tick(fake, now) is None and not calls  # already queued today, any status
     calls, fake = _qt(monkeypatch)
     assert schedule.queue_tick(fake, now) == "job1" and calls == [("sheet-queue", {"argv": ["--confirm"]})]
+
+
+def _pt(monkeypatch, on=True, sheet="S", hour=7, existing=()):
+    cfg = {"sheet_writeback_on": on, "sheet_id": sheet, "sheet_queue_hour_utc": hour}
+    monkeypatch.setattr(schedule, "setting", lambda key, db=None: cfg[key])
+    calls = []
+    monkeypatch.setattr(schedule, "enqueue", lambda db, kind, payload=None, **kw: calls.append((kind, payload)) or "job1")
+    return calls, _Jobs(existing)
+
+
+def test_paint_tick_waits_one_hour_after_queue_hour(monkeypatch):
+    at_h = lambda h: datetime(2026, 11, 18, h, 0, tzinfo=timezone.utc)
+    calls, fake = _pt(monkeypatch)
+    assert schedule.paint_tick(fake, at_h(7)) is None and not calls  # queue hour itself
+    assert schedule.paint_tick(fake, at_h(8)) == "job1" and calls == [("sheet-paint", {"argv": ["--confirm"]})]
+    calls, fake = _pt(monkeypatch, hour=23)  # capped at 23, never unreachable
+    assert schedule.paint_tick(fake, at_h(23)) == "job1"
+
+
+def test_paint_tick_needs_writeback_on_and_sheet_id(monkeypatch):
+    now = datetime(2026, 11, 18, 12, 0, tzinfo=timezone.utc)
+    calls, fake = _pt(monkeypatch, on=False)
+    assert schedule.paint_tick(fake, now) is None and not calls
+    calls, fake = _pt(monkeypatch, sheet="")
+    assert schedule.paint_tick(fake, now) is None and not calls
+
+
+def test_paint_tick_once_per_utc_day_any_status(monkeypatch):
+    now = datetime(2026, 11, 18, 12, 0, tzinfo=timezone.utc)
+    calls, fake = _pt(monkeypatch, existing=[{"id": 1}])
+    assert schedule.paint_tick(fake, now) is None and not calls

@@ -25,3 +25,16 @@ def queue_tick(db, now: datetime | None = None) -> str | None:
     if db.table("jobs").select("id").eq("kind", "sheet-queue").gte("created_at", midnight).limit(1).execute().data:
         return None
     return enqueue(db, "sheet-queue", {"argv": ["--confirm"]})
+
+
+def paint_tick(db, now: datetime | None = None) -> str | None:
+    """One sheet-paint per UTC day, an hour after the queue hour so it paints what the queue just wrote."""
+    now = now or datetime.now(timezone.utc)
+    # with sheet_queue_hour_utc 23 the paint is queued in the same hour as the queue job and still runs after it (single worker, FIFO)
+    if not (setting("sheet_writeback_on", db) and setting("sheet_id", db)) or now.hour < min(setting("sheet_queue_hour_utc", db) + 1, 23):
+        return None
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    # any status counts: a failed run today must not retry-storm
+    if db.table("jobs").select("id").eq("kind", "sheet-paint").gte("created_at", midnight).limit(1).execute().data:
+        return None
+    return enqueue(db, "sheet-paint", {"argv": ["--confirm"]})
