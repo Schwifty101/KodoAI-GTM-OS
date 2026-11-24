@@ -23,6 +23,9 @@ Follow these and the importer reads your marks exactly as you meant them.
 ## 4. Queue tab
 - The `Queue` tab belongs to the OS. The only thing you do there is paste an email into the `email` column.
 
+## 4b. os_status column
+- `os_status` (right of the table) is OS-owned: `sent`, `dropped` or `open`. Do not type in it; the OS rewrites it daily with the colours. Sort or filter on it to group rows. Sorting a data tab is safe: the OS finds rows by their `maps_url`/`website`, not by row number.
+
 ## 5. What the OS does with marks
 - Green or red row becomes suppression (never contacted).
 - Every uncoloured row, with or without an email, becomes an unvetted lead. Flow: `import-sheet --confirm`, then `clean --batch <id>`, then `verify-sheet --batch <id> --confirm` (leads with a sheet email; run before enrich), then `enrich --batch <id>` (the rest), then `signals`, `select`, `draft` as for any lead. Named leads enrich cannot resolve end `no_buyer` and feed the manual queue. Clean and signals decide ICP; nothing from the sheet skips them.
