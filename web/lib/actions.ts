@@ -60,7 +60,7 @@ export async function autopilotSpent(since: string): Promise<number> {
   return (data ?? []).reduce((a, r) => a + Number(r.usd), 0);
 }
 
-/** Queue a worker job:`argv` is the CLI pass arguments, e.g. ["--batch", "B1"]. */
+/** Queue a worker job: `argv` is the CLI pass arguments, e.g. ["--batch", "B1"]. */
 export const enqueueJob = (kind: string, argv: string[]) => ok(supabase.from("jobs").insert({ kind, payload: { argv } }));
 
 export const cancelJob = (id: string) => ok(supabase.from("jobs").update({ status: "cancelled" }).eq("id", id).eq("status", "queued"));
