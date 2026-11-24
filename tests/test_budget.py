@@ -128,3 +128,16 @@ def test_import_spend_not_counted_in_daily_cap(world):
     world["rows"] = [("hunter_import", 50, None, utc(2026, 11, 12))]
     budget.require("hunter", 1, now=NOW)
     assert budget.spent_since(None, "hunter", utc(2026, 11, 12, 0)) == 0
+
+
+def test_require_daily_cap_kind_is_daily_and_allowance_kind_is_credit(world):
+    world["rows"] = [("serper", 700, None, utc(2026, 11, 12))]
+    with pytest.raises(budget.BudgetExceeded) as e:
+        budget.require("serper", 1, now=NOW)
+    assert e.value.kind == "daily"
+    world["set"]["import_hunter_allowance_credits"] = 10
+    world["rows"] = [("hunter_import", 10, None, utc(2026, 1, 1))]
+    with pytest.raises(budget.BudgetExceeded) as e:
+        budget.require("hunter_import", 1, now=NOW)
+    assert e.value.kind == "credit"
+    assert budget.BudgetExceeded("x").kind == "credit"
