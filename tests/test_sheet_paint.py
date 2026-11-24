@@ -137,7 +137,7 @@ def test_writeback_switch_off_refuses():
 
 def test_run_paint_previews_then_paints_and_records(monkeypatch, capsys):
     settings_store.clear_cache()
-    r = {**row("red"), "id": "row-1"}
+    r = {**row("red"), "id": "row-1", "stored_row_no": 7}
     monkeypatch.setattr(sheet_paint, "_tracked_and_live", lambda db, svc, sid: ([r], live_of(r, [None] * 3), 2))
     painted = []
     monkeypatch.setattr(sheet_paint, "paint_rows", lambda svc, sid, tab, cells: painted.append((tab, cells)) or len(cells))
@@ -148,7 +148,8 @@ def test_run_paint_previews_then_paints_and_records(monkeypatch, capsys):
     assert "Utah" in out and "2 rows moved" in out
     assert run_paint(db, object(), "sid", confirm=True) == 1
     assert painted == [("Utah", [(5, 3, "red")])]
-    (filt, upd), = db.updates
+    assert (("id", "row-1"), {"sheet_row_no": 5}) in db.updates  # stored row 7 followed the owner's sort to live row 5
+    filt, upd = db.updates[-1]
     assert filt == ("id", "row-1") and upd["colour_written"] == "red" and upd["colour_seen"] == "red" and upd["written_at"]
     settings_store.clear_cache()
 
@@ -185,14 +186,34 @@ def _tr(id_, no, site, status="sent", block=1):
             "leads": {"status": status, "owner_name": None, "owner_email": None}}
 
 
-def test_tracked_and_live_joins_width_and_skips_moved_and_blank_rows(monkeypatch):
+def test_tracked_and_live_joins_width_and_skips_missing_and_blank_rows(monkeypatch):
     sheet = [SheetRow("Utah", 1, ["business", "website"], [None] * 2),
-             _sr(2, "Glow", "glow.example"),             # tracked row 2 is still here
-             _sr(3, "Other", "other.example")]           # tracked row 3 moved: another lead's row sits there
+             _sr(2, "Glow", "glow.example"),
+             _sr(3, "Other", "other.example")]
     monkeypatch.setattr(sheet_paint, "read_tab", lambda svc, sid, tab: sheet)
-    data = [_tr("a", 2, "glow.example"), _tr("b", 3, "moved.example"), _tr("c", 9, "gone.example")]  # 9: no row
+    data = [_tr("a", 2, "glow.example"), _tr("c", 9, "gone.example")]  # gone.example is not in the tab
     tracked, live, moved = sheet_paint._tracked_and_live(Q(data), object(), "sid")
     assert [t["id"] for t in tracked] == ["a"] and tracked[0]["width"] == 2 and tracked[0]["desired"] == "green"
     assert live == {("Utah", 1, "domain:glow.example"): [None, None]}
-    assert moved == 2
-    assert plan_paint(tracked, live) == [("Utah", 2, 2, "green")]  # moved row 3 and missing row 9 are never painted
+    assert moved == 1
+    assert plan_paint(tracked, live) == [("Utah", 2, 2, "green")]
+
+
+def test_sorted_tab_rows_are_found_by_key(monkeypatch):
+    sheet = [SheetRow("Utah", 1, ["business", "website"], [None] * 2),
+             _sr(2, "B", "b.example"), _sr(3, "A", "a.example"), _sr(4, "C", "c.example")]  # a and b swapped
+    monkeypatch.setattr(sheet_paint, "read_tab", lambda svc, sid, tab: sheet)
+    data = [_tr("a", 5, "a.example"), _tr("b", 6, "b.example", status="rejected")]
+    tracked, live, moved = sheet_paint._tracked_and_live(Q(data), object(), "sid")
+    assert {t["id"]: (t["sheet_row_no"], t["stored_row_no"]) for t in tracked} == {"a": (3, 5), "b": (2, 6)}
+    assert moved == 0
+    assert sorted(plan_paint(tracked, live)) == [("Utah", 2, 2, "red"), ("Utah", 3, 2, "green")]
+
+
+def test_missing_or_duplicate_key_is_skipped_and_counted(monkeypatch):
+    sheet = [SheetRow("Utah", 1, ["business", "website"], [None] * 2),
+             _sr(2, "A", "a.example"), _sr(3, "A again", "a.example"), _sr(4, "C", "c.example")]
+    monkeypatch.setattr(sheet_paint, "read_tab", lambda svc, sid, tab: sheet)
+    data = [_tr("a", 2, "a.example"), _tr("gone", 5, "gone.example"), _tr("c", 4, "c.example")]
+    tracked, live, moved = sheet_paint._tracked_and_live(Q(data), object(), "sid")
+    assert [t["id"] for t in tracked] == ["c"] and moved == 2

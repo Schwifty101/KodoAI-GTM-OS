@@ -59,8 +59,9 @@ def plan_paint(tracked_rows: list[dict], live: dict[tuple[str, int, str], list[s
 
 
 def _tracked_and_live(db, svc, sheet_id: str):
-    """Tracked sheet_rows (with the lead's state), the live colours of each row, and the count of moved rows.
-    A tracked row is painted only if the live row at its stored (block, row_no) still has its row_key."""
+    """Tracked sheet_rows (with the lead's state), the live colours of each row, and the count of skipped rows.
+    A tracked row is found by its row_key over the whole tab (sorting is safe); sheet_row_no is the LIVE row number
+    (stored value kept as stored_row_no). A key missing or appearing twice in the tab is skipped and counted."""
     from gtm.db import fetch_all
     from gtm.sheet_import import place_key
     from gtm.sheet_map import map_tab  # block numbers and header widths
@@ -72,22 +73,23 @@ def _tracked_and_live(db, svc, sheet_id: str):
     for tab in sorted({r["tab"] for r in data} - {QUEUE_TAB}):
         rows = read_tab(svc, sheet_id, tab)
         by_no = {r.row_no: r for r in rows}
-        at = {}  # (block, row_no) -> (row_key, width)
+        at = {}  # row_key -> [(row_no, width)]
         for m in map_tab(tab, rows):
             try:
-                at[(m.block, m.row_no)] = (place_key(m), m.width)
+                at.setdefault(place_key(m), []).append((m.row_no, m.width))
             except ValueError:
                 pass
         for r in (r for r in data if r["tab"] == tab):
-            lead, here = r.get("leads"), at.get((r["block"], r["sheet_row_no"]))
+            lead, here = r.get("leads"), at.get(r["row_key"], [])
             if not lead:
                 continue
-            if not here or here[0] != r["row_key"]:
-                moved += 1  # sorted, inserted or deleted since the last import: never paint another lead's row
+            if len(here) != 1:
+                moved += 1  # key deleted or duplicated in the tab: never paint a guessed row
                 continue
-            tracked.append({**r, "width": here[1], "desired": desired_colour(
+            no, width = here[0]
+            tracked.append({**r, "stored_row_no": r["sheet_row_no"], "sheet_row_no": no, "width": width, "desired": desired_colour(
                 lead["status"], lead.get("owner_name"), lead.get("owner_email"), r.get("queue_state"))})
-            live[(tab, r["block"], r["row_key"])] = by_no[r["sheet_row_no"]].colours
+            live[(tab, r["block"], r["row_key"])] = by_no[no].colours
     return tracked, live, moved
 
 
@@ -100,6 +102,10 @@ def run_paint(db, svc, sheet_id: str, confirm: bool = False) -> int:
         print(f"{tab} row {row_no} (A..{width}): {colour or 'clear'}")
     print(f"{moved} rows moved (skipped)")
     print(f"{len(plan)} rows" + ("" if confirm else " (preview; --confirm to paint)"))
+    if confirm:  # follow the owner's sort: keep the stored row number current
+        for t in tracked:
+            if t.get("stored_row_no", t["sheet_row_no"]) != t["sheet_row_no"]:
+                db.table("sheet_rows").update({"sheet_row_no": t["sheet_row_no"]}).eq("id", t["id"]).execute()
     if not confirm or not plan:
         return len(plan)
     ids = {(t["tab"], t["sheet_row_no"]): t["id"] for t in tracked}
