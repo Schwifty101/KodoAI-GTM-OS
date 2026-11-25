@@ -34,3 +34,10 @@ def test_days_group_and_guard_zero_spend():
     assert sorted(d) == ["2026-11-20", "2026-11-21"]
     assert d["2026-11-20"]["usd"] == 2.0 and d["2026-11-20"]["enriched"] == 1 and d["2026-11-20"]["per_usd"] == 0.5
     assert d["2026-11-21"]["usd"] == 0 and d["2026-11-21"]["per_usd"] is None
+
+
+def test_states_merge_by_state_code():
+    s = summarise([L("sent", "TX"), L("no_buyer", "Texas"), L("no_buyer", None), L("no_buyer", "Narnia"), L("sent", "New York"), L("no_buyer", "NY")], [], [])
+    assert s["states"]["TX"]["kept"] == 2 and s["states"]["TX"]["enriched"] == 1
+    assert s["states"]["NY"]["kept"] == 2
+    assert s["states"]["?"]["kept"] == 2 and "Texas" not in s["states"]

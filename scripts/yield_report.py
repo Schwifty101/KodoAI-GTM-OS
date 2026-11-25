@@ -2,6 +2,7 @@
 Autopilot runs are not stored, so a "run" here is a UTC day with at least one `walk` job. Prints counts and 8-char batch prefixes only."""
 from collections import defaultdict
 
+from gtm.coverage import state_code
 from gtm.db import fetch_all, get_db
 
 DROPPED = {"scraped", "rejected", "cleaned"}
@@ -24,7 +25,7 @@ def summarise(leads: list[dict], cost_rows: list[dict], jobs: list[dict]) -> dic
     runs: dict = {}
     enriched_by_day: dict = defaultdict(int)
     for l in leads:
-        s = states[l.get("state") or "?"]
+        s = states[state_code(l.get("state")) or "?"]
         r = runs.setdefault(l["batch_id"], {"batch": (l["batch_id"] or "none")[:8], "created": (l.get("batch_created_at") or "")[:10],
                                             "query": l.get("batch_query") or "", "scraped": 0, "kept": 0, "named": 0, "enriched": 0})
         r["scraped"] += 1
