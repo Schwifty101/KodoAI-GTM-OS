@@ -17,6 +17,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from gtm.budget import BudgetExceeded  # noqa: E402
 from gtm.buyer import is_role_email  # noqa: E402
 from gtm.clean import CHAIN_MIN, CHAINS, brand_key  # noqa: E402
 from gtm.config import get_settings  # noqa: E402
@@ -68,22 +69,31 @@ def _icypeas(key: str, s: dict, http, sleep) -> dict:
     sid = (body.get("item") or {}).get("_id")
     if code != 200 or not sid:
         return {"email": None, "status": f"error_{code}", "credits": 0}
-    status, emails = "TIMEOUT", []  # UNVERIFIED: whether a polled search can still debit after TIMEOUT; docs say wait 5-10 s, we poll 6 x 5 s
-    for _ in range(6):
-        sleep(5)
-        code, body = http("POST", f"{ICY}/bulk-single-searchs/read", h, {"id": sid})  # UNVERIFIED: request/response schema inferred from the getting-started page
-        if code in (401, 402, 403):
-            raise Stop(f"icypeas {code}")
-        items = body.get("items") or [{}]
-        status = items[0].get("status") or "NONE"
-        if status in ICY_DONE:
-            emails = (items[0].get("results") or {}).get("emails") or []
-            break
-    e = emails[0] if emails else {}
+    try:
+        for _ in range(6):  # docs say wait 5-10 s
+            sleep(5)
+            done, res = _icy_read(h, sid, http)
+            if done:
+                return res
+    except Exception as e:  # the search is already paid for: keep its id so nothing is bought twice
+        e.sid = sid
+        raise
+    return {"email": None, "status": "TIMEOUT", "credits": 0, "search_id": sid}  # UNVERIFIED: whether a timed-out search still debits
+
+
+def _icy_read(h: dict, sid: str, http) -> tuple[bool, dict]:
+    code, body = http("POST", f"{ICY}/bulk-single-searchs/read", h, {"id": sid})  # UNVERIFIED: request/response schema inferred from the getting-started page
+    if code in (401, 402, 403):
+        raise Stop(f"icypeas {code}")
+    item = (body.get("items") or [{}])[0]
+    status = item.get("status") or "NONE"
+    if status not in ICY_DONE:
+        return False, {"email": None, "status": "TIMEOUT", "credits": 0, "search_id": sid}
     if status == "INSUFFICIENT_FUNDS":
         raise Stop("icypeas out of credits")
+    e = ((item.get("results") or {}).get("emails") or [{}])[0]
     # UNVERIFIED: certainty value list beyond "ultra_sure"; credit rule (1 when FOUND/DEBITED, else 0) is from the getting-started page
-    return {"email": e.get("email"), "status": e.get("certainty") or status, "credits": 1 if status in ("FOUND", "DEBITED") else 0}
+    return True, {"email": e.get("email"), "status": e.get("certainty") or status, "credits": 1 if status in ("FOUND", "DEBITED") else 0, "search_id": sid}
 
 
 def _anymail(key: str, s: dict, http, sleep) -> dict:
@@ -104,23 +114,53 @@ def run(arm: str, sample: list[dict], settings, out: Path, http=_http, log=None,
     done = json.loads(out.read_text()) if out.exists() else []
     have = {r["id"] for r in done}
     call = _icypeas if arm == "icypeas" else _anymail
+
+    def save(row: dict, credits: float | None) -> None:
+        out.parent.mkdir(exist_ok=True)
+        out.write_text(json.dumps(done))  # file first, cost_log second: a failing log can never cause a second paid call
+        log(arm, credits or 0, 0, lead_id=row["id"], note=f"pilot:{row['status']}")  # usd 0 until prices are set
+
+    if arm == "icypeas":  # one re-read of each TIMEOUT row, never a new search
+        wanted = {s["id"] for s in sample}
+        for row in done:
+            if row["id"] in wanted and row["status"] == "TIMEOUT" and row.get("search_id") and not row.get("reread"):
+                row["reread"] = True
+                try:
+                    ok, res = _icy_read({"Authorization": key, "Content-Type": "application/json"}, row["search_id"], http)
+                except Stop as e:
+                    print(f"stopped: {e}")
+                    save(row, 0)
+                    return done
+                except Exception:
+                    save(row, 0)
+                    return done
+                if ok:
+                    row.update(res)
+                save(row, res["credits"] if ok else 0)
     for s in sample:
         if s["id"] in have:  # already paid for: never repeat a call
             continue
         try:
             res = call(key, s, http, sleep)
-        except Stop as e:
-            print(f"stopped: {e}")
+        except Exception as e:  # incl. Stop: record, then stop; never retry a paid call
+            sid = getattr(e, "sid", None)
+            if isinstance(e, Stop) and not sid:
+                print(f"stopped: {e}")  # failed before anything was bought
+                break
+            row = {"id": s["id"], "email": None, "status": "error_exc", "credits": None, "search_id": sid}
+            done.append(row)
+            save(row, 0)
+            print(f"stopped: {type(e).__name__} on a lead; its row is recorded and will not be re-run")
             break
-        done.append({"id": s["id"], **res})
-        log(arm, res["credits"], 0, lead_id=s["id"], note=f"pilot:{res['status']}")  # usd 0 until prices are set
-        SECRETS.mkdir(exist_ok=True)
-        out.write_text(json.dumps(done))  # saved after every call, so a crash loses nothing
+        row = {"id": s["id"], **res}
+        done.append(row)
+        save(row, res["credits"])
     return done
 
 
 def score_rows(rows: list[dict], verify) -> dict:
-    r = {"lookups": len(rows), "returned": 0, "role": 0, "verified_calls": 0, "hits": 0, "credits": sum(x.get("credits") or 0 for x in rows)}
+    r = {"lookups": len(rows), "returned": 0, "role": 0, "verified_calls": 0, "hits": 0, "budget_stopped": False,
+         "credits": sum(x.get("credits") or 0 for x in rows)}
     for x in rows:
         if not x.get("email"):
             continue
@@ -128,14 +168,41 @@ def score_rows(rows: list[dict], verify) -> dict:
         if is_role_email(x["email"]):
             r["role"] += 1  # can never qualify: no verify credit spent
             continue
-        v = verify(x["email"])
+        try:
+            v = verify(x["email"])
+        except BudgetExceeded:
+            r["budget_stopped"] = True  # keep the partial counts; verified verdicts are already cached
+            break
         r["verified_calls"] += 1
         r["hits"] += v.get("verification_status") == "valid" and (v.get("score") or 0) >= 75
     return r
 
 
-def verdict(hits: int) -> str:
-    return "buy a month" if hits >= 4 else "supplement only" if hits >= 2 else "drop"
+def cached_verify(verify, path: Path):
+    """Verdicts persist by lowercase email so a re-run never pays for the same address twice."""
+    cache = json.loads(path.read_text()) if path.exists() else {}
+
+    def v(email: str) -> dict:
+        k = email.lower()
+        if k not in cache:
+            cache[k] = verify(email)
+            path.parent.mkdir(exist_ok=True)
+            path.write_text(json.dumps(cache))
+        return cache[k]
+
+    return v
+
+
+def verdict(hits: int, lookups: int = 20) -> str:
+    """4 of 20 / 2 of 20 as rates, so a smaller --limit run is judged on its own size."""
+    rate = hits / lookups if lookups else 0
+    return "buy a month" if rate >= 0.2 else "supplement only" if rate >= 0.1 else "drop"
+
+
+def fmt(arm: str, s: dict) -> str:
+    return (f"{arm}: lookups {s['lookups']}, returned {s['returned']}, verified hits {s['hits']}, role addresses {s['role']}, "
+            f"credits used {s['credits']} (+{s['verified_calls'] * 0.5} Hunter), hit rate {s['hits']}/{s['lookups']} -> {verdict(s['hits'], s['lookups'])}"
+            + (" [PARTIAL: Hunter budget reached, re-run score later; cached verdicts are reused]" if s["budget_stopped"] else ""))
 
 
 def main(argv=None) -> None:
@@ -168,13 +235,13 @@ def main(argv=None) -> None:
         from gtm.hunter import HunterPool
 
         pool = HunterPool(cfg.hunter_keys)
+        # Bucket "hunter" (daily cap, default 100): 20 emails cost at most 10 credits. "hunter_import" is the sheet-import lifetime
+        # allowance, which defaults to 0 and is not the pilot's to spend, so it is deliberately not used.
+        verify = cached_verify(lambda e: pool.verify_email(e, "hunter"), SECRETS / "email_pilot_verify.json")
         for arm in KEYS:
             f = SECRETS / f"email_pilot_{arm}.json"
-            if not f.exists():
-                continue
-            s = score_rows(json.loads(f.read_text()), pool.verify_email)  # budget.require + cost_log inside verify_email
-            print(f"{arm}: lookups {s['lookups']}, returned {s['returned']}, verified hits {s['hits']}, role addresses {s['role']}, "
-                  f"credits used {s['credits']} (+{s['verified_calls'] * 0.5} Hunter), hit rate {s['hits']}/20 -> {verdict(s['hits'])}")
+            if f.exists():
+                print(fmt(arm, score_rows(json.loads(f.read_text()), verify)))
         print("verdict: 4+ of 20 = buy a month; 2-3 = supplement only; under 2 = drop")
 
 
