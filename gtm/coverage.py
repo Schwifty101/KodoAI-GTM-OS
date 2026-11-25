@@ -1,4 +1,5 @@
 import csv
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -30,13 +31,88 @@ def seed_coverage(db, rows: list[dict]) -> int:
     return len(new)
 
 
+SUCCESS = {"enriched", "signalled", "selected", "drafted", "sent", "replied", "booked"}
+DROPPED = {"scraped", "rejected", "cleaned"}  # not kept
+EXPLORE_BELOW = 40  # kept leads: a state under this is still unsampled
+
+
+def tile_scores(stats: dict[str, tuple[int, int]], global_rate: float, prior: int = 20) -> dict[str, float]:
+    """stats[key] = (kept, success). Smoothed rate toward the global rate; a key with no stats scores the global rate."""
+    out = defaultdict(lambda: global_rate)
+    out.update({k: (s + prior * global_rate) / (kn + prior) for k, (kn, s) in stats.items()})
+    return out
+
+
+STATES = dict(zip(
+    "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(),
+    "Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|District of Columbia|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming".split("|")))
+_BY_NAME = {n.lower(): c for c, n in STATES.items()}
+
+
+def state_code(v) -> str | None:
+    """'Texas', 'texas', 'TX' -> 'TX'; None or unknown -> None."""
+    v = (v or "").strip()
+    return v.upper() if v.upper() in STATES else _BY_NAME.get(v.lower())
+
+
+def yield_stats(leads: list[dict], owner: dict, tiles: dict):
+    """Pure. Per state from ALL leads by normalised leads.state; per metro through owner[batch_id] (the done coverage row),
+    only metros with 2+ done tiles; global rate over every kept lead, state known or not."""
+    by_state, by_metro = defaultdict(lambda: [0, 0]), defaultdict(lambda: [0, 0])
+    kept = won = 0
+    for lead in leads:
+        if lead["status"] in DROPPED:
+            continue
+        ok = lead["status"] in SUCCESS
+        kept, won = kept + 1, won + ok
+        keys = [(by_state, state_code(lead["state"]))]
+        if lead.get("batch_id") in owner:
+            keys.append((by_metro, owner[lead["batch_id"]]["metro"]))
+        for d, key in keys:
+            if key:
+                d[key][0] += 1
+                d[key][1] += ok
+    return ({k: tuple(v) for k, v in by_state.items()},
+            {k: tuple(v) for k, v in by_metro.items() if tiles.get(k, 0) >= 2}, won / kept if kept else 0.0)
+
+
+def load_yield_stats(db) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[int, int]], float]:
+    """(per state, per metro, global rate), each (kept, success); see yield_stats. Metros join leads to done tiles
+    through coverage.scrape_batch_id = leads.batch_id."""
+    done = fetch_all(lambda: db.table("coverage").select("id,metro,state,scrape_batch_id").eq("status", "done").order("id"))
+    owner = {c["scrape_batch_id"]: c for c in done if c["scrape_batch_id"]}
+    leads = fetch_all(lambda: db.table("leads").select("id,state,batch_id,status").order("id"))
+    return yield_stats(leads, owner, Counter(c["metro"] for c in done))
+
+
+def _pick(pending: list[dict], state_stats, metro_stats, rate: float, explore: bool) -> dict:
+    """pending is sorted by seq. Explore: lowest seq in a state with < EXPLORE_BELOW kept leads (else lowest seq).
+    Otherwise highest score (metro if it has stats, else state, else global), ties by lowest seq."""
+    if explore:
+        return next((t for t in pending if state_stats.get(t["state"], (0, 0))[0] < EXPLORE_BELOW), pending[0])
+    ss, ms = tile_scores(state_stats, rate), tile_scores(metro_stats, rate)
+    return max(pending, key=lambda t: (ms[t["metro"]] if t["metro"] in metro_stats else ss[t["state"]], -t["seq"]))
+
+
 def claim_tiles(db, n: int) -> list[dict]:
-    """Flip up to n pending tiles (lowest seq first) to running. A lost race (row no longer pending) is skipped.
+    """Flip up to n pending tiles to running. A lost race (row no longer pending) is skipped.
+    walk_yield_order off: lowest seq first. On: best smoothed yield first, and every third claim explores.
     ponytail: per-row conditional update, fine for one or two workers."""
+    if not setting("walk_yield_order"):
+        ids = [c["id"] for c in db.table("coverage").select("id").eq("status", "pending").order("seq").limit(n).execute().data]
+    else:
+        pending = fetch_all(lambda: db.table("coverage").select("id,seq,metro,state").eq("status", "pending").order("seq"))
+        used = db.table("coverage").select("id", count="exact").in_("status", ["running", "done"]).limit(1).execute().count or 0
+        state_stats, metro_stats, rate = load_yield_stats(db)
+        ids = []
+        while pending and len(ids) < n:
+            # exploration: coverage rows already running or done, modulo 3 == 2 (every third claim)
+            t = _pick(pending, state_stats, metro_stats, rate, (used + len(ids)) % 3 == 2)
+            pending.remove(t)
+            ids.append(t["id"])
     got = []
-    for c in db.table("coverage").select("id").eq("status", "pending").order("seq").limit(n).execute().data:
-        r = db.table("coverage").update({"status": "running", "started_at": _now()}).eq("id", c["id"]).eq("status", "pending").execute().data
-        got += r
+    for i in ids:
+        got += db.table("coverage").update({"status": "running", "started_at": _now()}).eq("id", i).eq("status", "pending").execute().data
     return got
 
 
