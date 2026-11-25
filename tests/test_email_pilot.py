@@ -110,5 +110,93 @@ def test_score_rule(status, score, role, hit):
     assert out["hits"] == int(hit) and out["role"] == int(role) and out["verified_calls"] == (0 if role else 1)
 
 
+def test_exception_after_first_post_records_error_and_stops(tmp_path):
+    calls = []
+
+    def http(method, url, headers, body):
+        calls.append(url)
+        if url.endswith("/email-search"):
+            return 200, {"item": {"_id": "s1"}}
+        raise TimeoutError("poll")
+
+    out = tmp_path / "o.json"
+    res = ep.run("icypeas", [S1, S2], Settings(icypeas_api_key="K"), out, http=http, log=lambda *a, **k: None, sleep=lambda s: None)
+    assert len(calls) == 2 and res[0]["status"] == "error_exc" and res[0]["credits"] is None and res[0]["search_id"] == "s1"
+    n = len(calls)
+    ep.run("icypeas", [S1], Settings(icypeas_api_key="K"), out, http=http, log=lambda *a, **k: None, sleep=lambda s: None)
+    assert len(calls) == n  # recorded lead is skipped
+
+
+def test_result_is_saved_before_cost_is_logged(tmp_path):
+    out = tmp_path / "o.json"
+
+    def log(*a, **k):
+        assert json.loads(out.read_text())[0]["id"] == "a"
+        raise RuntimeError("db down")
+
+    with pytest.raises(RuntimeError):
+        ep.run("anymail", [S1], Settings(anymail_api_key="K"), out, http=lambda *a: (200, {"email": None, "email_status": "not_found"}), log=log)
+
+
+def test_timeout_row_keeps_search_id_and_is_reread_once_without_new_search(tmp_path):
+    out = tmp_path / "o.json"
+    stuck = lambda m, u, h, b: (200, {"item": {"_id": "s1"}}) if u.endswith("/email-search") else (200, {"items": [{"status": "IN_PROGRESS"}]})  # noqa: E731
+    res = ep.run("icypeas", [S1], Settings(icypeas_api_key="K"), out, http=stuck, log=lambda *a, **k: None, sleep=lambda s: None)
+    assert res[0]["status"] == "TIMEOUT" and res[0]["search_id"] == "s1"
+    calls = []
+
+    def found(m, u, h, b):
+        calls.append(u)
+        return 200, {"items": [{"status": "FOUND", "results": {"emails": [{"email": "d@a.com", "certainty": "sure"}]}}]}
+
+    res = ep.run("icypeas", [S1], Settings(icypeas_api_key="K"), out, http=found, log=lambda *a, **k: None, sleep=lambda s: None)
+    assert calls == [f"{ep.ICY}/bulk-single-searchs/read"] and res[0]["email"] == "d@a.com" and res[0]["credits"] == 1
+    ep.run("icypeas", [S1], Settings(icypeas_api_key="K"), out, http=found, log=lambda *a, **k: None, sleep=lambda s: None)
+    assert len(calls) == 1
+
+
+def test_still_stuck_timeout_is_not_reread_twice(tmp_path):
+    out = tmp_path / "o.json"
+    calls = []
+
+    def stuck(m, u, h, b):
+        calls.append(u)
+        return (200, {"item": {"_id": "s1"}}) if u.endswith("/email-search") else (200, {"items": [{"status": "IN_PROGRESS"}]})
+
+    for _ in range(3):
+        ep.run("icypeas", [S1], Settings(icypeas_api_key="K"), out, http=stuck, log=lambda *a, **k: None, sleep=lambda s: None)
+    assert calls.count(f"{ep.ICY}/email-search") == 1 and calls.count(f"{ep.ICY}/bulk-single-searchs/read") == 6 + 1
+
+
+def test_verify_cache_reuses_verdicts_across_runs(tmp_path):
+    f, calls = tmp_path / "v.json", []
+
+    def verify(e):
+        calls.append(e)
+        return {"verification_status": "valid", "score": 90}
+
+    ep.cached_verify(verify, f)("Dana@A.com")
+    assert ep.cached_verify(verify, f)("dana@a.com")["score"] == 90 and calls == ["Dana@A.com"]
+
+
+def test_budget_exceeded_returns_partial_scores():
+    from gtm.budget import BudgetExceeded
+
+    def verify(e):
+        if e.startswith("b"):
+            raise BudgetExceeded("cap")
+        return {"verification_status": "valid", "score": 90}
+
+    rows = [{"id": "1", "email": "a@x.com"}, {"id": "2", "email": "b@x.com"}, {"id": "3", "email": "c@x.com"}]
+    out = ep.score_rows(rows, verify)
+    assert out["hits"] == 1 and out["budget_stopped"] is True
+
+
+def test_report_uses_lookups_not_20():
+    s = ep.score_rows([{"id": "1", "email": "a@x.com"}, {"id": "2", "email": None}], lambda e: {"verification_status": "valid", "score": 90})
+    assert "1/2" in ep.fmt("anymail", s) and "/20" not in ep.fmt("anymail", s)
+    assert [ep.verdict(1, n) for n in (5, 10, 20)] == ["buy a month", "supplement only", "drop"]
+
+
 def test_verdict_thresholds():
     assert [ep.verdict(n) for n in (4, 20, 3, 2, 1, 0)] == ["buy a month"] * 2 + ["supplement only"] * 2 + ["drop"] * 2
