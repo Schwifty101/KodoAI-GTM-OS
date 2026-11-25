@@ -1,4 +1,5 @@
 import csv
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -30,13 +31,67 @@ def seed_coverage(db, rows: list[dict]) -> int:
     return len(new)
 
 
+SUCCESS = {"enriched", "signalled", "selected", "drafted", "sent", "replied", "booked"}
+DROPPED = {"scraped", "rejected", "cleaned"}  # not kept
+EXPLORE_BELOW = 40  # kept leads: a state under this is still unsampled
+
+
+def tile_scores(stats: dict[str, tuple[int, int]], global_rate: float, prior: int = 20) -> dict[str, float]:
+    """stats[key] = (kept, success). Smoothed rate toward the global rate; a key with no stats scores the global rate."""
+    out = defaultdict(lambda: global_rate)
+    out.update({k: (s + prior * global_rate) / (kn + prior) for k, (kn, s) in stats.items()})
+    return out
+
+
+def load_yield_stats(db) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[int, int]], float]:
+    """(per state, per metro with 2+ done tiles, global rate), each (kept, success), from leads of done tiles
+    joined through coverage.scrape_batch_id = leads.batch_id."""
+    done = fetch_all(lambda: db.table("coverage").select("id,metro,state,scrape_batch_id").eq("status", "done").order("id"))
+    owner = {c["scrape_batch_id"]: c for c in done if c["scrape_batch_id"]}
+    tiles = Counter(c["metro"] for c in done)
+    by_state, by_metro = defaultdict(lambda: [0, 0]), defaultdict(lambda: [0, 0])
+    for lead in fetch_all(lambda: db.table("leads").select("id,batch_id,status").not_.is_("batch_id", "null").order("id")):
+        c = owner.get(lead["batch_id"])
+        if not c or lead["status"] in DROPPED:
+            continue
+        ok = lead["status"] in SUCCESS
+        for d, key in ((by_state, c["state"]), (by_metro, c["metro"])):
+            d[key][0] += 1
+            d[key][1] += ok
+    kept = sum(v[0] for v in by_state.values())
+    rate = sum(v[1] for v in by_state.values()) / kept if kept else 0.0
+    return ({k: tuple(v) for k, v in by_state.items()},
+            {k: tuple(v) for k, v in by_metro.items() if tiles[k] >= 2}, rate)
+
+
+def _pick(pending: list[dict], state_stats, metro_stats, rate: float, explore: bool) -> dict:
+    """pending is sorted by seq. Explore: lowest seq in a state with < EXPLORE_BELOW kept leads (else lowest seq).
+    Otherwise highest score (metro if it has stats, else state, else global), ties by lowest seq."""
+    if explore:
+        return next((t for t in pending if state_stats.get(t["state"], (0, 0))[0] < EXPLORE_BELOW), pending[0])
+    ss, ms = tile_scores(state_stats, rate), tile_scores(metro_stats, rate)
+    return max(pending, key=lambda t: (ms[t["metro"]] if t["metro"] in metro_stats else ss[t["state"]], -t["seq"]))
+
+
 def claim_tiles(db, n: int) -> list[dict]:
-    """Flip up to n pending tiles (lowest seq first) to running. A lost race (row no longer pending) is skipped.
+    """Flip up to n pending tiles to running. A lost race (row no longer pending) is skipped.
+    walk_yield_order off: lowest seq first. On: best smoothed yield first, and every third claim explores.
     ponytail: per-row conditional update, fine for one or two workers."""
+    if not setting("walk_yield_order"):
+        ids = [c["id"] for c in db.table("coverage").select("id").eq("status", "pending").order("seq").limit(n).execute().data]
+    else:
+        pending = fetch_all(lambda: db.table("coverage").select("id,seq,metro,state").eq("status", "pending").order("seq"))
+        used = db.table("coverage").select("id", count="exact").in_("status", ["running", "done"]).limit(1).execute().count or 0
+        state_stats, metro_stats, rate = load_yield_stats(db)
+        ids = []
+        while pending and len(ids) < n:
+            # exploration: coverage rows already running or done, modulo 3 == 2 (every third claim)
+            t = _pick(pending, state_stats, metro_stats, rate, (used + len(ids)) % 3 == 2)
+            pending.remove(t)
+            ids.append(t["id"])
     got = []
-    for c in db.table("coverage").select("id").eq("status", "pending").order("seq").limit(n).execute().data:
-        r = db.table("coverage").update({"status": "running", "started_at": _now()}).eq("id", c["id"]).eq("status", "pending").execute().data
-        got += r
+    for i in ids:
+        got += db.table("coverage").update({"status": "running", "started_at": _now()}).eq("id", i).eq("status", "pending").execute().data
     return got
 
 
