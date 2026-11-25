@@ -219,8 +219,10 @@ def cmd_tz_backfill(a: argparse.Namespace) -> None:
 
 
 def cmd_renumber_batch(a: argparse.Namespace) -> None:
-    n = renumber(get_db(), a.from_no, a.to_no, a.confirm)
-    print(f"{n} selected leads {'moved' if a.confirm else 'would move'} from batch {a.from_no} to {a.to_no}")
+    db = get_db()
+    drafted = len(fetch_all(lambda: db.table("leads").select("id").eq("batch_no", a.from_no).eq("status", "drafted").order("id"))) if a.include_drafted else 0
+    n = renumber(db, a.from_no, a.to_no, a.confirm, a.include_drafted)
+    print(f"{n - drafted} selected and {drafted} drafted leads {'moved' if a.confirm else 'would move'} from batch {a.from_no} to {a.to_no}")
 
 
 def cmd_mailbox(a: argparse.Namespace) -> None:
@@ -343,6 +345,7 @@ def build_parser() -> argparse.ArgumentParser:
     rb = sub.add_parser("renumber-batch", help="move selected leads from batch N to M (dry run unless --confirm)")
     rb.add_argument("--from", dest="from_no", type=int, required=True)
     rb.add_argument("--to", dest="to_no", type=int, required=True)
+    rb.add_argument("--include-drafted", action="store_true", help="also move drafted leads (default: selected only)")
     rb.add_argument("--confirm", action="store_true")
     rb.set_defaults(fn=cmd_renumber_batch)
     t = sub.add_parser("tz-backfill", help="set tz on leads that have none (free)")

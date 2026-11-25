@@ -38,9 +38,9 @@ def assign_batches(db, lead_ids: list[str] | None = None) -> int:
     return len(new)  # ponytail: two concurrent selects could race on the same batch; one worker runs selects serially
 
 
-def renumber(db, old: int, new: int, confirm: bool = False) -> int:
-    """Move selected leads from batch old to new; returns how many match (moved only with confirm). Refuses to overfill batch new."""
-    ids = [r["id"] for r in fetch_all(lambda: db.table("leads").select("id").eq("batch_no", old).eq("status", "selected").order("id"))]
+def renumber(db, old: int, new: int, confirm: bool = False, include_drafted: bool = False) -> int:
+    """Move selected (and, with include_drafted, drafted) leads from batch old to new; returns how many match (moved only with confirm). Refuses to overfill batch new."""
+    ids = [r["id"] for r in fetch_all(lambda: db.table("leads").select("id").eq("batch_no", old).in_("status", ["selected", "drafted"] if include_drafted else ["selected"]).order("id"))]
     there = len(fetch_all(lambda: db.table("leads").select("id").eq("batch_no", new).order("id")))
     total = there + setting("batch_base", db).get(str(new), 0) + len(ids)
     if total > BATCH_SIZE:

@@ -96,3 +96,25 @@ def test_renumber_refuses_to_overfill_the_target_batch(selected, monkeypatch):
     assert {r["batch_no"] for r in db.table("leads").select("batch_no").in_("id", ids).execute().data} == {9001}
     monkeypatch.setattr(batches, "setting", lambda k, db=None: {"9002": 98})
     assert renumber(db, 9001, 9002, confirm=True) == 2
+
+
+@pytest.mark.db
+def test_renumber_include_drafted_moves_selected_and_drafted_never_sent(selected, monkeypatch):
+    from gtm import batches
+    from gtm.batches import renumber
+
+    db, ids, other = selected  # ids[0] selected, ids[1] drafted, other sent
+    db.table("leads").update({"batch_no": 9001}).eq("id", ids[0]).execute()
+    db.table("leads").update({"batch_no": 9001, "status": "drafted"}).eq("id", ids[1]).execute()
+    db.table("leads").update({"batch_no": 9001, "status": "sent"}).eq("id", other).execute()
+    batch = lambda: {r["id"]: r["batch_no"] for r in db.table("leads").select("id,batch_no").in_("id", ids + [other]).execute().data}
+    assert renumber(db, 9001, 9002, confirm=True) == 1  # default: selected only
+    assert batch() == {ids[0]: 9002, ids[1]: 9001, other: 9001}
+    db.table("leads").update({"batch_no": 9001}).eq("id", ids[0]).execute()
+    monkeypatch.setattr(batches, "setting", lambda k, db=None: {"9002": 99})  # 99 + 2 moved > 100
+    with pytest.raises(ValueError):
+        renumber(db, 9001, 9002, confirm=True, include_drafted=True)
+    assert batch() == {ids[0]: 9001, ids[1]: 9001, other: 9001}
+    monkeypatch.setattr(batches, "setting", lambda k, db=None: {})
+    assert renumber(db, 9001, 9002, confirm=True, include_drafted=True) == 2
+    assert batch() == {ids[0]: 9002, ids[1]: 9002, other: 9001}
