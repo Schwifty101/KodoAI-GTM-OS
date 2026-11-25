@@ -1,7 +1,7 @@
 // Pure-logic checks for web/lib/runnow.ts. No database, no network.
 // Run: cd web && npx tsx scripts/runnow_unit.mts
 import assert from "node:assert/strict";
-import { CONFIRM_KINDS, baseKind, enrichEstimate, findPreview, isConfirmFlag, lastRun, sameArgv, stepState, type JobRow } from "../lib/runnow";
+import { CONFIRM_KINDS, alreadyApplied, baseKind, enrichEstimate, findPreview, isApplyOf, isConfirmFlag, jobPayload, lastRun, newestApply, sameArgv, stepState, type JobRow } from "../lib/runnow";
 
 const NOW = new Date("2026-11-25T12:00:00Z");
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3600_000).toISOString();
@@ -26,6 +26,39 @@ const newer = job("verify-sheet", "done", ARGV, hoursAgo(2));
 assert.equal(findPreview([older, newer, job("verify-sheet", "failed", ARGV, hoursAgo(1))], "verify-sheet", ARGV, NOW), newer, "newest done one");
 assert.equal(findPreview([newer, older], "verify-sheet", ARGV, NOW), newer, "order of input does not matter");
 assert.equal(findPreview([job("import-sheet", "done", [], hoursAgo(23))], "import-sheet", [], NOW)?.kind, "import-sheet", "empty argv, 23 h old is fine");
+
+// alreadyApplied: one preview unlocks one Apply
+const CONF = [...ARGV, "--confirm"];
+const prev = job("verify-sheet", "done", ARGV, hoursAgo(5));
+assert.equal(alreadyApplied([prev], "verify-sheet", ARGV, prev), false, "no apply yet");
+for (const st of ["queued", "running", "done", "failed", "cancelled", "paused_budget"])
+  assert.equal(alreadyApplied([prev, job("verify-sheet", st, CONF, hoursAgo(4))], "verify-sheet", ARGV, prev), true, `an apply that is ${st} spends the preview`);
+assert.equal(alreadyApplied([prev, job("verify-sheet", "done", CONF, hoursAgo(6))], "verify-sheet", ARGV, prev), false, "an apply from before the preview does not");
+const again = [prev, job("verify-sheet", "done", CONF, hoursAgo(4)), job("verify-sheet", "done", ARGV, hoursAgo(2))];
+assert.equal(alreadyApplied(again, "verify-sheet", ARGV, findPreview(again, "verify-sheet", ARGV, NOW)!), false, "a newer done preview unlocks Apply again");
+assert.equal(alreadyApplied([prev, job("verify-sheet", "queued", ["--confirm", "--batch", "B1"], hoursAgo(4))], "verify-sheet", ARGV, prev), true, "--confirm in any position counts");
+assert.equal(alreadyApplied([prev, job("verify-sheet", "queued", [...ARGV, "--conf"], hoursAgo(4))], "verify-sheet", ARGV, prev), true, "an abbreviated --conf counts");
+assert.equal(alreadyApplied([prev, job("verify-sheet", "done", ["--batch", "B2", "--confirm"], hoursAgo(4))], "verify-sheet", ARGV, prev), false, "another batch's apply");
+assert.equal(alreadyApplied([prev, job("verify-sheet", "done", [...ARGV, "--limit", "5", "--confirm"], hoursAgo(4))], "verify-sheet", ARGV, prev), false, "an apply with an extra flag is a different run");
+assert.equal(alreadyApplied([prev, job("sheet-queue", "done", CONF, hoursAgo(4))], "verify-sheet", ARGV, prev), false, "another kind's apply");
+assert.equal(alreadyApplied([prev, job("verify-sheet", "done", ARGV, hoursAgo(4))], "verify-sheet", ARGV, prev), false, "another preview is not an apply");
+// isApplyOf / newestApply
+assert.ok(isApplyOf(job("verify-sheet", "done", CONF, hoursAgo(1)), "verify-sheet", ARGV));
+assert.ok(!isApplyOf(job("verify-sheet", "done", ARGV, hoursAgo(1)), "verify-sheet", ARGV), "a preview is not an apply");
+assert.ok(isApplyOf(job("import-sheet", "done", ["--confirm"], hoursAgo(1)), "import-sheet", []), "empty argv + --confirm");
+const ap1 = job("verify-sheet", "failed", CONF, hoursAgo(4)), ap2 = job("verify-sheet", "queued", CONF, hoursAgo(1));
+assert.equal(newestApply([ap1, ap2, prev], "verify-sheet", ARGV), ap2, "newest apply, previews skipped");
+assert.equal(newestApply([prev], "verify-sheet", ARGV), undefined);
+
+// jobPayload: only `_test` kinds carry the marker claim_job skips; findPreview/stepState read argv only
+assert.deepEqual(jobPayload("enrich_test", ["--batch", "B1"]), { argv: ["--batch", "B1"], test: true });
+assert.deepEqual(jobPayload("verify-sheet_test", []), { argv: [], test: true });
+assert.deepEqual(jobPayload("enrich", ["--batch", "B1"]), { argv: ["--batch", "B1"] });
+assert.ok(!("test" in jobPayload("sheet-paint", [])), "a real kind never carries test");
+assert.ok(!("test" in jobPayload("test_enrich", [])), "only the suffix counts");
+const marked: JobRow = { ...job("verify-sheet_test", "done", ARGV, hoursAgo(1)), payload: jobPayload("verify-sheet_test", ARGV) };
+assert.equal(findPreview([marked], "verify-sheet_test", ARGV, NOW), marked, "a test marker does not break the preview match");
+assert.ok(sameArgv(marked.payload.argv ?? [], ARGV));
 
 // stepState
 const ORDER = ["import", "clean", "verify-sheet", "enrich", "signals", "select"];

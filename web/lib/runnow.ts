@@ -12,6 +12,9 @@ export const baseKind = (kind: string) => kind.replace(/_test$/, "");
 
 export const sameArgv = (a: string[], b: string[]) => JSON.stringify(a) === JSON.stringify(b);
 
+/** Payload of a new job. A `_test` kind carries `test: true`, which claim_job (migration 0011) skips, so the live worker never takes it; no other code reads the key. */
+export const jobPayload = (kind: string, argv: string[]) => (baseKind(kind) !== kind ? { argv, test: true } : { argv });
+
 /** argparse takes any unambiguous prefix, so `--conf` is `--confirm`; every prefix of at least `--c` (and `--conf=x`) counts as the flag. */
 export const isConfirmFlag = (a: string) => { const f = a.split("=")[0]; return f.length >= 3 && "--confirm".startsWith(f); };
 
@@ -25,6 +28,20 @@ export const PREVIEW_MAX_AGE_MS = 24 * 3600_000;
 export function findPreview(jobs: JobRow[], kind: string, argv: string[], now: Date = new Date()): JobRow | undefined {
   return newest(jobs.filter((j) =>
     j.kind === kind && j.status === "done" && sameArgv(argvOf(j), argv) && !argvOf(j).some(isConfirmFlag) && now.getTime() - at(j) < PREVIEW_MAX_AGE_MS));
+}
+
+const withoutConfirm = (argv: string[]) => argv.filter((a) => !isConfirmFlag(a));
+
+/** A job that applies this argv: same kind, the argv plus a --confirm (any abbreviation, any position). */
+export const isApplyOf = (j: JobRow, kind: string, argv: string[]) => j.kind === kind && argvOf(j).some(isConfirmFlag) && sameArgv(withoutConfirm(argvOf(j)), argv);
+
+/** The newest apply of this argv, any status (a failed one is retried from the Jobs table, not by a second Apply). */
+export const newestApply = (jobs: JobRow[], kind: string, argv: string[]) => newest(jobs.filter((j) => isApplyOf(j, kind, argv)));
+
+/** One preview unlocks one Apply: true when an apply of this argv was created after `preview`. A new Preview unlocks Apply again. */
+export function alreadyApplied(jobs: JobRow[], kind: string, argv: string[], preview: JobRow): boolean {
+  const a = newestApply(jobs, kind, argv);
+  return !!a && at(a) > at(preview);
 }
 
 /**

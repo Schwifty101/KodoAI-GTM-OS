@@ -1,6 +1,6 @@
 // Verifies the Preview/Apply guard (enqueuePreview, enqueueApply, enqueueGuarded) against the real database under RLS.
-// TEST rows only: kinds verify-sheet_test, import-sheet_test, enrich_test, draft_test, followups_test and argv naming TEST_runnow. A live worker may claim a queued
-// *_test row but fails it at once (the kind is not in ALLOWED), so no pass ever runs. Rows are removed in `finally`.
+// TEST rows only: kinds verify-sheet_test, import-sheet_test, enrich_test, draft_test, followups_test and argv naming TEST_runnow. enqueueJob marks every *_test job
+// with payload.test = true, which claim_job skips, so the live worker never takes one (the admin-inserted rows carry it too). Rows are removed in `finally`.
 // Run: node --env-file=.env.local --env-file=../.env --import tsx scripts/verify_runnow.mts
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
@@ -20,9 +20,10 @@ const clear = async () => {
   await admin.from("jobs").delete().like("payload->>argv", `%TEST_runnow%`);
   await admin.from("jobs").delete().in("kind", ["import-sheet_test", "draft_test", "followups_test"]);
 };
+// hoursOld 0 leaves created_at to the database clock, so a later apply (also database time) is ordered after it whatever this machine's clock says.
 const doneJob = (kind: string, argv: string[], hoursOld = 0) => admin.from("jobs").insert({
-  kind, status: "done", payload: { argv }, result: { output: "dry run" }, finished_at: new Date().toISOString(),
-  created_at: new Date(Date.now() - hoursOld * 3600_000).toISOString(),
+  kind, status: "done", payload: { argv, test: true }, result: { output: "dry run" }, finished_at: new Date().toISOString(),
+  ...(hoursOld ? { created_at: new Date(Date.now() - hoursOld * 3600_000).toISOString() } : {}),
 });
 
 try {
@@ -35,7 +36,7 @@ try {
   check("  ...and inserted nothing", (await rows(KIND, ARGV)).length === 0);
 
   // A failed preview does not unlock Apply.
-  await admin.from("jobs").insert({ kind: KIND, status: "failed", payload: { argv: ARGV }, error: "boom", finished_at: new Date().toISOString() });
+  await admin.from("jobs").insert({ kind: KIND, status: "failed", payload: { argv: ARGV, test: true }, error: "boom", finished_at: new Date().toISOString() });
   check("enqueueApply after a failed preview throws", (await throws(enqueueApply(KIND, ARGV))) === "no done preview for this argv");
 
   // A stale preview (25 h) does not unlock Apply.
@@ -49,16 +50,24 @@ try {
   check("enqueueApply with a done preview does not throw", (await throws(enqueueApply(KIND, ARGV))) === "");
   const applied = await exact(KIND, [...ARGV, "--confirm"]);
   check("  ...inserted one queued job with --confirm last", applied.length === 1 && applied[0].status === "queued" && applied[0].payload.argv.at(-1) === "--confirm");
-  check("enqueueApply twice: the second is refused while the first is open", (await throws(enqueueApply(KIND, ARGV))).includes("already open") && (await exact(KIND, [...ARGV, "--confirm"])).length === 1);
+  check("  ...and the _test job carries payload.test = true (the live worker's claim skips it)", applied[0].payload.test === true);
+  check("enqueueApply twice: the second is refused, one preview unlocks one Apply", (await throws(enqueueApply(KIND, ARGV))) === "preview already applied: run a new preview" && (await exact(KIND, [...ARGV, "--confirm"])).length === 1);
+  await admin.from("jobs").update({ status: "done" }).eq("id", applied[0].id);
+  check("  ...still refused once that apply is done", (await throws(enqueueApply(KIND, ARGV))) === "preview already applied: run a new preview");
+  await admin.from("jobs").update({ status: "failed", error: "boom" }).eq("id", applied[0].id);
+  check("  ...and once it failed (retry it from the Jobs table instead)", (await throws(enqueueApply(KIND, ARGV))) === "preview already applied: run a new preview" && (await exact(KIND, [...ARGV, "--confirm"])).length === 1);
+  await doneJob(KIND, ARGV); // a new done preview, created after the apply
+  check("  ...a new done preview unlocks Apply again", (await throws(enqueueApply(KIND, ARGV))) === "" && (await exact(KIND, [...ARGV, "--confirm"])).length === 2);
   check("enqueueApply refuses argv that already has --confirm or an abbreviation", (await throws(enqueueApply(KIND, [...ARGV, "--conf"]))) !== "");
   check("enqueueApply refuses a kind without a dry run", (await throws(enqueueApply("clean_test", ARGV))) !== "");
 
   // Preview never carries --confirm; a second identical preview is refused while the first is open.
-  await admin.from("jobs").delete().like("payload->>argv", `%TEST_runnow%`).eq("status", "queued"); // free the apply job
+  await admin.from("jobs").delete().like("payload->>argv", `%TEST_runnow%`).contains("payload", { argv: ["--confirm"] }); // drop every apply row (queued and failed)
   check("enqueuePreview with --confirm throws", (await throws(enqueuePreview(KIND, [...ARGV, "--confirm"]))) !== "");
   check("enqueuePreview with --conf throws", (await throws(enqueuePreview(KIND, [...ARGV, "--conf"]))) !== "");
   check("  ...and inserted nothing", (await rows(KIND, [...ARGV, "--confirm"])).length === 0 && (await rows(KIND, [...ARGV, "--conf"])).length === 0);
   check("enqueuePreview inserts one queued job", (await throws(enqueuePreview(KIND, ARGV))) === "" && (await exact(KIND, ARGV)).filter((r) => r.status === "queued").length === 1);
+  check("  ...carrying payload.test = true", (await exact(KIND, ARGV)).filter((r) => r.status === "queued").every((r) => r.payload.test === true));
   check("enqueuePreview twice: the second throws (identical job open)", (await throws(enqueuePreview(KIND, ARGV))).includes("already open") && (await exact(KIND, ARGV)).filter((r) => r.status === "queued").length === 1);
 
   // The Jobs dropdown path.

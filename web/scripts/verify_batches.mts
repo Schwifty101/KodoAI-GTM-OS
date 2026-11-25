@@ -1,11 +1,13 @@
 // Verifies the Batches page's queries and its one write against the real database under RLS. TEST rows only; kind enrich_test, never enrich.
+// The seeded leads use statuses the autopilot ignores (drafted, sent, no_buyer); selected/approved counting runs on in-memory rows. Their batch_no (9998, 9999) still
+// moves the autopilot's "current batch", so the script refuses to run while autopilot_on is true unless ALLOW_LIVE_AUTOPILOT=1.
 // Run: node --env-file=.env.local --env-file=../.env --import tsx scripts/verify_batches.mts
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { enqueueJobOnce } from "../lib/actions";
 import {
   BATCH_SIZE, batchBase, countByStatus, countCleaned, creditState, doneJobs, fillLabel, isSheetBatch, loadBatchJobs, loadBatchNos, loadOutreachBatches,
-  loadRetryCandidates, retryArgv, retryOpen, stepOpen,
+  loadRetryCandidates, outreachRows, retryArgv, retryOpen, stepOpen,
 } from "../lib/batches";
 import { sameArgv, stepState, type JobRow } from "../lib/runnow";
 import type { Job } from "../lib/types";
@@ -14,11 +16,18 @@ const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SU
 const fails: string[] = [];
 const check = (name: string, cond: boolean) => { console.log(cond ? "ok  " : "FAIL", name); if (!cond) fails.push(name); };
 
+const ap = await admin.from("settings").select("value").eq("key", "autopilot_on");
+if (ap.error) throw new Error(ap.error.message);
+if (ap.data[0]?.value === true && process.env.ALLOW_LIVE_AUTOPILOT !== "1") {
+  console.error("autopilot_on is true: this script seeds TEST leads the live autopilot would react to (and moves its current batch). Pause autopilot first, or set ALLOW_LIVE_AUTOPILOT=1 to run anyway. Nothing was written.");
+  process.exit(1);
+}
+
 const { data: batch } = await admin.from("batches").insert({ name: "TEST batches verify" }).select("id").single();
 const { data: empty } = await admin.from("batches").insert({ name: "TEST batches empty" }).select("id").single();
 const mk = (i: number, status: string, batch_no: number | null, extra: object = {}) => ({ place_id: `TEST_b${i}`, name: `Spa ${i}`, status, batch_id: batch!.id, batch_no, ...extra });
 await admin.from("leads").insert([
-  mk(1, "selected", 9998), mk(2, "selected", 9998, { approved: true }), mk(3, "sent", 9998), mk(4, "selected", 9999),
+  mk(1, "drafted", 9998), mk(2, "drafted", 9998, { approved: true }), mk(3, "sent", 9998), mk(4, "drafted", 9999),
   mk(5, "no_buyer", null, { owner_name: "Jane Doe", owner_title: "Owner" }), mk(6, "no_buyer", null),
 ]);
 const l1 = (await admin.from("leads").select("id").eq("place_id", "TEST_b1").single()).data!.id;
@@ -30,7 +39,7 @@ await supabase.auth.verifyOtp({ token_hash: g.data.properties!.hashed_token, typ
 
 const nos = await loadBatchNos();
 const r98 = nos.find((r) => r.batch_no === 9998), r99 = nos.find((r) => r.batch_no === 9999);
-check("loadBatchNos: 9998 has 3 leads {selected:2, sent:1}", r98?.leads === 3 && r98.byStatus.selected === 2 && r98.byStatus.sent === 1 && Object.keys(r98.byStatus).length === 2);
+check("loadBatchNos: 9998 has 3 leads {drafted:2, sent:1}", r98?.leads === 3 && r98.byStatus.drafted === 2 &&r98.byStatus.sent === 1 && Object.keys(r98.byStatus).length === 2);
 check("loadBatchNos: spend merged (hunter 2, apify 0.01)", r98?.hunter_credits === 2 && Math.abs(r98.apify_usd - 0.01) < 1e-9);
 check("loadBatchNos: 9999 has 1 lead and zero spend (no view row)", r99?.leads === 1 && r99.hunter_credits === 0 && r99.gemini_usd === 0);
 check("loadBatchNos: newest first", nos.map((r) => r.batch_no).every((n, i, a) => i === 0 || a[i - 1] > n) && nos[0].batch_no >= 9999);
@@ -43,12 +52,21 @@ check("fillLabel with a base", !!r98 && fillLabel(r98, 5) === `8 of ${BATCH_SIZE
 check("batchBase parses {\"3\": 32}, ignores junk", JSON.stringify(batchBase({ "3": 32, x: 1, "4": "no" })) === JSON.stringify({ 3: 32 }) && Object.keys(batchBase(null)).length === 0);
 const out = await loadOutreachBatches({ 9998: 5, 9997: 7 });
 const o98 = out.find((r) => r.batch_no === 9998), o99 = out.find((r) => r.batch_no === 9999), o97 = out.find((r) => r.batch_no === 9997);
-check("loadOutreachBatches: 9998 = 3 numbered + 5 base, 2 selected (1 approved), 1 sent",
-  o98?.leads === 8 && o98.base === 5 && o98.selected === 2 && o98.approved === 1 && o98.sent === 1 && o98.drafted === 0 && o98.replied === 0);
-check("loadOutreachBatches: 9999 has 1 selected, no base", o99?.leads === 1 && o99.base === 0 && o99.selected === 1 && o99.approved === 0);
+check("loadOutreachBatches: 9998 = 3 numbered + 5 base, 2 drafted, 1 sent",
+  o98?.leads === 8 && o98.base === 5 && o98.drafted === 2 && o98.sent === 1 && o98.selected === 0 && o98.approved === 0 && o98.replied === 0);
+check("loadOutreachBatches: 9999 has 1 drafted, no base", o99?.leads === 1 && o99.base === 0 && o99.drafted === 1 && o99.selected === 0);
 check("loadOutreachBatches: a base-only batch still gets a row", o97?.leads === 7 && o97.selected === 0);
+// selected/approved counting on in-memory rows: a seeded selected+approved lead would be drafted (paid) by a live autopilot
+const mem = outreachRows([
+  { batch_no: 9998, status: "selected", approved: false }, { batch_no: 9998, status: "selected", approved: true }, { batch_no: 9998, status: "sent", approved: false },
+  { batch_no: 9999, status: "selected", approved: false },
+], { 9998: 5, 9997: 7 });
+const m98 = mem.find((r) => r.batch_no === 9998), m99 = mem.find((r) => r.batch_no === 9999);
+check("outreachRows: 9998 = 3 numbered + 5 base, 2 selected (1 approved), 1 sent", m98?.leads === 8 && m98.base === 5 && m98.selected === 2 && m98.approved === 1 && m98.sent === 1 && m98.drafted === 0 && m98.replied === 0);
+check("outreachRows: 9999 has 1 selected (not approved), no base", m99?.leads === 1 && m99.base === 0 && m99.selected === 1 && m99.approved === 0);
+check("outreachRows: a base-only batch still gets a row, newest first", mem.find((r) => r.batch_no === 9997)?.leads === 7 && mem.map((r) => r.batch_no).join() === "9999,9998,9997");
 check("loadOutreachBatches: newest first", out.map((r) => r.batch_no).every((n, i, a) => i === 0 || a[i - 1] > n));
-check("countByStatus and countCleaned on the TEST batch", (await countByStatus(batch!.id, "selected")) === 3 && (await countByStatus(batch!.id, "no_buyer")) === 2 && (await countCleaned(batch!.id)) === 0 && (await countCleaned(empty!.id)) === 0);
+check("countByStatus and countCleaned on the TEST batch", (await countByStatus(batch!.id, "drafted")) === 3 &&(await countByStatus(batch!.id, "no_buyer")) === 2 && (await countCleaned(batch!.id)) === 0 && (await countCleaned(empty!.id)) === 0);
 check("isSheetBatch", isSheetBatch("Sheet import 2026-11-20") && !isSheetBatch("Houston TX 2026-11-14"));
 const jr = (kind: string, status: string, argv: string[]): JobRow => ({ id: `x${argv.length}${kind}${status}`, kind, status, payload: { argv }, result: null, error: null, created_at: new Date().toISOString(), finished_at: null });
 check("doneJobs drops a sheet pass dry run, keeps its apply and plain passes",
@@ -83,7 +101,7 @@ try { await enqueueJobOnce("enrich_test", argv); } catch { refused = true; }
 check("second identical enqueue is refused", refused && (await q()) === 1);
 
 // loadBatchJobs: test twins of the step kinds are included, other kinds are not, at most 200.
-await admin.from("jobs").insert({ kind: "draft_test", payload: { argv } });
+await admin.from("jobs").insert({ kind: "draft_test", payload: { argv, test: true } }); // marked like enqueueJob does, so the live worker's claim skips it
 const bj = await loadBatchJobs();
 check("loadBatchJobs includes the enrich_test job with its argv", bj.some((j) => j.kind === "enrich_test" && sameArgv(j.payload?.argv ?? [], argv)));
 check("loadBatchJobs excludes other kinds (draft_test) and returns at most 200, newest first",

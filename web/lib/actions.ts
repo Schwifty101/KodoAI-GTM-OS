@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { SETTING_FIELDS, validSetting } from "./settings";
-import { CONFIRM_KINDS, PREVIEW_MAX_AGE_MS, baseKind, findPreview, isConfirmFlag, type JobRow } from "./runnow";
+import { CONFIRM_KINDS, PREVIEW_MAX_AGE_MS, alreadyApplied, baseKind, findPreview, isConfirmFlag, jobPayload, type JobRow } from "./runnow";
 
 // Every operator write goes through here so scripts/verify.ts can exercise the exact same calls under RLS.
 async function ok<T extends { error: { message: string } | null }>(p: PromiseLike<T>): Promise<void> {
@@ -68,8 +68,8 @@ export async function autopilotSpent(since: string): Promise<number> {
   }
 }
 
-/** Queue a worker job: `argv` is the CLI pass arguments, e.g. ["--batch", "B1"]. */
-export const enqueueJob = (kind: string, argv: string[]) => ok(supabase.from("jobs").insert({ kind, payload: { argv } }));
+/** Queue a worker job: `argv` is the CLI pass arguments, e.g. ["--batch", "B1"]. A `_test` kind is marked so the live worker skips it (jobPayload). */
+export const enqueueJob = (kind: string, argv: string[]) => ok(supabase.from("jobs").insert({ kind, payload: jobPayload(kind, argv) }));
 
 export const cancelJob = (id: string) => ok(supabase.from("jobs").update({ status: "cancelled" }).eq("id", id).eq("status", "queued"));
 
@@ -98,15 +98,18 @@ export async function enqueuePreview(kind: string, argv: string[]) {
   await enqueueJobOnce(kind, argv);
 }
 
-/** Apply = argv + --confirm, but only when the database holds a done preview of this exact kind and argv, created under 24 h ago. Re-checked here, so a hand-built call cannot skip it. */
+/** Apply = argv + --confirm, but only when the database holds a done preview of this exact kind and argv, created under 24 h ago, and no apply of it since. One preview unlocks one Apply. Re-checked here, so a hand-built call cannot skip it. */
 export async function enqueueApply(kind: string, argv: string[]) {
   if (!CONFIRM_KINDS.includes(baseKind(kind))) throw new Error(`${kind} has no dry run to apply`);
   if (argv.some(isConfirmFlag)) throw new Error("pass the preview argv; --confirm is added here");
   const { data, error } = await supabase.from("jobs").select("id,kind,status,payload,result,error,created_at,finished_at")
-    .eq("kind", kind).eq("status", "done").contains("payload", { argv }) // containment is only a prefilter; findPreview matches the argv exactly
-    .gte("created_at", new Date(Date.now() - PREVIEW_MAX_AGE_MS).toISOString()).order("created_at", { ascending: false }).limit(20);
+    .eq("kind", kind).contains("payload", { argv }) // containment is only a prefilter (it also returns this argv's applies, any status); the helpers match the argv exactly
+    .gte("created_at", new Date(Date.now() - PREVIEW_MAX_AGE_MS).toISOString()).order("created_at", { ascending: false }).limit(50);
   if (error) throw new Error(error.message);
-  if (!findPreview((data ?? []) as JobRow[], kind, argv)) throw new Error("no done preview for this argv");
+  const rows = (data ?? []) as JobRow[];
+  const preview = findPreview(rows, kind, argv);
+  if (!preview) throw new Error("no done preview for this argv");
+  if (alreadyApplied(rows, kind, argv, preview)) throw new Error("preview already applied: run a new preview");
   await enqueueJobOnce(kind, [...argv, "--confirm"]);
 }
 

@@ -19,7 +19,7 @@ const METER: [string, string, "usd" | "units"][] = [
   ["hunter", "cap_hunter_credits_day", "units"], ["prospeo", "cap_prospeo_credits_day", "units"], ["harvest", "cap_harvest_usd_day", "usd"],
 ];
 const JOB_KINDS = ["scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "import-sheet", "verify-sheet", "sheet-queue", "sheet-paint"];
-// The sheet passes with a real dry run (no argv: they read sheet_id from Settings).
+// The sheet passes with a real dry run. Their argv pins the sheet (--sheet-id), so a preview on one sheet never unlocks Apply on another.
 const SHEET_PASSES = ["import-sheet", "sheet-queue", "sheet-paint"];
 
 export default function Settings() {
@@ -47,6 +47,7 @@ export default function Settings() {
 
   const act = async (fn: () => Promise<void>) => { try { await fn(); await load(); await reload(); } catch (e) { setErr((e as Error).message); } };
   const gemini = vals.allow_paid_gemini === true;
+  const sheetId = String(vals.sheet_id ?? "").trim();
 
   return (
     <>
@@ -69,7 +70,8 @@ export default function Settings() {
                 const line = (last?.result as { output?: string } | null)?.output?.split("\n").find((l) => l.trim());
                 return (
                   <div key={k}>
-                    <PreviewApply kind={k} argv={[]} label={k} disabledReason={k === "sheet-paint" && vals.sheet_writeback_on !== true ? "turn on sheet_writeback_on" : undefined} />
+                    <PreviewApply kind={k} argv={sheetId ? ["--sheet-id", sheetId] : []} label={k}
+                      disabledReason={!sheetId ? "set sheet_id first" : k === "sheet-paint" && vals.sheet_writeback_on !== true ? "turn on sheet_writeback_on" : undefined} />
                     <p className="muted">Last run: {last ? `${last.status}, ${last.created_at.slice(0, 16).replace("T", " ")}${line ? `, ${line}` : ""}` : "none in the last 50 jobs"}</p>
                   </div>
                 );
