@@ -159,8 +159,12 @@ def _skip(lead: dict, why: str) -> None:
     print(f"skipped {lead.get('name')}: {why}", file=sys.stderr)
 
 
-def run_draft(db, llm, batch_id: str, today: date, only_mailboxes: set[str] | None = None) -> int:
-    rows = db.table("leads").select("*").eq("batch_id", batch_id).eq("status", Status.SELECTED.value).eq("approved", True).execute().data
+def run_draft(db, llm, batch_id: str | None, today: date, only_mailboxes: set[str] | None = None, batch_no: int | None = None) -> int:
+    """Exactly one of `batch_id` (an intake batch) or `batch_no` (an outreach batch, which spans intake batches)."""
+    if (batch_id is None) == (batch_no is None):
+        raise ValueError("pass exactly one of batch_id and batch_no")
+    q = db.table("leads").select("*").eq("status", Status.SELECTED.value).eq("approved", True)
+    rows = (q.eq("batch_id", batch_id) if batch_id is not None else q.eq("batch_no", batch_no)).execute().data
     suppressed, contacted = _blocklists(db)
     done = 0
     for lead in rows:
@@ -169,7 +173,7 @@ def run_draft(db, llm, batch_id: str, today: date, only_mailboxes: set[str] | No
             db.table("leads").update({"status": Status.SUPPRESSED.value, "reject_reason": blocked} if blocked == "suppressed" else {"reject_reason": blocked}).eq("id", lead["id"]).execute()
             continue
         try:
-            with spend_context(batch_id=batch_id, lead_id=lead["id"]):
+            with spend_context(batch_id=batch_id or lead["batch_id"], lead_id=lead["id"]):
                 d = draft_touch1(llm, lead)
         except Exception as e:
             _skip(lead, f"{type(e).__name__}: {str(e)[:120]}")

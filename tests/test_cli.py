@@ -241,3 +241,13 @@ def test_sheet_paint_checks_writeback_switch_before_building_service(monkeypatch
     monkeypatch.setattr(sheet, "sheets_service", lambda: pytest.fail("built a Sheets service"))
     with pytest.raises(SystemExit, match="sheet_writeback_on"):
         cli.main(["sheet-paint", "--confirm"])
+
+
+def test_draft_takes_exactly_one_of_batch_and_batch_no():
+    p = cli.build_parser()
+    assert p.parse_args(["draft", "--batch", "b1"]).batch_no is None
+    a = p.parse_args(["draft", "--batch-no", "3"])
+    assert (a.batch, a.batch_no) == (None, 3)
+    for argv in (["draft"], ["draft", "--batch", "b1", "--batch-no", "3"]):
+        with pytest.raises(SystemExit):
+            p.parse_args(argv)

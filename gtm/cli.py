@@ -171,7 +171,7 @@ def cmd_select(a: argparse.Namespace) -> None:
 def cmd_draft(a: argparse.Namespace) -> None:
     db = get_db()
     only = {m["id"] for m in db.table("mailboxes").select("id,address").in_("address", a.mailbox).execute().data} if a.mailbox else None
-    print(f"drafted {run_draft(db, complete_json, a.batch, date.today(), only)} Touch 1 drafts stored (nothing sent)")
+    print(f"drafted {run_draft(db, complete_json, a.batch, date.today(), only, batch_no=a.batch_no)} Touch 1 drafts stored (nothing sent)")
 
 
 def cmd_followups(a: argparse.Namespace) -> None:
@@ -283,7 +283,9 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--batch", required=True)
     x.set_defaults(fn=cmd_select)
     d = sub.add_parser("draft", help="Touch 1 drafts for selected AND approved leads")
-    d.add_argument("--batch", required=True)
+    dg = d.add_mutually_exclusive_group(required=True)
+    dg.add_argument("--batch")
+    dg.add_argument("--batch-no", type=int, help="outreach batch number: approved selected leads across intake batches")
     d.add_argument("--mailbox", action="append", help="only assign these mailbox addresses (repeatable)")
     d.set_defaults(fn=cmd_draft)
     f = sub.add_parser("followups", help="Touch 2 (Day 3) and Touch 3 (Day 7) drafts that are due")
