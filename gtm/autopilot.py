@@ -106,6 +106,11 @@ def _out(j: dict) -> str:
     return (j.get("result") or {}).get("output") or ""
 
 
+def _dry(j: dict) -> bool:
+    """A verify-sheet dry run (UI Preview, no --confirm) ends done without spending: it is no pass, no credit signal, no failure streak."""
+    return j["kind"] == "verify-sheet" and "--confirm" not in ((j.get("payload") or {}).get("argv") or [])
+
+
 def _walk_dud(jobs: list[dict]) -> int:
     """Consecutive newest done walk jobs whose output says 'tiles': 0 (run_walk marks failed tiles and still ends done)."""
     n = 0
@@ -122,7 +127,7 @@ def _walk_dud(jobs: list[dict]) -> int:
 def _out_of_credits(jobs: list[dict]) -> bool:
     """The newest done enrich/signals/verify-sheet job reported out_of_credits > 0 (leads stay cleaned, so this is not a failure)."""
     for j in jobs:
-        if j["kind"] in ("enrich", "signals", "verify-sheet") and j["status"] == "done":
+        if j["kind"] in ("enrich", "signals", "verify-sheet") and j["status"] == "done" and not _dry(j):
             m = re.search(r"'out_of_credits': (\d+)", _out(j))
             return bool(m and int(m.group(1)) > 0)
     return False
@@ -133,7 +138,7 @@ def _tried(jobs: list[dict]) -> set:
     tried = set()
     for j in jobs:
         argv = (j["payload"] or {}).get("argv", [])
-        if (j["status"] == "done" or (j["status"] == "cancelled" and j.get("error") != "interrupted")) and "--batch" in argv:
+        if not _dry(j) and (j["status"] == "done" or (j["status"] == "cancelled" and j.get("error") != "interrupted")) and "--batch" in argv:
             key = (j["kind"], argv[argv.index("--batch") + 1])
             tried.add((*key, j["payload"].get("n")) if j["kind"] == "draft" else key)
     return tried
@@ -153,6 +158,8 @@ def _fill(fill: int, target: int) -> int:
 def _failures(jobs: list[dict]) -> int:
     n = 0
     for j in jobs:
+        if _dry(j):
+            continue
         if j["status"] == "failed":
             n += 1
         elif j["status"] in ("done", "paused_budget"):

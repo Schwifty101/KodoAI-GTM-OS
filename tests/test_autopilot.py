@@ -245,6 +245,30 @@ def test_user_cancelled_job_is_tried_but_interrupted_one_reruns():
     assert ap._tried(jobs) == {("clean", "b1")}
 
 
+PREVIEW = ["--batch", "b1"]  # a UI Preview of verify-sheet: no --confirm, ends done after a dry run
+CONFIRMED = ["--batch", "b1", "--confirm"]
+
+
+def test_verify_sheet_dry_run_is_not_a_tried_pass():
+    assert ap._tried([J("verify-sheet", argv=PREVIEW)]) == set()
+    assert ap._tried([J("verify-sheet", argv=CONFIRMED)]) == {("verify-sheet", "b1")}
+    assert ap._tried([J("verify-sheet", argv=PREVIEW), J("clean", argv=PREVIEW)]) == {("clean", "b1")}  # only verify-sheet needs --confirm
+
+
+def test_verify_sheet_dry_run_does_not_clear_out_of_credits():
+    dry = J("verify-sheet", out="verify-sheet: 0.5 x 3 = 1.5 Hunter credits\ndry run: rerun with --confirm", argv=PREVIEW)
+    assert ap._out_of_credits([dry, J("enrich", out="{'out_of_credits': 4}")])
+    assert ap._out_of_credits([dry, J("verify-sheet", out="{'out_of_credits': 2}", argv=CONFIRMED)])
+    assert not ap._out_of_credits([J("verify-sheet", out="{'verified': 2}", argv=CONFIRMED), J("enrich", out="{'out_of_credits': 4}")])  # a confirmed pass still clears it
+
+
+def test_failed_verify_sheet_dry_run_is_not_a_pipeline_failure():
+    fail = J("enrich", "failed")
+    assert ap._failures([J("verify-sheet", "failed", argv=PREVIEW), fail, fail]) == 2
+    assert ap._failures([J("verify-sheet", "failed", argv=CONFIRMED), fail, fail]) == 3
+    assert ap._failures([fail, J("verify-sheet", argv=PREVIEW), fail]) == 2  # a done dry run does not end the streak either
+
+
 def test_full_batch_rule_follows_target():
     assert ap._fill(60, 50) == 10 and ap._fill(50, 50) == 0 and ap._fill(60, 100) == 60 and ap._fill(100, 100) == 0
     assert decide(S(target=50, current_fill=ap._fill(60, 50), tiles_left=True)).enqueue[0] == "walk"
