@@ -5,9 +5,11 @@ import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
 import type { Job, SpendRow } from "@/lib/types";
 import Link from "next/link";
-import { cancelJob, enqueueJob, retryJob } from "@/lib/actions";
+import { cancelJob, enqueueGuarded, retryJob } from "@/lib/actions";
 import { useSettings } from "@/lib/useSettings";
 import { SettingInput } from "@/components/SettingInput";
+import { PreviewApply } from "@/components/PreviewApply";
+import { lastRun } from "@/lib/runnow";
 import { splitArgs } from "@/lib/args";
 import { SETTING_FIELDS, GROUPS } from "@/lib/settings";
 
@@ -16,7 +18,9 @@ const METER: [string, string, "usd" | "units"][] = [
   ["apify", "cap_apify_usd_day", "usd"], ["serper", "cap_serper_queries_day", "units"], ["gemini", "cap_gemini_usd_day", "usd"],
   ["hunter", "cap_hunter_credits_day", "units"], ["prospeo", "cap_prospeo_credits_day", "units"], ["harvest", "cap_harvest_usd_day", "usd"],
 ];
-const JOB_KINDS = ["scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies"];
+const JOB_KINDS = ["scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "import-sheet", "verify-sheet", "sheet-queue", "sheet-paint"];
+// The sheet passes with a real dry run (no argv: they read sheet_id from Settings).
+const SHEET_PASSES = ["import-sheet", "sheet-queue", "sheet-paint"];
 
 export default function Settings() {
   const ready = useRequireSession();
@@ -57,6 +61,21 @@ export default function Settings() {
           <h2>{g}</h2>
           {hint && <p className="muted">{hint}</p>}
           <div className="grid">{SETTING_FIELDS.filter((f) => f.group === g).map((f) => <SettingInput key={f.key} f={f} vals={vals} save={save} />)}</div>
+          {g === "Sheet" && (
+            <>
+              <p className="muted">Preview runs the dry run on the worker. Apply writes, and needs a done preview of the same run from the last 24 hours. verify-sheet (paid) runs per batch on the Batches page.</p>
+              {SHEET_PASSES.map((k) => {
+                const last = lastRun(jobs, k);
+                const line = (last?.result as { output?: string } | null)?.output?.split("\n").find((l) => l.trim());
+                return (
+                  <div key={k}>
+                    <PreviewApply kind={k} argv={[]} label={k} disabledReason={k === "sheet-paint" && vals.sheet_writeback_on !== true ? "turn on sheet_writeback_on" : undefined} />
+                    <p className="muted">Last run: {last ? `${last.status}, ${last.created_at.slice(0, 16).replace("T", " ")}${line ? `, ${line}` : ""}` : "none in the last 50 jobs"}</p>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
       ))}
 
@@ -85,7 +104,7 @@ export default function Settings() {
       <div className="bar">
         <select value={kind} onChange={(e) => setKind(e.target.value)}>{JOB_KINDS.map((k) => <option key={k}>{k}</option>)}</select>
         <input placeholder="arguments, e.g. --batch B1" value={argv} onChange={(e) => setArgv(e.target.value)} />
-        <button className="primary" onClick={() => act(async () => { await enqueueJob(kind, splitArgs(argv)); setArgv(""); })}>Enqueue</button>
+        <button className="primary" onClick={() => act(async () => { await enqueueGuarded(kind, splitArgs(argv)); setArgv(""); })}>Enqueue</button>
       </div>
       <table>
         <thead><tr><th>Created</th><th>Job</th><th>Status</th><th>Error</th><th></th></tr></thead>
