@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from gtm import coverage
-from gtm.coverage import claim_tiles, load_metros, load_yield_stats, release_tile, reset_stale, seed_coverage, tile_scores
+from gtm.coverage import claim_tiles, load_metros, load_yield_stats, release_tile, state_code, yield_stats, reset_stale, seed_coverage, tile_scores
 from gtm.db import get_db
 
 
@@ -147,7 +147,29 @@ def test_explore_falls_back_to_lowest_seq_when_all_states_sampled(monkeypatch):
     assert claim_tiles(FakeDB(_tiles(done=2)), 1)[0]["id"] == "p0"
 
 
+def test_state_code_normalises_names_and_codes():
+    assert [state_code(x) for x in ("TX", "texas", " Texas ", "New York", "ny", "District of Columbia", "dc", None, "", "Narnia")] == \
+        ["TX", "TX", "TX", "NY", "NY", "DC", "DC", None, None, None]
+
+
+def test_yield_stats_merge_spellings_and_count_all_leads():
+    leads = [{"state": s, "status": st, "batch_id": b} for s, st, b in [
+        ("TX", "enriched", None), ("Texas", "sent", None), ("Texas", "cleaned", None), ("NY", "no_buyer", None),
+        ("New York", "drafted", "b1"), (None, "enriched", None), ("Narnia", "rejected", None)]]
+    st, me, rate = yield_stats(leads, {"b1": {"metro": "NYC", "state": "NY"}}, {"NYC": 2})
+    assert st == {"TX": (2, 2), "NY": (2, 1)} and me == {"NYC": (1, 1)}
+    assert rate == 4 / 5  # 5 kept leads in all (the stateless one counts), 4 succeeded
+
+
+def test_high_yield_texas_wins_over_new_york(monkeypatch):
+    monkeypatch.setattr(coverage, "setting", lambda k: True)
+    monkeypatch.setattr(coverage, "load_yield_stats", lambda db: ({"NY": (124, 17), "TX": (100, 26), "CC": (50, 1)}, {}, 0.14))
+    rows = [{"id": "ny", "seq": 0, "metro": "N", "state": "NY", "status": "pending"},
+            {"id": "tx", "seq": 1, "metro": "H", "state": "TX", "status": "pending"}]
+    assert claim_tiles(FakeDB(rows), 1)[0]["id"] == "tx"
+
+
 @pytest.mark.db
-def test_load_yield_stats_reads_real_tables_without_error():
+def test_load_yield_stats_real_tables_read_only():
     st, me, g = load_yield_stats(get_db())
-    assert 0 <= g <= 1 and all(k <= v[0] + 0 or True for k, v in st.items())
+    assert 0 <= g <= 1 and st["TX"][1] / st["TX"][0] > st["NY"][1] / st["NY"][0]

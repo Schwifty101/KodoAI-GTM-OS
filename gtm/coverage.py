@@ -43,25 +43,46 @@ def tile_scores(stats: dict[str, tuple[int, int]], global_rate: float, prior: in
     return out
 
 
-def load_yield_stats(db) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[int, int]], float]:
-    """(per state, per metro with 2+ done tiles, global rate), each (kept, success), from leads of done tiles
-    joined through coverage.scrape_batch_id = leads.batch_id."""
-    done = fetch_all(lambda: db.table("coverage").select("id,metro,state,scrape_batch_id").eq("status", "done").order("id"))
-    owner = {c["scrape_batch_id"]: c for c in done if c["scrape_batch_id"]}
-    tiles = Counter(c["metro"] for c in done)
+STATES = dict(zip(
+    "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(),
+    "Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|District of Columbia|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming".split("|")))
+_BY_NAME = {n.lower(): c for c, n in STATES.items()}
+
+
+def state_code(v) -> str | None:
+    """'Texas', 'texas', 'TX' -> 'TX'; None or unknown -> None."""
+    v = (v or "").strip()
+    return v.upper() if v.upper() in STATES else _BY_NAME.get(v.lower())
+
+
+def yield_stats(leads: list[dict], owner: dict, tiles: dict):
+    """Pure. Per state from ALL leads by normalised leads.state; per metro through owner[batch_id] (the done coverage row),
+    only metros with 2+ done tiles; global rate over every kept lead, state known or not."""
     by_state, by_metro = defaultdict(lambda: [0, 0]), defaultdict(lambda: [0, 0])
-    for lead in fetch_all(lambda: db.table("leads").select("id,batch_id,status").not_.is_("batch_id", "null").order("id")):
-        c = owner.get(lead["batch_id"])
-        if not c or lead["status"] in DROPPED:
+    kept = won = 0
+    for lead in leads:
+        if lead["status"] in DROPPED:
             continue
         ok = lead["status"] in SUCCESS
-        for d, key in ((by_state, c["state"]), (by_metro, c["metro"])):
-            d[key][0] += 1
-            d[key][1] += ok
-    kept = sum(v[0] for v in by_state.values())
-    rate = sum(v[1] for v in by_state.values()) / kept if kept else 0.0
+        kept, won = kept + 1, won + ok
+        keys = [(by_state, state_code(lead["state"]))]
+        if lead.get("batch_id") in owner:
+            keys.append((by_metro, owner[lead["batch_id"]]["metro"]))
+        for d, key in keys:
+            if key:
+                d[key][0] += 1
+                d[key][1] += ok
     return ({k: tuple(v) for k, v in by_state.items()},
-            {k: tuple(v) for k, v in by_metro.items() if tiles[k] >= 2}, rate)
+            {k: tuple(v) for k, v in by_metro.items() if tiles.get(k, 0) >= 2}, won / kept if kept else 0.0)
+
+
+def load_yield_stats(db) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[int, int]], float]:
+    """(per state, per metro, global rate), each (kept, success); see yield_stats. Metros join leads to done tiles
+    through coverage.scrape_batch_id = leads.batch_id."""
+    done = fetch_all(lambda: db.table("coverage").select("id,metro,state,scrape_batch_id").eq("status", "done").order("id"))
+    owner = {c["scrape_batch_id"]: c for c in done if c["scrape_batch_id"]}
+    leads = fetch_all(lambda: db.table("leads").select("id,state,batch_id,status").order("id"))
+    return yield_stats(leads, owner, Counter(c["metro"] for c in done))
 
 
 def _pick(pending: list[dict], state_stats, metro_stats, rate: float, explore: bool) -> dict:
