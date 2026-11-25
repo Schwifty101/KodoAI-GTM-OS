@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { SETTING_FIELDS, validSetting } from "./settings";
+import { CONFIRM_KINDS, PREVIEW_MAX_AGE_MS, baseKind, findPreview, isConfirmFlag, type JobRow } from "./runnow";
 
 // Every operator write goes through here so scripts/verify.ts can exercise the exact same calls under RLS.
 async function ok<T extends { error: { message: string } | null }>(p: PromiseLike<T>): Promise<void> {
@@ -75,13 +76,45 @@ export const cancelJob = (id: string) => ok(supabase.from("jobs").update({ statu
 export const retryJob = (id: string) =>
   ok(supabase.from("jobs").update({ status: "queued", error: null, run_after: new Date().toISOString() }).eq("id", id).in("status", ["failed", "paused_budget"]));
 
+const inFlight = new Set<string>(); // ponytail: closes the double click in one tab (two calls overlap before the first insert lands); a second tab or process still races, only a unique partial index on open jobs closes that (migration, owner gate)
 /** Like enqueueJob, but refuses a second identical job (same kind and argv) while one is queued, running or paused for budget. */
 export async function enqueueJobOnce(kind: string, argv: string[]) {
-  const { data, error } = await supabase.from("jobs").select("payload").eq("kind", kind).in("status", ["queued", "running", "paused_budget"]);
-  if (error) throw new Error(error.message);
-  if ((data ?? []).some((j) => JSON.stringify(j.payload?.argv ?? []) === JSON.stringify(argv))) throw new Error("an identical job is already open");
-  await enqueueJob(kind, argv);
+  const key = JSON.stringify([kind, argv]);
+  if (inFlight.has(key)) throw new Error("an identical job is already open");
+  inFlight.add(key);
+  try {
+    const { data, error } = await supabase.from("jobs").select("payload").eq("kind", kind).in("status", ["queued", "running", "paused_budget"]);
+    if (error) throw new Error(error.message);
+    if ((data ?? []).some((j) => JSON.stringify(j.payload?.argv ?? []) === JSON.stringify(argv))) throw new Error("an identical job is already open");
+    await enqueueJob(kind, argv);
+  } finally {
+    inFlight.delete(key);
+  }
 }
+
+/** Preview = the CLI dry run: the pass without --confirm (or any abbreviation of it). */
+export async function enqueuePreview(kind: string, argv: string[]) {
+  if (argv.some(isConfirmFlag)) throw new Error("a preview never carries --confirm");
+  await enqueueJobOnce(kind, argv);
+}
+
+/** Apply = argv + --confirm, but only when the database holds a done preview of this exact kind and argv, created under 24 h ago. Re-checked here, so a hand-built call cannot skip it. */
+export async function enqueueApply(kind: string, argv: string[]) {
+  if (!CONFIRM_KINDS.includes(baseKind(kind))) throw new Error(`${kind} has no dry run to apply`);
+  if (argv.some(isConfirmFlag)) throw new Error("pass the preview argv; --confirm is added here");
+  const { data, error } = await supabase.from("jobs").select("id,kind,status,payload,result,error,created_at,finished_at")
+    .eq("kind", kind).eq("status", "done").contains("payload", { argv }) // containment is only a prefilter; findPreview matches the argv exactly
+    .gte("created_at", new Date(Date.now() - PREVIEW_MAX_AGE_MS).toISOString()).order("created_at", { ascending: false }).limit(20);
+  if (error) throw new Error(error.message);
+  if (!findPreview((data ?? []) as JobRow[], kind, argv)) throw new Error("no done preview for this argv");
+  await enqueueJobOnce(kind, [...argv, "--confirm"]);
+}
+
+/** The Jobs dropdown's enqueue: --confirm on a sheet pass is routed through the Apply guard, anything else is a plain once-only job. */
+export const enqueueGuarded = (kind: string, argv: string[]): Promise<void> =>
+  CONFIRM_KINDS.includes(baseKind(kind)) && argv.some(isConfirmFlag)
+    ? enqueueApply(kind, argv.filter((a) => !isConfirmFlag(a)))
+    : enqueueJobOnce(kind, argv);
 
 /** Only a failed tile goes back to pending; running and done tiles are never touched. */
 export const retryTile = (id: string) =>

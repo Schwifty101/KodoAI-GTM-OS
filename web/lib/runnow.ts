@@ -12,6 +12,9 @@ export const baseKind = (kind: string) => kind.replace(/_test$/, "");
 
 export const sameArgv = (a: string[], b: string[]) => JSON.stringify(a) === JSON.stringify(b);
 
+/** argparse takes any unambiguous prefix, so `--conf` is `--confirm`; every prefix of at least `--c` (and `--conf=x`) counts as the flag. */
+export const isConfirmFlag = (a: string) => { const f = a.split("=")[0]; return f.length >= 3 && "--confirm".startsWith(f); };
+
 const argvOf = (j: JobRow): string[] => j.payload?.argv ?? [];
 const at = (j: JobRow) => Date.parse(j.created_at);
 const newest = (jobs: JobRow[]) => jobs.reduce<JobRow | undefined>((m, j) => (!m || at(j) > at(m) ? j : m), undefined);
@@ -21,7 +24,7 @@ export const PREVIEW_MAX_AGE_MS = 24 * 3600_000;
 /** The newest `done` job of this kind with exactly this argv, created under 24 h ago. A job that already carries --confirm is an apply, never a preview. */
 export function findPreview(jobs: JobRow[], kind: string, argv: string[], now: Date = new Date()): JobRow | undefined {
   return newest(jobs.filter((j) =>
-    j.kind === kind && j.status === "done" && sameArgv(argvOf(j), argv) && !argvOf(j).includes("--confirm") && now.getTime() - at(j) < PREVIEW_MAX_AGE_MS));
+    j.kind === kind && j.status === "done" && sameArgv(argvOf(j), argv) && !argvOf(j).some(isConfirmFlag) && now.getTime() - at(j) < PREVIEW_MAX_AGE_MS));
 }
 
 /**

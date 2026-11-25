@@ -1,7 +1,7 @@
 // Pure-logic checks for web/lib/runnow.ts. No database, no network.
 // Run: cd web && npx tsx scripts/runnow_unit.mts
 import assert from "node:assert/strict";
-import { CONFIRM_KINDS, baseKind, enrichEstimate, findPreview, lastRun, sameArgv, stepState, type JobRow } from "../lib/runnow";
+import { CONFIRM_KINDS, baseKind, enrichEstimate, findPreview, isConfirmFlag, lastRun, sameArgv, stepState, type JobRow } from "../lib/runnow";
 
 const NOW = new Date("2026-11-25T12:00:00Z");
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3600_000).toISOString();
@@ -20,6 +20,7 @@ assert.equal(findPreview([job("verify-sheet", "done", [...ARGV, "--limit", "5"],
 assert.equal(findPreview([job("sheet-queue", "done", ARGV, hoursAgo(1))], "verify-sheet", ARGV, NOW), undefined, "different kind");
 assert.equal(findPreview([job("verify-sheet", "done", ARGV, hoursAgo(25))], "verify-sheet", ARGV, NOW), undefined, "25 h old");
 assert.equal(findPreview([job("verify-sheet", "done", [...ARGV, "--confirm"], hoursAgo(1))], "verify-sheet", [...ARGV, "--confirm"], NOW), undefined, "an apply job is never a preview");
+assert.equal(findPreview([job("verify-sheet", "done", [...ARGV, "--conf"], hoursAgo(1))], "verify-sheet", [...ARGV, "--conf"], NOW), undefined, "an abbreviated --conf is an apply too");
 const older = job("verify-sheet", "done", ARGV, hoursAgo(5));
 const newer = job("verify-sheet", "done", ARGV, hoursAgo(2));
 assert.equal(findPreview([older, newer, job("verify-sheet", "failed", ARGV, hoursAgo(1))], "verify-sheet", ARGV, NOW), newer, "newest done one");
@@ -47,6 +48,10 @@ assert.ok(sameArgv(["--batch", "x"], ["--batch", "x"]));
 assert.ok(!sameArgv(["--batch", "x"], ["--batch", "y"]));
 assert.ok(!sameArgv(["a", "b"], ["b", "a"]), "order matters");
 assert.deepEqual(CONFIRM_KINDS, ["import-sheet", "verify-sheet", "sheet-queue", "sheet-paint"]);
+
+// isConfirmFlag: argparse accepts any unambiguous prefix, so --conf must count as --confirm
+for (const a of ["--confirm", "--confirm=1", "--conf", "--con", "--c"]) assert.ok(isConfirmFlag(a), a);
+for (const a of ["--", "-c", "--batch", "--limit", "--tab", "B1", "--confirmed", "--cx", ""]) assert.ok(!isConfirmFlag(a), a);
 
 // lastRun
 const a = job("sheet-queue", "done", [], hoursAgo(9));
