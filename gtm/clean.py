@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 
 from gtm.db import fetch_all
+from gtm.settings_store import setting
 from gtm.status import Status
 
 US_STATES = {
@@ -43,8 +44,8 @@ def _is_us(state: str | None) -> bool:
     return s.lower() in US_STATES or s.upper() in US_ABBR
 
 
-def clean_decision(lead: dict) -> str | None:
-    """Reject reason, or None to keep. Batch-level rules (brand repeats, duplicate domains) live in run_clean."""
+def clean_decision(lead: dict, strict: bool = False) -> str | None:
+    """Reject reason, or None to keep. strict: a name-only med spa (no "Medical spa" category) is low_yield_category. Batch-level rules (brand repeats, duplicate domains) live in run_clean."""
     if lead.get("closed"):
         return "closed"
     domain = lead.get("domain")
@@ -64,6 +65,8 @@ def clean_decision(lead: dict) -> str | None:
         return "category"
     if any(c in name.lower() for c in CHAINS):
         return "chain"
+    if strict and "Medical spa" not in cats:
+        return "low_yield_category"
     return None
 
 
@@ -80,10 +83,11 @@ def run_clean(db, batch_id: str) -> dict[str, int]:
         for r in fetch_all(lambda: db.table("leads").select("domain").neq("status", Status.SCRAPED.value).neq("status", Status.REJECTED.value)
                            .not_.is_("domain", "null").order("id"))
     }
+    strict = bool(setting("clean_category_strict"))
     brands = Counter(brand_key(r["name"]) for r in rows)
     by_reason: dict[str | None, list[str]] = {}
     for r in rows:
-        reason = clean_decision(r)
+        reason = clean_decision(r, strict)
         if reason is None and brands[brand_key(r["name"])] >= CHAIN_MIN:
             reason = "chain"
         if reason is None:

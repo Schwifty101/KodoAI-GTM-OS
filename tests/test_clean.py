@@ -139,3 +139,40 @@ def test_null_rating_and_reviews_do_not_change_the_decision():
     lead = {"name": "Glow Med Spa", "domain": "glowmed.com", "state": "TX", "category": "Medical spa", "categories": ["Medical spa"],
             "closed": False, "rating": None, "review_count": None}
     assert clean_decision(lead) is None
+
+
+def test_strict_rejects_name_only_med_spa_with_new_reason():
+    name_only = lead(name="EOV Med Spa", category="Health spa", categories=["Health spa"])
+    assert clean_decision(name_only, strict=True) == "low_yield_category"
+
+
+def test_strict_keeps_medical_spa_category():
+    assert clean_decision(lead(), strict=True) is None
+    assert clean_decision(lead(name="Skin Studio", categories=["Medical spa"]), strict=True) is None
+
+
+def test_default_is_unchanged():
+    name_only = lead(name="EOV Med Spa", category="Health spa", categories=["Health spa"])
+    assert clean_decision(name_only) is None and clean_decision(name_only, strict=False) is None
+
+
+def test_strict_leaves_earlier_rules_winning():
+    assert clean_decision(lead(closed=True, categories=[]), strict=True) == "closed"
+    assert clean_decision(lead(name="Serenity Day Spa", categories=["Day spa"]), strict=True) == "day_spa"
+    assert clean_decision(lead(name="LaserAway Med Spa", categories=["Health spa"]), strict=True) == "chain"
+
+
+@pytest.mark.parametrize("on,reason", [(True, "low_yield_category"), (False, None)])
+def test_run_clean_reads_the_setting(monkeypatch, on, reason):
+    from unittest.mock import MagicMock
+
+    import gtm.clean as c
+
+    row = {"id": "1", "name": "EOV Med Spa", "domain": "eov.com", "state": "TX", "categories": ["Health spa"], "closed": False, "review_count": 1}
+    db = MagicMock()
+    db.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value.data = [row]
+    monkeypatch.setattr(c, "fetch_all", lambda f: [])
+    monkeypatch.setattr(c, "setting", lambda k: on if k == "clean_category_strict" else None)
+    counts = c.run_clean(db, "b")
+    assert counts == ({"low_yield_category": 1} if reason else {"cleaned": 1})
+    assert db.table.return_value.update.call_args.args[0]["reject_reason"] == reason
