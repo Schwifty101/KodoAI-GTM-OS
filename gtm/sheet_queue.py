@@ -78,7 +78,7 @@ def pull_sheet_only(db, svc, sheet_id: str) -> int:
               "status": Status.SCRAPED.value, "batch_id": batch_id, "tz": lead_tz(m.fields.get("state"), m.fields.get("city"))} for m, k in fresh]
     db.table("leads").upsert(leads, on_conflict="place_id", ignore_duplicates=True).execute()
     for b in {batch_id} | {r["batch_id"] for r in have if r["place_id"] in retry}:
-        run_clean(db, b)
+        run_clean(db, b, strict=False)
     by_key = {k: m for m, k in fresh}
     n = 0
     # rejected leads get no sheet_rows entry and so stay hidden from later pulls (accepted)
