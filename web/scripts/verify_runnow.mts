@@ -1,10 +1,10 @@
 // Verifies the Preview/Apply guard (enqueuePreview, enqueueApply, enqueueGuarded) against the real database under RLS.
-// TEST rows only: kinds verify-sheet_test, import-sheet_test, enrich_test and argv naming TEST_runnow. A live worker may claim a queued
+// TEST rows only: kinds verify-sheet_test, import-sheet_test, enrich_test, draft_test, followups_test and argv naming TEST_runnow. A live worker may claim a queued
 // *_test row but fails it at once (the kind is not in ALLOWED), so no pass ever runs. Rows are removed in `finally`.
 // Run: node --env-file=.env.local --env-file=../.env --import tsx scripts/verify_runnow.mts
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import { enqueueApply, enqueueGuarded, enqueuePreview } from "../lib/actions";
+import { enqueueApply, enqueueGuarded, enqueueJobOnce, enqueuePreview } from "../lib/actions";
 
 const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!);
 const fails: string[] = [];
@@ -18,7 +18,7 @@ const rows = async (kind: string, argv: string[]) => (await admin.from("jobs").s
 const exact = async (kind: string, argv: string[]) => (await rows(kind, argv)).filter((r) => JSON.stringify(r.payload.argv) === JSON.stringify(argv));
 const clear = async () => {
   await admin.from("jobs").delete().like("payload->>argv", `%TEST_runnow%`);
-  await admin.from("jobs").delete().eq("kind", "import-sheet_test");
+  await admin.from("jobs").delete().in("kind", ["import-sheet_test", "draft_test", "followups_test"]);
 };
 const doneJob = (kind: string, argv: string[], hoursOld = 0) => admin.from("jobs").insert({
   kind, status: "done", payload: { argv }, result: { output: "dry run" }, finished_at: new Date().toISOString(),
@@ -80,6 +80,14 @@ try {
   check("two overlapping Previews in one process insert exactly one job", n === 1);
   await admin.from("jobs").update({ status: "done" }).eq("kind", KIND).contains("payload", { argv: RACE });
   check("a new Preview is allowed once the old one is done (in-flight lock released)", (await throws(enqueuePreview(KIND, RACE))) === "" && (await exact(KIND, RACE)).length === 2);
+
+  // Draft buttons (drafts/send pages): draftBatch and draftFollowups are enqueueJobOnce("draft", ["--batch-no", N]) and
+  // enqueueJobOnce("followups", []). Real kinds are paid passes, so the same call shape is run on the *_test kinds.
+  const DRAFT = ["--batch-no", `${TAG}_n`];
+  check("draft_test --batch-no: first enqueue inserts one queued job", (await throws(enqueueJobOnce("draft_test", DRAFT))) === "" && (await exact("draft_test", DRAFT)).filter((r) => r.status === "queued").length === 1);
+  check("draft_test --batch-no: an identical open job is refused ('already open')", (await throws(enqueueJobOnce("draft_test", DRAFT))).includes("already open") && (await exact("draft_test", DRAFT)).length === 1);
+  check("followups_test []: first enqueue inserts one queued job", (await throws(enqueueJobOnce("followups_test", []))) === "" && (await admin.from("jobs").select("id").eq("kind", "followups_test").eq("status", "queued")).data!.length === 1);
+  check("followups_test []: an identical open job is refused ('already open')", (await throws(enqueueJobOnce("followups_test", []))).includes("already open") && (await admin.from("jobs").select("id").eq("kind", "followups_test")).data!.length === 1);
 } finally {
   await clear();
 }

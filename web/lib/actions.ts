@@ -163,3 +163,9 @@ export async function redraftBatch(batchId: string, instruction: string) {
 }
 
 export const checkDrafts = () => enqueueJobOnce("check-drafts", []);
+
+/** Draft the approved selected leads of one outreach batch (leads.batch_no); a paid LLM pass. */
+export const draftBatch = (batchNo: number) => enqueueJobOnce("draft", ["--batch-no", String(batchNo)]);
+
+/** Draft the Touch 2 and Touch 3 follow-ups that are due; a paid LLM pass. */
+export const draftFollowups = () => enqueueJobOnce("followups", []);

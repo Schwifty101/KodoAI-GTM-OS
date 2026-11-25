@@ -3,10 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
-import { approveTouches, checkDrafts, redraftBatch, saveDraftEdit } from "@/lib/actions";
+import { approveTouches, checkDrafts, draftBatch, redraftBatch, saveDraftEdit } from "@/lib/actions";
+import { fetchAll } from "@/lib/fetchAll";
 import type { Touch } from "@/lib/types";
 
 const SAMPLE = 10;
+const pad = (n: number) => String(n).padStart(2, "0");
+// enqueueJobOnce refuses a second identical open job with "an identical job is already open".
+const queued = (e: Error): never => { throw new Error(e.message.includes("already open") ? "already queued" : e.message); };
 type Batch = { id: string; name: string; draft_instruction: string | null };
 type DraftTouch = Touch & { leads: { name: string; owner_name: string | null; owner_email: string | null; vector: string | null; signal_led: boolean } };
 type Skipped = { id: string; name: string; reject_reason: string };
@@ -30,6 +34,18 @@ export default function Drafts() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [redrafting, setRedrafting] = useState(false);
+  const [toDraft, setToDraft] = useState<[number, number][]>([]); // [outreach batch_no, approved leads still undrafted]
+
+  const loadToDraft = useCallback(async () => {
+    try {
+      const rows = await fetchAll<{ batch_no: number }>((a, b) =>
+        supabase.from("leads").select("batch_no").eq("status", "selected").eq("approved", true).not("batch_no", "is", null).order("id").range(a, b));
+      const m = new Map<number, number>();
+      rows.forEach((r) => m.set(r.batch_no, (m.get(r.batch_no) ?? 0) + 1));
+      setToDraft([...m].sort((a, b) => a[0] - b[0]));
+    } catch (e) { setErr((e as Error).message); }
+  }, []);
+  useEffect(() => { if (ready) loadToDraft(); }, [ready, loadToDraft]);
 
   useEffect(() => {
     if (!ready) return;
@@ -72,6 +88,10 @@ export default function Drafts() {
     setMsg(""); setErr("");
     try { await fn(); setMsg(ok); await load(); } catch (e) { setErr((e as Error).message); }
   }
+  const draftNow = (no: number, n: number) => {
+    if (!window.confirm(`Draft Batch ${pad(no)}: ${n} approved lead${n === 1 ? "" : "s"}. Drafting makes LLM calls, and they are paid only if allow_paid_gemini is on (Settings). Queue the draft job?`)) return;
+    return act(() => draftBatch(no).catch(queued), `Draft queued for Batch ${pad(no)}`).then(loadToDraft);
+  };
   const startEdit = (t: DraftTouch) => { setEditing(t.id); setSubj(t.subject ?? ""); setBody(t.body ?? ""); };
   const save = (id: string) => act(async () => {
     await saveDraftEdit(id, subj, body);
@@ -99,6 +119,17 @@ export default function Drafts() {
       {redrafting && <p className="msg">Regenerating this batch... approval is off until it finishes.</p>}
       {batch?.draft_instruction && <p className="muted">Last regenerate instruction: {batch.draft_instruction}</p>}
       {msg && <p className="msg">{msg}</p>}{err && <p className="err">{err}</p>}
+
+      <div className="card">
+        <strong>Draft an outreach batch</strong>
+        {toDraft.map(([no, n]) => (
+          <div className="bar" key={no} style={{ marginTop: 6 }}>
+            <button onClick={() => draftNow(no, n)}>Draft Batch {pad(no)}</button>
+            <span className="muted">{n} approved, not yet drafted</span>
+          </div>
+        ))}
+        {!toDraft.length && <p className="muted">No approved leads waiting to be drafted. Approve selected leads first.</p>}
+      </div>
 
       <div className="card">
         <div className="bar">

@@ -3,13 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
-import { approveTouches, checkDrafts, clearPause, markFailed, markSent, pauseSending, saveDraftEdit, skipTouch, startSending, unapproveTouches } from "@/lib/actions";
+import { approveTouches, checkDrafts, clearPause, draftFollowups, markFailed, markSent, pauseSending, saveDraftEdit, skipTouch, startSending, unapproveTouches } from "@/lib/actions";
 import { fetchAll } from "@/lib/fetchAll";
 import type { Mailbox, Touch } from "@/lib/types";
 
 type T = Touch & { leads: { name: string; owner_name: string | null; place_id: string; mailbox_id: string | null; status: string } };
 const COLS = "id,lead_id,touch_no,status,subject,body,scheduled_for,sent_at,send_at,outcome,problems,leads!inner(name,owner_name,place_id,mailbox_id,status)";
 const day = (iso: string | null) => (iso ?? "").slice(0, 10);
+// enqueueJobOnce refuses a second identical open job with "an identical job is already open".
+const queued = (e: Error): never => { throw new Error(e.message.includes("already open") ? "already queued" : e.message); };
 const ago = (iso: string | null) => (iso ? Math.floor((Date.now() - Date.parse(iso)) / 864e5) : 0);
 
 export default function Send() {
@@ -61,6 +63,10 @@ export default function Send() {
   const ready1 = follow.filter((t) => t.status === "drafted").map((t) => t.id);
   const t1 = (leadId: string) => sent.find((t) => t.lead_id === leadId && t.touch_no === 1);
 
+  const draftDue = () => {
+    if (!window.confirm("Draft the Touch 2 and Touch 3 follow-ups that are due. Drafting makes LLM calls, and they are paid only if allow_paid_gemini is on (Settings). Queue the follow-up job?")) return;
+    return act(() => draftFollowups().catch(queued), "Follow-up drafting queued");
+  };
   const startEdit = (t: T) => { setEditing(t.id); setSubj(t.subject ?? ""); setBody(t.body ?? ""); };
   const save = (id: string) => act(async () => { await saveDraftEdit(id, subj, body); setEditing(null); await checkDrafts().catch(() => {}); }, "Saved, checking...");
 
@@ -110,6 +116,7 @@ export default function Send() {
       {tab === "follow" && (
         <>
           <div className="bar">
+            <button onClick={draftDue}>Draft follow-ups</button>
             <button className="primary" disabled={!ready1.length} onClick={() => act(() => approveTouches(ready1), `Approved ${ready1.length}`)}>Approve all ({ready1.length})</button>
             <span className="muted">Replies last checked: {mb?.replies_checked_at ? new Date(mb.replies_checked_at).toLocaleString() : "never"}{follow.some((t) => t.status === "edited") && " · checking drafts..."}</span>
           </div>
