@@ -292,6 +292,36 @@ def test_run_draft_says_why_a_lead_was_skipped(world, capsys):
     assert lead_row(db, 0)["status"] == "selected"
 
 
+BATCH_NO = 987001  # no real batch carries this number
+
+
+@pytest.mark.db
+def test_draft_by_batch_no_takes_approved_selected_leads_across_source_batches(world):
+    db, bid, mbs = world
+    assert not db.table("leads").select("id").eq("batch_no", BATCH_NO).execute().data  # a real lead here would be drafted too
+    bid2 = new_batch(db, "B", "TX", ["x"])
+    try:
+        item = {"placeId": "TEST_3", "title": "Glow Med Spa", "website": "https://glow3.com", "categories": ["Medical spa"], "state": "Texas"}
+        db.table("leads").insert({**place_to_lead(item, bid2), "status": "selected", "approved": True, "owner_name": "Dana W", "owner_title": "Owner",
+                                  "owner_email": "dana@glow3.com", "email_verified": True, "vector": "capacity", "signal_led": False, "signal": LEAD["signal"]}).execute()
+        for i in (0, 2, 3):  # TEST_0 and TEST_3 approved in two source batches; TEST_2 not approved; TEST_1 approved but in no outreach batch
+            db.table("leads").update({"batch_no": BATCH_NO}).eq("place_id", f"TEST_{i}").execute()
+        good = {"subject": "Glow Med Spa / phone and DM booking", "body": GOOD, "objective": OBJ}
+        llm = llm_returning(good)
+        n = run_draft(db, llm, None, date(2026, 11, 10), only_mailboxes={m["id"] for m in mbs}, batch_no=BATCH_NO)
+        assert n == 2 and len(llm.calls) == 2
+        assert [lead_row(db, i)["status"] for i in range(4)] == ["drafted", "selected", "selected", "drafted"]
+    finally:
+        db.table("leads").delete().like("place_id", "TEST_%").execute()
+        db.table("batches").delete().eq("id", bid2).execute()
+
+
+def test_run_draft_needs_exactly_one_of_batch_id_and_batch_no():
+    for args in ({"batch_id": "b1", "batch_no": 3}, {"batch_id": None}):
+        with pytest.raises(ValueError):
+            run_draft(None, None, today=date(2026, 11, 10), **args)
+
+
 def test_check_subject_applies_to_touch_1_only():
     assert check_subject("Glow Med Spa / booking", 1) == [] and check_subject("Quick hello", 1) == ["bad_subject"] and check_subject("", 1) == ["bad_subject"]
     assert check_subject("Re: Glow Med Spa", 2) == []
