@@ -54,7 +54,7 @@ try {
 
   await pauseAutopilot();
   s = await read();
-  check("pause clears autopilot_on", s.autopilot_on === false);
+  check("pause: off, state paused by owner", s.autopilot_on === false && s.autopilot_state === "paused by owner");
 } finally {
   await admin.from("cost_log").delete().eq("provider", "TEST_ap");
   if (costId) await admin.from("cost_log").delete().eq("id", costId);

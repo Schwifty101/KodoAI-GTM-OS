@@ -51,7 +51,10 @@ export async function startAutopilot(limitUsd: number) {
   await saveSetting("autopilot_on", true);
 }
 
-export const pauseAutopilot = () => saveSetting("autopilot_on", false);
+export async function pauseAutopilot() {
+  await saveSetting("autopilot_state", "paused by owner"); // state first, on last-write-wins, same order as startAutopilot
+  await saveSetting("autopilot_on", false);
+}
 
 /** USD recorded in cost_log since `since` (read-only), paged past PostgREST's 1000-row cap. */
 export async function autopilotSpent(since: string): Promise<number> {
