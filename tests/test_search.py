@@ -39,3 +39,21 @@ def test_serper_search_raises_budget_exceeded_before_any_request(monkeypatch):
     monkeypatch.setattr(search.httpx, "post", lambda *a, **k: pytest.fail("no request when over budget"))
     with pytest.raises(budget.BudgetExceeded):
         search.serper_search("q")
+
+
+def test_spent_first_key_falls_to_second_and_stays_retired(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(search, "get_settings", lambda: SimpleNamespace(serper_keys=["k1", "k2"], serper_api_key="k1"))
+    monkeypatch.setattr(search, "_dead", set())
+    used = []
+
+    def post(url, headers, **k):
+        used.append(headers["X-API-KEY"])
+        return Resp(400, {"message": "Not enough credits"}) if headers["X-API-KEY"] == "k1" else Resp(200, {})
+
+    assert search.serper_post("u", post=post, json={}).status_code == 200
+    search.serper_post("u", post=post, json={})
+    assert used == ["k1", "k2", "k2"]
+    monkeypatch.setattr(search, "_dead", {"k1", "k2"})  # all spent: the last key's answer reaches the caller's OutOfCredits check
+    assert search.serper_post("u", post=post, json={}).status_code == 200

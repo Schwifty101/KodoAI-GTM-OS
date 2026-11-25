@@ -6,10 +6,8 @@ from __future__ import annotations
 
 import re
 
-import httpx
-
 from gtm import budget
-from gtm.config import get_settings
+from gtm.search import serper_post
 
 URL = "https://google.serper.dev/maps"
 CREDITS_PER_CALL = 3
@@ -44,8 +42,7 @@ def to_apify_item(place: dict) -> dict | None:
 def serper_maps(query: str, post=None) -> list[dict]:
     """One call, items in Apify shape. Budget gate here; the caller logs CREDITS_PER_CALL to cost_log (it knows the batch)."""
     budget.require("serper_maps", CREDITS_PER_CALL)
-    post = post or httpx.post
-    r = post(URL, headers={"X-API-KEY": get_settings().serper_api_key}, json={"q": query}, timeout=30)
+    r = serper_post(URL, post=post, json={"q": query}, timeout=30)
     if r.status_code == 400 and "credits" in str(r.json().get("message", "")).lower():
         raise OutOfCredits("Serper has no credits left")
     r.raise_for_status()

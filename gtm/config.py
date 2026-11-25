@@ -26,6 +26,7 @@ class Settings:
     groq_api_key: str = ""
     vertex_api_key: str = ""  # env GEMINI_AGENT_PLATFORM_API_KEY (Vertex AI)
     serper_api_key: str = ""  # env SERP_API_KEY (SERP_PROVIDER=serper)
+    serper_keys: list[str] = field(default_factory=list)  # SERP_API_KEY, SERP_API_KEY_2 .. _9, tried in order (gtm/search.py serper_post)
     harvest_api_key: str = ""
     prospeo_api_key: str = ""
     icypeas_api_key: str = ""  # optional; scripts/email_pilot.py only
@@ -63,6 +64,7 @@ class Settings:
             groq_api_key=s("GROQ_API_KEY"),
             vertex_api_key=s("GEMINI_AGENT_PLATFORM_API_KEY"),
             serper_api_key=s("SERP_API_KEY"),
+            serper_keys=_keys(env, "SERP_API_KEY"),
             harvest_api_key=s("HARVEST_API_KEY"),
             prospeo_api_key=s("PROSPEO_API_KEY"),
             icypeas_api_key=s("ICYPEAS_API_KEY"),
