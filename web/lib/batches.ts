@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { fetchAll } from "./fetchAll";
 import { enqueueJobOnce } from "./actions";
+import { CONFIRM_KINDS, baseKind, isConfirmFlag, type JobRow } from "./runnow";
 import type { Job, SpendRow } from "./types";
 
 export const BATCH_SIZE = 100;
@@ -10,7 +11,45 @@ export type BatchNoRow = {
   apify_usd: number; hunter_credits: number; prospeo_credits: number; serper_queries: number; gemini_usd: number;
 };
 
-export const fillLabel = (r: BatchNoRow) => `${r.leads} of ${BATCH_SIZE}`;
+/** `base` = leads already in this batch outside the OS (the batch_base setting): they count as filled, like gtm/batches.py and the autopilot do. */
+export const fillLabel = (r: Pick<BatchNoRow, "leads">, base = 0) => `${r.leads + base} of ${BATCH_SIZE}`;
+
+/** The batch_base setting ({"3": 32}) as {3: 32}; anything that is not a whole-number key with a number value is ignored. */
+export function batchBase(v: unknown): Record<number, number> {
+  const o = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  return Object.fromEntries(Object.entries(o).filter(([k, n]) => Number.isInteger(Number(k)) && typeof n === "number").map(([k, n]) => [Number(k), n as number]));
+}
+
+export type OutreachBatch = { batch_no: number; leads: number; base: number; selected: number; approved: number; drafted: number; sent: number; replied: number };
+
+/**
+ * One row per batch of 100, newest first. `leads` is the fill: OS-numbered leads plus the batch_base share (a batch that holds only base leads still gets a row).
+ * Counts are by lead status: `approved` is the part of `selected` already approved (drafting makes a lead `drafted`); `replied` includes booked.
+ */
+export function outreachRows(leads: { batch_no: number; status: string; approved: boolean }[], base: Record<number, number> = {}): OutreachBatch[] {
+  const rows = new Map<number, OutreachBatch>();
+  const row = (n: number) => {
+    let r = rows.get(n);
+    if (!r) rows.set(n, r = { batch_no: n, leads: base[n] ?? 0, base: base[n] ?? 0, selected: 0, approved: 0, drafted: 0, sent: 0, replied: 0 });
+    return r;
+  };
+  for (const n of Object.keys(base)) row(Number(n));
+  for (const l of leads) {
+    const r = row(l.batch_no);
+    r.leads++;
+    if (l.status === "selected") { r.selected++; if (l.approved) r.approved++; }
+    else if (l.status === "drafted") r.drafted++;
+    else if (l.status === "sent") r.sent++;
+    else if (l.status === "replied" || l.status === "booked") r.replied++;
+  }
+  return [...rows.values()].sort((a, b) => b.batch_no - a.batch_no);
+}
+
+export async function loadOutreachBatches(base: Record<number, number> = {}): Promise<OutreachBatch[]> {
+  const leads = await fetchAll<{ batch_no: number; status: string; approved: boolean }>((f, t) =>
+    supabase.from("leads").select("batch_no,status,approved").not("batch_no", "is", null).order("batch_no").order("id").range(f, t));
+  return outreachRows(leads, base);
+}
 
 /** Batches of 100 (leads.batch_no), newest first; a batch with no spend row (the view is empty until a lead-linked cost is logged) counts zero. */
 export async function loadBatchNos(): Promise<BatchNoRow[]> {
@@ -56,9 +95,51 @@ export async function loadRetryCandidates(): Promise<RetryRow[]> {
 
 export const retryArgv = (batchId: string) => ["--batch", batchId, "--retry-no-buyer", "--named-only"];
 
-export const retryOpen = (jobs: Job[], batchId: string) =>
+export const retryOpen = (jobs: Pick<Job, "kind" | "status" | "payload">[], batchId: string) =>
   jobs.some((j) => j.kind === "enrich" && ["queued", "running", "paused_budget"].includes(j.status)
     && JSON.stringify(j.payload?.argv ?? []) === JSON.stringify(retryArgv(batchId)));
+
+// Intake runs: the per-run pipeline row. Job rows come from loadBatchJobs; step gating is stepState in runnow.ts.
+const STEP_KINDS = ["clean", "verify-sheet", "enrich", "signals", "select", "import-sheet"];
+const OPEN = ["queued", "running", "paused_budget"];
+
+/** Scrape runs start at clean; a sheet import is already imported and has the extra verify-sheet step before enrich. */
+export const INTAKE_ORDER = ["clean", "enrich", "signals", "select"];
+export const SHEET_ORDER = ["import", "clean", "verify-sheet", "enrich", "signals", "select"];
+
+/** A sheet-import intake run, by name: the same test gtm/sheet_queue.py uses (BATCH_NAME "Sheet import" in gtm/sheet_import.py). */
+export const isSheetBatch = (name: string) => name.startsWith("Sheet import");
+
+/** Lead status each step reads (what its confirm dialog counts). */
+export const STEP_INPUT: Record<string, string> = { clean: "scraped", enrich: "cleaned", signals: "enriched", select: "signalled" };
+
+/**
+ * The last 200 intake-step jobs, any status, newest first; `_test` twins are included so the verify scripts and the browser check can drive it.
+ * ponytail: with a busy autopilot older jobs fall out of the window, so a step of an old run can grey; widen the limit or read lead statuses if that bites.
+ */
+export async function loadBatchJobs(): Promise<JobRow[]> {
+  const { data, error } = await supabase.from("jobs").select("id,kind,status,payload,result,error,created_at,finished_at")
+    .in("kind", [...STEP_KINDS, ...STEP_KINDS.map((k) => `${k}_test`)]).order("created_at", { ascending: false }).limit(200);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as JobRow[];
+}
+
+/** Leads of a source batch in one status (head count, no rows). */
+export async function countByStatus(batchId: string, status: string): Promise<number> {
+  const { count, error } = await supabase.from("leads").select("id", { count: "exact", head: true }).eq("batch_id", batchId).eq("status", status);
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+/** What enrich would work on: cleaned leads of the run (it spends Hunter and Prospeo credits per email found). */
+export const countCleaned = (batchId: string) => countByStatus(batchId, "cleaned");
+
+/** Jobs that count as "step done" for stepState: a sheet pass's dry run (no --confirm) changed nothing, so only its apply counts. */
+export const doneJobs = (jobs: JobRow[]) => jobs.filter((j) => !CONFIRM_KINDS.includes(baseKind(j.kind)) || (j.payload?.argv ?? []).some(isConfirmFlag));
+
+/** True while a job of this kind for this run is queued, running or paused for budget (any flags: a retry and a plain enrich must not overlap). */
+export const stepOpen = (jobs: JobRow[], kind: string, batchId: string) =>
+  jobs.some((j) => baseKind(j.kind) === kind && OPEN.includes(j.status) && (j.payload?.argv ?? []).includes(batchId));
 
 export function creditState(spend: SpendRow[], vals: Record<string, unknown>) {
   return (["hunter", "prospeo"] as const).map((provider) => {
