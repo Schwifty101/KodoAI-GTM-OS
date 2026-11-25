@@ -165,9 +165,9 @@ def test_verify_sheet_refuses_without_confirm(monkeypatch, capsys):
             return Q()
 
     monkeypatch.setattr(cli, "get_db", lambda: DB())
-    with pytest.raises(SystemExit, match="--confirm"):
-        cli.main(["verify-sheet", "--batch", "b1"])
-    assert "0.5 x 2" in capsys.readouterr().out
+    cli.main(["verify-sheet", "--batch", "b1"])  # dry run returns normally so a UI preview job ends done
+    out = capsys.readouterr().out
+    assert "0.5 x 2" in out and "--confirm" in out
 
 
 def test_verify_sheet_estimate_excludes_blocked_leads(monkeypatch, capsys):
@@ -196,8 +196,7 @@ def test_verify_sheet_estimate_excludes_blocked_leads(monkeypatch, capsys):
             return Q()
 
     monkeypatch.setattr(cli, "get_db", lambda: DB())
-    with pytest.raises(SystemExit, match="--confirm"):
-        cli.main(["verify-sheet", "--batch", "b1"])
+    cli.main(["verify-sheet", "--batch", "b1"])
     assert "0.5 x 1 = 0.5" in capsys.readouterr().out
 
 

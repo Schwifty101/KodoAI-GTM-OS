@@ -95,7 +95,8 @@ def cmd_verify_sheet(a: argparse.Namespace) -> None:
             if not blocked_reason(r, sup, sent) and (r.get("owner_name") or "").strip() and is_decision_maker(r.get("owner_title")))
     print(f"verify-sheet: 0.5 x {n} = {0.5 * n:g} Hunter credits (bucket hunter_import)")
     if not a.confirm:
-        sys.exit("dry run: rerun with --confirm to spend them")
+        print("dry run: rerun with --confirm to spend them")  # print, not exit: a worker preview must end `done` (Plan 8)
+        return
     print(run_verify_sheet(db, HunterPool(get_settings().hunter_keys, batch_id=a.batch), a.batch, a.limit))
 
 
