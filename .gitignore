@@ -41,3 +41,6 @@ docs/spikes/tile_verification.csv.cache.json
 
 # visual brainstorming sessions
 .superpowers/
+
+# Pilot outputs hold personal data
+.secrets/
