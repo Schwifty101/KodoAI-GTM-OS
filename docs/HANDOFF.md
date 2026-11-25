@@ -70,6 +70,9 @@ Plan 5 deployed to the VM (`sheets-token` secret created); first paint (132 rows
 ### (h3) Autopilot (built 2026-11-24, NOT deployed, NOT started)
 Design `docs/superpowers/specs/2026-11-24-autopilot-design.md`, plan `docs/superpowers/plans/2026-11-24-autopilot.md`. Merged on local main (settings keys, `batch_base`, `BudgetExceeded.kind`, `renumber-batch`, `gtm/autopilot.py`, worker tick, `/batches` card). Owner gates left: real `renumber-batch --from 1 --to 3` (28 selected leads; dry run first), VM deploy (queue idle), first Start with a small limit, Apify credit. Real state on 2026-11-24: Batch03 fill 32 + 0; 23 selected leads unapproved; a pending `signals` for batch d441a2fd (12 enriched, 1 signalled).
 
+### (h4) 2026-11-25 session
+Autopilot started on the VM (limit $5, Serper cap temporarily 1200: REVERT to 700 after the run). First run: 207 new leads from 3 tiles, 5 enriched from the first tile (about 2.3 enriched per dollar). Batch03: 32 base + 37 numbered (28 renumbered 1 to 3, plus 9). Apify daily cap ($2) and Serper cap pause it until midnight UTC. Built on local main, NOT deployed: yield-aware walk (settings `walk_yield_order`, `clean_category_strict`, `tile_scores`, `state_code`, `scripts/yield_report.py`) and the email-finder pilot harness (`scripts/email_pilot.py`, awaiting the owner's Icypeas and Anymail keys). Research on alternatives to Hunter: Icypeas ($19/mo, 50 free credits), Anymail Finder ($29/mo, 7-day trial), pattern guess plus BounceBan; no independent local-clinic benchmark exists, so the 20-lead pilot decides.
+
 ### (e) OWNER DECISION 2026-11-14: data sources
 
 Default scrape provider Apify; Serper Maps is the fallback only (owner 2026-11-14). `scrape_provider` stays `apify`. Google Places API data will NOT be stored (policy allows only place_id and lat/lng for 30 days; ban risk). `gtm/places.py` (Places API provider, 13 tests) is PARKED and unused. Terms findings: `docs/spikes/google_maps_terms.md`.
