@@ -70,7 +70,8 @@ def clean_decision(lead: dict, strict: bool = False) -> str | None:
     return None
 
 
-def run_clean(db, batch_id: str) -> dict[str, int]:
+def run_clean(db, batch_id: str, strict: bool | None = None) -> dict[str, int]:
+    """strict None reads the clean_category_strict setting; the sheet queue passes False (owner-curated rows spend no finder credits)."""
     rows = (
         db.table("leads").select("id,name,domain,state,categories,closed,review_count")
         .eq("batch_id", batch_id).eq("status", Status.SCRAPED.value)
@@ -83,7 +84,7 @@ def run_clean(db, batch_id: str) -> dict[str, int]:
         for r in fetch_all(lambda: db.table("leads").select("domain").neq("status", Status.SCRAPED.value).neq("status", Status.REJECTED.value)
                            .not_.is_("domain", "null").order("id"))
     }
-    strict = bool(setting("clean_category_strict"))
+    strict = bool(setting("clean_category_strict")) if strict is None else strict
     brands = Counter(brand_key(r["name"]) for r in rows)
     by_reason: dict[str | None, list[str]] = {}
     for r in rows:

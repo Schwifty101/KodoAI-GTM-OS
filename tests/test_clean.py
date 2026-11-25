@@ -176,3 +176,16 @@ def test_run_clean_reads_the_setting(monkeypatch, on, reason):
     counts = c.run_clean(db, "b")
     assert counts == ({"low_yield_category": 1} if reason else {"cleaned": 1})
     assert db.table.return_value.update.call_args.args[0]["reject_reason"] == reason
+
+
+def test_run_clean_explicit_strict_overrides_the_setting(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import gtm.clean as c
+
+    row = {"id": "1", "name": "Aesthetic Studio", "domain": "a.com", "state": "TX", "categories": ["Skin care clinic"], "closed": False, "review_count": 1}
+    db = MagicMock()
+    db.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value.data = [row]
+    monkeypatch.setattr(c, "fetch_all", lambda f: [])
+    monkeypatch.setattr(c, "setting", lambda k: True)
+    assert c.run_clean(db, "b", strict=False) == {"cleaned": 1}
