@@ -161,6 +161,13 @@ def test_yield_stats_merge_spellings_and_count_all_leads():
     assert rate == 4 / 5  # 5 kept leads in all (the stateless one counts), 4 succeeded
 
 
+def test_side_states_leave_yield_stats_unless_verified():
+    def L(st, v=False): return {"state": "TX", "status": st, "batch_id": None, "owner_email": "a@b.co" if v else None, "email_verified": v}
+    leads = [L("enriched"), L("enriched"), L("no_buyer")] + [L("suppressed")] * 3
+    assert yield_stats(leads, {}, {})[0] == {"TX": (3, 2)}
+    assert yield_stats(leads + [L("bounced", True), L("unsubscribed", True)], {}, {})[0] == {"TX": (5, 4)}
+
+
 def test_high_yield_texas_wins_over_new_york(monkeypatch):
     monkeypatch.setattr(coverage, "setting", lambda k: True)
     monkeypatch.setattr(coverage, "load_yield_stats", lambda db: ({"NY": (124, 17), "TX": (100, 26), "CC": (50, 1)}, {}, 0.14))

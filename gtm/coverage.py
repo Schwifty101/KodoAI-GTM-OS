@@ -33,6 +33,7 @@ def seed_coverage(db, rows: list[dict]) -> int:
 
 SUCCESS = {"enriched", "signalled", "selected", "drafted", "sent", "replied", "booked"}
 DROPPED = {"scraped", "rejected", "cleaned"}  # not kept
+SIDE = {"bounced", "suppressed", "unsubscribed"}  # neither success nor failure of enrich, unless the email was verified
 EXPLORE_BELOW = 40  # kept leads: a state under this is still unsampled
 
 
@@ -61,9 +62,10 @@ def yield_stats(leads: list[dict], owner: dict, tiles: dict):
     by_state, by_metro = defaultdict(lambda: [0, 0]), defaultdict(lambda: [0, 0])
     kept = won = 0
     for lead in leads:
-        if lead["status"] in DROPPED:
+        verified = bool(lead.get("owner_email") and lead.get("email_verified"))
+        if lead["status"] in DROPPED or (lead["status"] in SIDE and not verified):
             continue
-        ok = lead["status"] in SUCCESS
+        ok = lead["status"] in SUCCESS or (lead["status"] in SIDE and verified)
         kept, won = kept + 1, won + ok
         keys = [(by_state, state_code(lead["state"]))]
         if lead.get("batch_id") in owner:
@@ -81,7 +83,7 @@ def load_yield_stats(db) -> tuple[dict[str, tuple[int, int]], dict[str, tuple[in
     through coverage.scrape_batch_id = leads.batch_id."""
     done = fetch_all(lambda: db.table("coverage").select("id,metro,state,scrape_batch_id").eq("status", "done").order("id"))
     owner = {c["scrape_batch_id"]: c for c in done if c["scrape_batch_id"]}
-    leads = fetch_all(lambda: db.table("leads").select("id,state,batch_id,status").order("id"))
+    leads = fetch_all(lambda: db.table("leads").select("id,state,batch_id,status,owner_email,email_verified").order("id"))
     return yield_stats(leads, owner, Counter(c["metro"] for c in done))
 
 
@@ -94,7 +96,7 @@ def _pick(pending: list[dict], state_stats, metro_stats, rate: float, explore: b
     return max(pending, key=lambda t: (ms[t["metro"]] if t["metro"] in metro_stats else ss[t["state"]], -t["seq"]))
 
 
-def claim_tiles(db, n: int) -> list[dict]:
+def claim_tiles(db, n: int, stats=None) -> list[dict]:
     """Flip up to n pending tiles to running. A lost race (row no longer pending) is skipped.
     walk_yield_order off: lowest seq first. On: best smoothed yield first, and every third claim explores.
     ponytail: per-row conditional update, fine for one or two workers."""
@@ -103,7 +105,7 @@ def claim_tiles(db, n: int) -> list[dict]:
     else:
         pending = fetch_all(lambda: db.table("coverage").select("id,seq,metro,state").eq("status", "pending").order("seq"))
         used = db.table("coverage").select("id", count="exact").in_("status", ["running", "done"]).limit(1).execute().count or 0
-        state_stats, metro_stats, rate = load_yield_stats(db)
+        state_stats, metro_stats, rate = stats or load_yield_stats(db)
         ids = []
         while pending and len(ids) < n:
             # exploration: coverage rows already running or done, modulo 3 == 2 (every third claim)
@@ -137,8 +139,9 @@ def run_walk(db, run_actor, tiles: int, queries: list[str] | None = None, max_pl
     escalate_at = setting("walk_escalate_at") if escalate_at is None else escalate_at
     out = {"tiles": 0, "queries": 0, "new": 0, "known": 0, "saturated": 0}
     reset_stale(db)
+    stats = load_yield_stats(db) if setting("walk_yield_order") else None  # once per walk, not per claim
     for _ in range(tiles):
-        got = claim_tiles(db, 1)  # one at a time: a raise never strands later tiles as running
+        got = claim_tiles(db, 1, stats)  # one at a time: a raise never strands later tiles as running
         if not got:
             break
         t = got[0]
