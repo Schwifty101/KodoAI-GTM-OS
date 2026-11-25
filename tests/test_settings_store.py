@@ -5,7 +5,8 @@ from gtm.settings_store import clear_cache, set_setting, setting
 
 pytestmark = pytest.mark.db
 KEYS = ["monthly_budget_pkr", "weekly_target", "paid_gemini_monthly_cap_usd", "credit_balance_usd", "credit_end_date",
-        "autopilot_on", "autopilot_limit_usd", "autopilot_started_at", "autopilot_state", "autopilot_target", "batch_base"]
+        "autopilot_on", "autopilot_limit_usd", "autopilot_started_at", "autopilot_state", "autopilot_target", "batch_base",
+        "walk_yield_order", "clean_category_strict"]
 db = get_db()
 
 
@@ -70,6 +71,12 @@ def test_walk_and_fallback_defaults():
         assert DEFAULTS[k] == v and type(DEFAULTS[k]) is type(v)
     with pytest.raises(ValueError):
         set_setting(db, "walk_hour_utc", True)
+
+
+def test_yield_settings_defaults_and_types():
+    from gtm.settings_store import DEFAULTS
+    for k in ("walk_yield_order", "clean_category_strict"):
+        assert DEFAULTS[k] is True and setting(k) is True
 
 
 def test_gemini_lite_price_defaults_are_floats():

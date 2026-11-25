@@ -20,6 +20,8 @@ DEFAULTS: dict[str, bool | int | float | str | dict] = {
     "walk_schedule_enabled": False, "walk_hour_utc": 13, "walk_tiles_per_run": 3,
     "walk_queries": "med spa,aesthetics clinic", "walk_max_places": 40, "walk_escalate_at": 0.8,
     "fetch_fallback": True,
+    "walk_yield_order": True,  # claim pending tiles by smoothed yield, not plain seq
+    "clean_category_strict": True,  # reject name-only med spa matches without the Medical spa category
     "send_anytime": False,  # REHEARSAL ONLY: ignores the Mon-Fri 9-16 window. Leave off for real sending.
     "sending_on": False,  # Plan 4: Start sending turns it on, Pause or an auto-pause turns it off
     # Plan 5: sheet import and manual queue
