@@ -42,10 +42,21 @@ try {
   const truth = ((await admin.from("cost_log").select("usd").gte("created_at", since)).data ?? []).reduce((a, r) => a + Number(r.usd), 0);
   check("autopilotSpent sums cost_log.usd since start (>= 0.0123, matches admin sum)", spent >= 0.0123 && Math.abs(spent - truth) < 0.05);
 
+  // Paging: 2,150 rows > the 1000-row cap, so 3 pages. Far-future since keeps real rows out.
+  const rows = Array.from({ length: 2150 }, (_, i) => ({ provider: "TEST_ap", units: 1, usd: 0.001, created_at: new Date(Date.UTC(2099, 0, 1, 0, 0, 1 + i)).toISOString() }));
+  for (let i = 0; i < rows.length; i += 500) {
+    const r = await admin.from("cost_log").insert(rows.slice(i, i + 500));
+    if (r.error) throw new Error(r.error.message);
+  }
+  const big = await autopilotSpent("2099-01-01T00:00:00Z");
+  console.log("paged sum", big);
+  check("autopilotSpent pages past 1000 rows (2150 x 0.001 = 2.15)", Math.abs(big - 2.15) < 1e-6);
+
   await pauseAutopilot();
   s = await read();
   check("pause clears autopilot_on", s.autopilot_on === false);
 } finally {
+  await admin.from("cost_log").delete().eq("provider", "TEST_ap");
   if (costId) await admin.from("cost_log").delete().eq("id", costId);
   await admin.from("settings").delete().in("key", KEYS);
   if (saved.length) await admin.from("settings").insert(saved);
