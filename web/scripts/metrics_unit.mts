@@ -2,7 +2,7 @@
 // Run: cd web && npx tsx scripts/metrics_unit.mts (also under TZ=Asia/Karachi and TZ=America/Los_Angeles)
 import {
   addSpend, allocateSpend, batchRows, byAngle, cohort, dropTestRuns, historyRows, isOwner, isPositive, isReplied, isTestLead, isTestRun,
-  perUnit, periodRange, periodStart, previousRange, pricedUsd, rate, spendFrom, undatedCounts, whereLeadsDie,
+  hint0017, perUnit, periodRange, periodStart, previousRange, pricedUsd, rate, spendFrom, undatedCounts, whereLeadsDie,
   type CostDay, type LeadRow, type Spend, type TouchRow,
 } from "../lib/metrics";
 
@@ -184,6 +184,10 @@ check("allocateSpend: a null-run row lands in unattributed", same(allocateSpend(
   const u = undatedCounts(ts, [a, b, t]);
   check("historyRows: an outcome without outcome_at is counted in undatedCounts, not bucketed", total === 0 && JSON.stringify(u) === JSON.stringify({ bounces: 1, replies: 2, booked: 1 }));
 }
+check("hint0017: a missing 0017 column or view is explained, other errors pass through",
+  hint0017('column touches.outcome_at does not exist').startsWith("Migration 0017 is not applied yet")
+  && hint0017('relation "public.cost_daily" does not exist').startsWith("Migration 0017")
+  && hint0017("JWT expired") === "JWT expired");
 
 if (failed) { console.log(`metrics_unit: ${failed} FAILED`); process.exit(1); }
 console.log("metrics_unit: all checks passed");

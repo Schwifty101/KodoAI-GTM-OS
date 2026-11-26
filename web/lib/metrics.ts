@@ -19,6 +19,9 @@ export type HistoryRow = { start: string; scraped: number; owners: number; touch
 const REPLY_STATUSES = ["replied", "unsubscribed", "booked"];
 const REPLY_OUTCOMES = ["positive", "negative", "other", "opt_out"];
 
+/** Migration 0017 adds outcome_at, booked_at and cost_daily; until the owner applies it, pages show this instead of a bare column error. */
+export const hint0017 = (message: string) => (/booked_at|outcome_at|cost_daily/.test(message) ? `Migration 0017 is not applied yet (${message})` : message);
+
 // Filters
 
 /** Same rule as gtm/send.py is_test_lead. */
