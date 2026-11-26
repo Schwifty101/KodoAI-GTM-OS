@@ -11,6 +11,7 @@ DEFAULTS: dict[str, bool | int | float | str | dict] = {
     "credit_end_date": "2027-02-09", "credit_balance_usd": 298.0, "credit_balance_as_of": "2026-11-12",
     "gemini_input_usd_per_m": 1.5, "gemini_output_usd_per_m": 9.0,  # third-party prices, unconfirmed
     "gemini_lite_input_usd_per_m": 0.25, "gemini_lite_output_usd_per_m": 1.5,
+    "price_hunter_usd_per_credit": 0.0, "price_prospeo_usd_per_credit": 0.0, "price_serper_usd_per_credit": 0.0,  # 0 = unpriced
     # proposed daily caps, owner adjusts
     "cap_apify_usd_day": 2.0, "cap_serper_queries_day": 700, "cap_gemini_usd_day": 5.0,
     "cap_hunter_credits_day": 100, "cap_prospeo_credits_day": 20, "cap_harvest_usd_day": 0.5,
@@ -40,6 +41,8 @@ def _ok(key: str, v: Any) -> bool:
     if isinstance(d, bool) or isinstance(v, bool):
         return isinstance(d, bool) and isinstance(v, bool)
     if key == "autopilot_limit_usd":
+        return isinstance(v, (int, float)) and v >= 0
+    if key.startswith("price_"):
         return isinstance(v, (int, float)) and v >= 0
     if isinstance(d, float):
         return isinstance(v, (int, float))
