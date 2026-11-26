@@ -112,3 +112,48 @@ def test_autopilot_defaults_and_types():
     db.table("settings").upsert({"key": "batch_base", "value": "x"}).execute()
     clear_cache()
     assert setting("batch_base") == {"3": 32}
+
+
+class _FakeSettings:
+    """settings table stub: setting(key, db=fake) reads it, nothing touches the real database."""
+    def __init__(self, stored):
+        self.stored, self.key = stored, None
+
+    def table(self, _):
+        return self
+
+    def select(self, _):
+        return self
+
+    def eq(self, _, key):
+        self.key = key
+        return self
+
+    def execute(self):
+        self.data = [{"value": self.stored[self.key]}] if self.key in self.stored else []
+        return self
+
+
+def test_recontact_defaults_and_types():
+    from gtm.settings_store import DEFAULTS
+
+    want = {"recontact_on": False, "recontact_days": 60, "recontact_max_rounds": 3, "recontact_hunter_allowance_credits": 0.0}
+    for k, v in want.items():
+        assert DEFAULTS[k] == v and type(DEFAULTS[k]) is type(v)
+    for k in ("recontact_days", "recontact_max_rounds"):
+        with pytest.raises(ValueError):
+            set_setting(None, k, True)  # bool is not an int; a rejected value never reaches the db (None would raise AttributeError)
+
+
+@pytest.mark.parametrize("key,default", [("recontact_days", 60), ("recontact_max_rounds", 3)])
+@pytest.mark.parametrize("bad", [0, -5])
+def test_recontact_days_or_rounds_below_one_fall_back_to_default(key, default, bad):
+    clear_cache()
+    try:
+        assert setting(key, _FakeSettings({key: bad})) == default  # a stored 0 or negative must never lift everything
+        clear_cache()
+        assert setting(key, _FakeSettings({key: 7})) == 7
+        with pytest.raises(ValueError):
+            set_setting(None, key, bad)
+    finally:
+        clear_cache()

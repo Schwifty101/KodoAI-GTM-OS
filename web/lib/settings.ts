@@ -44,6 +44,10 @@ export const SETTING_FIELDS: SettingField[] = [
   { key: "autopilot_state", label: "Autopilot state", type: "text", group: "Autopilot", def: "off", readonly: true },
   { key: "autopilot_started_at", label: "Autopilot started at", type: "text", group: "Autopilot", def: "", readonly: true },
   { key: "batch_base", label: "Leads already in a batch outside the OS (JSON)", type: "text", group: "Autopilot", def: { "3": 32 }, readonly: true },
+  { key: "recontact_on", label: "Recontact on (release old contacts after the cooldown)", type: "bool", group: "Recontact", def: false },
+  { key: "recontact_days", label: "Days since the last send before a contact can be recontacted", type: "int", group: "Recontact", def: 60, min: 1 },
+  { key: "recontact_max_rounds", label: "Max outreach rounds per contact", type: "int", group: "Recontact", def: 3, min: 1 },
+  { key: "recontact_hunter_allowance_credits", label: "Hunter credits allowed for recontact", type: "float", group: "Recontact", def: 0, min: 0 },
   { key: "fetch_fallback", label: "Read blocked pages through a paid fallback", type: "bool", group: "Page fetching", def: true },
 ];
 
@@ -66,6 +70,7 @@ export const GROUPS: [string, string][] = [
   ["Daily caps", "Each cap is in the provider's own unit and is checked before every paid call; 0 blocks the provider."],
   ["Page fetching", ""],
   ["Autopilot", "Runs the pipeline passes by itself within the spend limit. Start and Pause live on Batches; the state and start time are written by the controller."],
+  ["Recontact", "Lets a contact with no reply, bounce or opt-out be contacted again after the cooldown. Off by default; the Hunter allowance is a one-off lifetime budget for re-verifying emails and defaults to 0 (nothing can be spent)."],
   ["Sheet", "The MedSpa sheet: its id, the daily ContactOut queue and the colour write-back. Both switches stay off until the owner turns them on; the Hunter allowance is a one-off lifetime budget for the sheet import and defaults to 0 (nothing can be spent)."],
 ];
 // Shown on their own pages, never on Settings.
