@@ -30,7 +30,11 @@ function IntakeSteps({ run, jobs, caps, onErr, onQueued }: { run: BatchMetrics; 
   const sheet = isSheetBatch(run.name);
   const order = sheet ? SHEET_ORDER : INTAKE_ORDER;
   const label = `${run.name} (${run.created_at.slice(0, 10)})`;
-  const done = doneJobs(jobs);
+  // The walk cleans its own leads inside the walk job, so a scrape run has no `clean` job: leads past clean (cleaned or enriched > 0) count as clean done.
+  const cleanSeen: JobRow[] = run.cleaned > 0 || run.enriched > 0
+    ? [{ id: `clean-seen-${run.batch_id}`, kind: "clean", status: "done", payload: { argv: ["--batch", run.batch_id] }, result: null, error: null, created_at: run.created_at, finished_at: run.created_at }]
+    : [];
+  const done = [...doneJobs(jobs), ...cleanSeen];
   const click = async (step: string) => {
     setBusy(true); onErr("");
     try {
