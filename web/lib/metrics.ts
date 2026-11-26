@@ -95,7 +95,7 @@ export const addSpend = (a: Spend, b: Spend): Spend =>
 const scale = (s: Spend, k: number): Spend =>
   Object.fromEntries(Object.entries(s).map(([p, v]) => [p, { units: v.units * k, usd: v.usd * k }]));
 
-const PRICE_OF: Record<string, keyof Prices> = { hunter: "hunter", hunter_import: "hunter", prospeo: "prospeo", serper: "serper", serper_maps: "serper" };
+export const PRICE_OF: Record<string, keyof Prices> = { hunter: "hunter", hunter_import: "hunter", prospeo: "prospeo", serper: "serper", serper_maps: "serper" };
 
 /** Recorded dollars of every provider plus credits times their price (0 = unpriced adds nothing). Groq tokens never become money. */
 export function pricedUsd(s: Spend, p: Prices): number {

@@ -1,5 +1,5 @@
 // Home page logic (spec 2026-11-26-plan6-metrics-design.md 7.5). Pure: no supabase import, no clock reads (callers pass `now`).
-import { pricedUsd, type Prices, type Spend } from "./metrics";
+import { PRICE_OF, pricedUsd, type Prices, type Spend } from "./metrics";
 
 const DAY = 86_400_000;
 const utcDay = (t: Date) => Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate());
@@ -26,8 +26,6 @@ export function creditStatus(
   return { remaining, daysLeft, ended, warn };
 }
 
-const CREDIT_PRICE: Record<string, keyof Prices> = { hunter: "hunter", hunter_import: "hunter", prospeo: "prospeo", serper: "serper", serper_maps: "serper" };
-
 /** Month spend against the PKR budget. Gemini rows count only once the Google credit ended; credit providers with no price entered are listed as units. */
 export function budgetMeter(
   monthSpend: Spend,
@@ -39,7 +37,7 @@ export function budgetMeter(
   const spentUsd = pricedUsd(counted, p);
   const budgetUsd = v.pkr_per_usd > 0 ? v.monthly_budget_pkr / v.pkr_per_usd : 0;
   const creditsUnpriced = Object.fromEntries(
-    Object.entries(monthSpend).filter(([prov, s]) => CREDIT_PRICE[prov] && s.units > 0 && !p[CREDIT_PRICE[prov]]).map(([prov, s]) => [prov, s.units]),
+    Object.entries(monthSpend).filter(([prov, s]) => PRICE_OF[prov] && s.units > 0 && !p[PRICE_OF[prov]]).map(([prov, s]) => [prov, s.units]),
   );
   return { spentUsd, budgetUsd, pct: Number.isFinite(budgetUsd) && budgetUsd > 0 ? (spentUsd / budgetUsd) * 100 : null, creditsUnpriced };
 }
