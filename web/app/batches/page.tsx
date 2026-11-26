@@ -1,20 +1,21 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
 import { useSettings } from "@/lib/useSettings";
 import { PreviewApply } from "@/components/PreviewApply";
 import { autopilotSpent, enqueueJobOnce, pauseAutopilot, startAutopilot } from "@/lib/actions";
 import { baseKind, stepState, type JobRow } from "@/lib/runnow";
-import { STATUSES, type BatchMetrics, type SpendRow } from "@/lib/types";
+import type { BatchMetrics, SpendRow } from "@/lib/types";
 import {
-  BATCH_SIZE, INTAKE_ORDER, SHEET_ORDER, STEP_INPUT, batchBase, countByStatus, creditState, doneJobs, fillLabel, isSheetBatch, loadBatchJobs, loadBatchNos,
-  loadOutreachBatches, loadRetryCandidates, retryLater, retryOpen, stepOpen, type BatchNoRow, type OutreachBatch, type RetryRow,
+  BATCH_SIZE, INTAKE_ORDER, SHEET_ORDER, STEP_INPUT, batchBase, batchCards, countByStatus, creditState, doneJobs, isEmptyRun, isSheetBatch, limitInputs, loadBatchJobs,
+  loadBatchSpend, loadOutreachBatches, loadRetryCandidates, retryLater, retryWhy, stepOpen, type BatchCard, type RetryRow,
 } from "@/lib/batches";
 
 const money = (n: number) => `$${n.toFixed(n < 0.1 ? 4 : 2)}`;
 const pad = (n: number) => String(n).padStart(2, "0");
+const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Confirm texts per step: each names the run and the lead count; none states a price that is not confirmed (docs/spikes/owner_routes.md). */
 const STEP_TEXT: Record<string, (label: string, n: number, caps: string) => string> = {
@@ -73,11 +74,12 @@ function IntakeSteps({ run, jobs, caps, onErr, onQueued }: { run: BatchMetrics; 
 export default function Batches() {
   const ready = useRequireSession();
   const { vals, reload } = useSettings(ready);
-  const [limit, setLimit] = useState("2");
-  const [noLimit, setNoLimit] = useState(false);
+  const defaultVals = useRef(vals); // useSettings starts on the built-in defaults and swaps in a new object once the stored settings arrive
+  const [limitEdit, setLimitEdit] = useState<string | null>(null); // null = not touched: the input follows the stored autopilot_limit_usd
+  const [noLimitEdit, setNoLimitEdit] = useState<boolean | null>(null);
+  const [showEmpty, setShowEmpty] = useState(false);
   const [spent, setSpent] = useState<number | null>(null);
-  const [nos, setNos] = useState<BatchNoRow[]>([]);
-  const [outreach, setOutreach] = useState<OutreachBatch[]>([]);
+  const [cards, setCards] = useState<BatchCard[]>([]);
   const [runs, setRuns] = useState<BatchMetrics[]>([]);
   const [retry, setRetry] = useState<RetryRow[]>([]);
   const [spend, setSpend] = useState<SpendRow[]>([]);
@@ -88,14 +90,14 @@ export default function Batches() {
   const baseJson = JSON.stringify(vals.batch_base ?? {}); // key effects on the value: useSettings hands out a new object on every reload
   const load = useCallback(async () => {
     try {
-      const [n, o, rt, m, sp, j] = await Promise.all([
-        loadBatchNos(), loadOutreachBatches(batchBase(JSON.parse(baseJson))), loadRetryCandidates(),
+      const [bs, o, rt, m, sp, j] = await Promise.all([
+        loadBatchSpend(), loadOutreachBatches(batchBase(JSON.parse(baseJson))), loadRetryCandidates(),
         supabase.from("batch_metrics").select("*").order("created_at", { ascending: false }),
         supabase.from("spend_summary").select("*"),
         loadBatchJobs(),
       ]);
       for (const r of [m, sp]) if (r.error) throw new Error(r.error.message);
-      setErr(""); setNos(n); setOutreach(o); setRetry(rt);
+      setErr(""); setCards(batchCards(o, bs)); setRetry(rt);
       setRuns((m.data ?? []) as unknown as BatchMetrics[]); setSpend((sp.data ?? []) as SpendRow[]); setJobs(j);
     } catch (e) { setErr((e as Error).message); }
     setLoaded(true);
@@ -124,15 +126,19 @@ export default function Batches() {
   const apRun = async (fn: () => Promise<void>) => {
     try { await fn(); await reload(); setErr(""); } catch (e) { setErr((e as Error).message); }
   };
+  const settingsLoaded = vals !== defaultVals.current; // until then the limit shown is the built-in default, not the owner's
+  const stored = limitInputs(apLimit);
+  const limit = limitEdit ?? stored.limit, noLimit = noLimitEdit ?? stored.noLimit;
   const apStart = () => apRun(() => startAutopilot(noLimit ? 0 : Number(limit)));
 
   const credits = creditState(spend, vals);
   const allBlocked = credits.every((c) => c.blocked);
   const capsText = credits.map((c) => `${c.provider} ${c.today} of ${c.cap}`).join(", ");
   const named = new Map(retry.map((r) => [r.batch_id, r]));
-  const cols = STATUSES.filter((s) => nos.some((r) => r.byStatus[s]));
-  const base = batchBase(vals.batch_base);
-  const newest = Math.max(nos[0]?.batch_no ?? 0, ...Object.keys(base).map(Number), 0); // the open batch is the highest number, base included (gtm/autopilot.py)
+  const runName = new Map(runs.map((r) => [r.batch_id, r.name])); // the owner reads run names, never ids
+  const newest = cards[0]?.batch_no ?? 0; // the open batch is the highest number, base included (gtm/autopilot.py); cards are newest first
+  const emptyRuns = runs.filter((r) => isEmptyRun(r, jobs)).length;
+  const shownRuns = showEmpty ? runs : runs.filter((r) => !isEmptyRun(r, jobs));
 
   const go = async (batchId: string, n: number) => {
     if (!window.confirm(`This spends Hunter and Prospeo credits on ${n} leads. Continue?`)) return;
@@ -142,18 +148,25 @@ export default function Batches() {
   return (
     <>
       <h1>Batches</h1>
-      <p className="muted">A batch is {BATCH_SIZE} verified, selected owners (numbered when a lead becomes selected, never renumbered). Leads that are scraped but not yet selected belong to an intake run (a scrape or the sheet import), listed under Intake.</p>
+      <p className="muted">A batch is {BATCH_SIZE} verified, selected owners (numbered when a lead becomes selected, never renumbered). Leads that are scraped but not yet selected belong to a scrape run or the sheet import, listed under Scrape runs and retries.</p>
       {err && <p className="err">{err}</p>}
 
       <h2>Outreach batches</h2>
-      {!loaded ? <p className="muted">Loading…</p> : outreach.length === 0 ? <p className="muted">No batch numbers yet: leads get one when select picks them.</p> : (
-        <div className="grid">{outreach.map((b) => (
-          <div className="card" key={b.batch_no}>
-            <h3>Batch {pad(b.batch_no)}: {b.leads} of {BATCH_SIZE} {b.batch_no === newest && b.leads < BATCH_SIZE && <span className="pill">open</span>}</h3>
-            <p>{b.selected} selected ({b.approved} approved), {b.drafted} drafted, {b.sent} sent, {b.replied} replied</p>
-            {b.base > 0 && <p className="muted">{b.base} of these are already in the batch outside the OS (Notion).</p>}
-          </div>
-        ))}</div>
+      {!loaded ? <p className="muted">Loading…</p> : cards.length === 0 ? <p className="muted">No batch numbers yet: leads get one when select picks them.</p> : (
+        <>
+          <div className="grid">{cards.map((b) => (
+            <div className="card" key={b.batch_no}>
+              <h3>Batch {pad(b.batch_no)}: {b.leads} of {BATCH_SIZE} {b.batch_no === newest && b.leads < BATCH_SIZE && <span className="pill">open</span>}</h3>
+              <p>{b.selected} selected ({b.approved} approved), {b.drafted} drafted, {b.sent} sent, {b.replied} replied</p>
+              <p className="muted">
+                Spend recorded: Apify {money(b.apify_usd)}, Gemini {money(b.gemini_usd)}, Hunter {count(b.hunter_credits, "credit")},
+                Prospeo {count(b.prospeo_credits, "credit")}, Serper {count(b.serper_queries, "query", "queries")}
+              </p>
+              {b.base > 0 && <p className="muted">{b.base} of these are already in the batch outside the OS (Notion).</p>}
+            </div>
+          ))}</div>
+          <p className="muted">Spend is what was recorded against these leads (enrich, signals, drafts). Scrape-time Apify cost is per scrape run, under Scrape runs and retries.</p>
+        </>
       )}
 
       <div className="card">
@@ -165,37 +178,24 @@ export default function Batches() {
           Spent {spent === null ? "-" : money(spent)} of {apLimit === 0 ? "no limit" : money(apLimit)}{startedAt && ` since ${startedAt.slice(0, 16).replace("T", " ")}`}
         </p>
         <p>
-          <label>Limit (USD) <input type="number" min="0" step="0.5" value={limit} disabled={noLimit} onChange={(e) => setLimit(e.target.value)} /></label>{" "}
-          <label><input type="checkbox" checked={noLimit} onChange={(e) => setNoLimit(e.target.checked)} /> No limit</label>{" "}
-          <button disabled={!noLimit && (limit === "" || Number(limit) < 0)} onClick={apStart}>{startedAt ? "Start / Resume" : "Start"}</button>{" "}
+          <label>Limit (USD) <input type="number" min="0" step="0.5" value={limit} disabled={noLimit} onChange={(e) => setLimitEdit(e.target.value)} /></label>{" "}
+          <label><input type="checkbox" checked={noLimit} onChange={(e) => setNoLimitEdit(e.target.checked)} /> No limit</label>{" "}
+          <span title={settingsLoaded ? undefined : "Settings are still loading"}>
+            <button disabled={!settingsLoaded || (!noLimit && (limit === "" || Number(limit) < 0))} onClick={apStart}>{startedAt ? "Start / Resume" : "Start"}</button>
+          </span>{" "}
           <button disabled={!apOn} onClick={() => apRun(pauseAutopilot)}>Pause</button>
         </p>
         <p className="muted">The limit counts Apify and Gemini dollars only; Hunter, Serper and Prospeo log credits and are bounded by their daily caps. Resume starts the spend count again from now. Autopilot never approves leads or sends.</p>
       </div>
 
-      <h2>Batches of {BATCH_SIZE}</h2>
-      {!loaded ? <p className="muted">Loading…</p> : nos.length === 0 ? <p className="muted">No batch numbers yet: leads get one when select picks them.</p> : (
-        <table>
-          <thead><tr><th>Batch</th><th>Filled</th>{cols.map((s) => <th key={s}>{s}</th>)}<th>Apify</th><th>Hunter credits</th><th>Prospeo credits</th><th>Serper</th><th>Gemini</th></tr></thead>
-          <tbody>{nos.map((r) => (
-            <tr key={r.batch_no}>
-              <td>{r.batch_no}</td>
-              <td>{fillLabel(r, base[r.batch_no] ?? 0)} {r.batch_no === newest && r.leads + (base[r.batch_no] ?? 0) < BATCH_SIZE && <span className="pill">open</span>}</td>
-              {cols.map((s) => <td key={s}>{r.byStatus[s] ?? 0}</td>)}
-              <td>{money(r.apify_usd)}</td><td>{r.hunter_credits}</td><td>{r.prospeo_credits}</td><td>{r.serper_queries}</td><td>{money(r.gemini_usd)}</td>
-            </tr>
-          ))}</tbody>
-        </table>
-      )}
-      <p className="muted">Spend here is what was recorded against these leads (enrich, signals, drafts). Scrape-time Apify cost is per scrape run, below.</p>
-
       <details>
-        <summary><h2 style={{ display: "inline" }}>Intake: scrape and import runs ({runs.length})</h2></summary>
+        <summary><h2 style={{ display: "inline" }}>Scrape runs and retries</h2></summary>
+        <h3>Intake: scrape and import runs ({shownRuns.length})</h3>
         <p className="muted">The pass buttons take one intake run at a time. A step is greyed until the step before it has a finished job for that run; hover for the reason.</p>
-        {!loaded ? <p className="muted">Loading…</p> : runs.length === 0 ? <p className="muted">No intake runs yet.</p> : (
+        {!loaded ? <p className="muted">Loading…</p> : shownRuns.length === 0 ? <p className="muted">No intake runs with leads yet.</p> : (
           <table>
             <thead><tr><th>Run</th><th>Created</th><th>Scraped</th><th>Cleaned</th><th>Enriched</th><th>Apify</th><th>Hunter credits</th><th>Owner known, email not verified</th></tr></thead>
-            <tbody>{runs.map((r) => {
+            <tbody>{shownRuns.map((r) => {
               const c = named.get(r.batch_id);
               return (
                 <Fragment key={r.batch_id}>
@@ -210,40 +210,40 @@ export default function Batches() {
             })}</tbody>
           </table>
         )}
-      </details>
+        {emptyRuns > 0 && <p><button onClick={() => setShowEmpty(!showEmpty)}>{showEmpty ? "hide" : "show"} {count(emptyRuns, "empty run")}</button> <span className="muted">no leads and no jobs</span></p>}
 
-      <div className="card">
-        <h2>Retry later</h2>
-        <p>
-          {credits.map((c) => (
-            <span key={c.provider}>{c.provider} {c.today} of {c.cap} today, {c.month} this month {c.blocked && <span className="pill bad">blocked</span>}{" "}</span>
-          ))}
-        </p>
-        <p className="muted">
-          Retry later re-runs the finders for leads whose owner name is known but whose email could not be verified. It spends Hunter and Prospeo credits
-          (each finder call costs 1 credit only when it finds an email; Prospeo no-match is free; no per-lookup price beyond that is confirmed, see docs/spikes/owner_routes.md)
-          and stops by itself when a provider runs out or hits its daily cap. A saved email is never erased. The run also picks up any leads of that scrape run that are cleaned but not yet enriched. Nothing runs until you click.
-        </p>
-        {loaded && retry.filter((r) => r.named > 0).length === 0 && <p className="muted">Nothing to retry: no scrape run has a known owner without a verified email.</p>}
-        {retry.map((r) => {
-          const open = retryOpen(jobs, r.batch_id);
-          const why = r.named === 0 ? "no named owners" : open ? "already queued or running" : allBlocked ? "Hunter and Prospeo are both blocked" : "";
-          return (
-            <p key={r.batch_id}>
-              {r.name}: <button disabled={!!why} onClick={() => go(r.batch_id, r.named)}>Retry later ({r.named} leads)</button>
-              {why && <span className="muted"> {why}</span>}
-            </p>
-          );
-        })}
-        <h3>Last 5 enrich jobs</h3>
-        {jobs.every((j) => j.kind !== "enrich") ? <p className="muted">None.</p> : (
-          <table><thead><tr><th>Created</th><th>Args</th><th>Status</th><th>Error</th></tr></thead>
-            <tbody>{jobs.filter((j) => j.kind === "enrich").slice(0, 5).map((j) => (
-              <tr key={j.id}><td>{j.created_at.slice(0, 16).replace("T", " ")}</td><td><code>{(j.payload.argv ?? []).join(" ")}</code></td><td>{j.status}</td><td>{j.error ?? ""}</td></tr>
-            ))}</tbody></table>
-        )}
-        <p className="muted">A retry that stops on credits shows its result counts in the Jobs panel of Settings.</p>
-      </div>
+        <div className="card">
+          <h3>Retry later</h3>
+          <p>
+            {credits.map((c) => (
+              <span key={c.provider}>{c.provider} {c.today} of {c.cap} today, {c.month} this month {c.blocked && <span className="pill bad">blocked</span>}{" "}</span>
+            ))}
+          </p>
+          <p className="muted">
+            Retry later re-runs the finders for leads whose owner name is known but whose email could not be verified. It spends Hunter and Prospeo credits
+            (each finder call costs 1 credit only when it finds an email; Prospeo no-match is free; no per-lookup price beyond that is confirmed, see docs/spikes/owner_routes.md)
+            and stops by itself when a provider runs out or hits its daily cap. A saved email is never erased. The run also picks up any leads of that scrape run that are cleaned but not yet enriched. Nothing runs until you click.
+          </p>
+          {loaded && retry.filter((r) => r.named > 0).length === 0 && <p className="muted">Nothing to retry: no scrape run has a known owner without a verified email.</p>}
+          {retry.map((r) => {
+            const why = retryWhy(jobs, r.batch_id, r.named, allBlocked);
+            return (
+              <p key={r.batch_id}>
+                {r.name}: <button disabled={!!why} onClick={() => go(r.batch_id, r.named)}>Retry later ({r.named} leads)</button>
+                {why && <span className="muted"> {why}</span>}
+              </p>
+            );
+          })}
+          <h4>Last 5 enrich jobs</h4>
+          {jobs.every((j) => j.kind !== "enrich") ? <p className="muted">None.</p> : (
+            <table><thead><tr><th>Created</th><th>Args</th><th>Status</th><th>Error</th></tr></thead>
+              <tbody>{jobs.filter((j) => j.kind === "enrich").slice(0, 5).map((j) => (
+                <tr key={j.id}><td>{j.created_at.slice(0, 16).replace("T", " ")}</td><td><code>{(j.payload.argv ?? []).map((a) => runName.get(a) ?? a).join(" ")}</code></td><td>{j.status}</td><td>{j.error ?? ""}</td></tr>
+              ))}</tbody></table>
+          )}
+          <p className="muted">A retry that stops on credits shows its result counts in the Jobs panel of Settings.</p>
+        </div>
+      </details>
     </>
   );
 }
