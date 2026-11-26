@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** A contact the OS or the owner mailed can be approached again about 90 days after its last send when it never replied, with no block weakened; the pre-OS history qualifies from a backfill.
+**Goal:** A contact the OS or the owner mailed can be approached again about 60 days after its last send when it never replied, with no block weakened; the pre-OS history qualifies from a backfill.
 
 **Architecture:** A pure policy module `gtm/recontact.py` (what is released), one flag-gated change inside `_blocklists` in `gtm/select.py` (the single choke point every caller uses), a new table `contact_history` (migration 0018, owner applies), a backfill module, and a `recontact` pass that creates a new lead per round after Hunter re-verification. `suppression` and `touches` do not change.
 
@@ -11,7 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-11-26-recontact-policy-design.md`
 
 ## Global Constraints
-- Docs-style rules: no emojis, no invented numbers. 90 days is the owner's; 3 rounds is my recommendation (setting, not a measurement); 7 days is derived from the Day 0/3/7 cadence.
+- Docs-style rules: no emojis, no invented numbers. 60 days is the owner's; 3 rounds is my recommendation (setting, not a measurement); 7 days is derived from the Day 0/3/7 cadence.
 - Fail closed everywhere: no ledger row, flag off, a setting below 1, a ledger read error, an unknown suppression reason or an `unknown` outcome all mean "still blocked". `blocked_reason` keeps its signature; `suppression` rows are never edited or deleted by code in this plan; the flag-off path never reads `contact_history` (so code can deploy before the migration).
 - Cooldown suppression reasons are exactly `notion-contacted` and `sheet-sent`; every other reason is permanent. Clear outcomes are exactly `no_reply` and `auto_reply`.
 - A recontact lead is created in its final status (`enriched` or `no_buyer`), never `cleaned`: autopilot would run enrich on a `cleaned` lead. Autopilot gets no recontact stage. Never auto-send, never auto-start.
@@ -21,7 +21,7 @@
 
 ## Review Focus
 - Absent, empty or unreadable ledger never lifts a block; with the flag off `_blocklists` equals today's function and makes no ledger query (Tasks 2, 3).
-- A lead with any reply, bounce, unsubscribe, suppression or booking stays `contacted` forever, even after 90 days: `replies.apply_reply` writes no suppression row for positive or neutral replies, so only the lead status protects them (Tasks 2, 3).
+- A lead with any reply, bounce, unsubscribe, suppression or booking stays `contacted` forever, even after 60 days: `replies.apply_reply` writes no suppression row for positive or neutral replies, so only the lead status protects them (Tasks 2, 3).
 - A bounced contact's domain row has reason `notion-contacted`: the permanent email row must still block the domain (Task 2).
 - `recontact_days` or `recontact_max_rounds` stored as 0 or negative must fall back, not lift everything (Task 1).
 - `TEST_` and `REHEARSAL_` leads (3 `sent` touches from 2026-11-10 exist) are never candidates; an OS lead with an unsent touch is never a candidate (Task 6).
@@ -35,7 +35,7 @@ Group A (sequential, no migration, no real writes): Tasks 1, 2, 3. Then Group B 
 
 ### Task 1: Settings keys and the Hunter bucket (Group A)
 **Files:** Modify `gtm/settings_store.py`, `gtm/budget.py`, `web/lib/settings.ts`; Test `tests/test_settings_store.py`, `tests/test_budget.py`, `web/scripts/settings_groups.mts`.
-**Interfaces:** Produces `DEFAULTS` keys `recontact_on: False`, `recontact_days: 90`, `recontact_max_rounds: 3`, `recontact_hunter_allowance_credits: 0.0` (group "Recontact" in `SETTING_FIELDS`); `_ok` rejects `recontact_days` and `recontact_max_rounds` below 1 (the setting then falls back to the default); `budget.CAP_KEYS["hunter_recontact"] = "recontact_hunter_allowance_credits"`; `require` treats `hunter_recontact` like `hunter_import` (lifetime, epoch start, `kind` "credit").
+**Interfaces:** Produces `DEFAULTS` keys `recontact_on: False`, `recontact_days: 60`, `recontact_max_rounds: 3`, `recontact_hunter_allowance_credits: 0.0` (group "Recontact" in `SETTING_FIELDS`); `_ok` rejects `recontact_days` and `recontact_max_rounds` below 1 (the setting then falls back to the default); `budget.CAP_KEYS["hunter_recontact"] = "recontact_hunter_allowance_credits"`; `require` treats `hunter_recontact` like `hunter_import` (lifetime, epoch start, `kind` "credit").
 - [ ] **Step 1:** Failing tests: `test_recontact_defaults_and_types`; `test_recontact_days_or_rounds_below_one_fall_back_to_default` (stored 0 and -5); `test_hunter_recontact_is_a_lifetime_allowance_that_defaults_to_zero` (default allowance: `require("hunter_recontact", 0.5)` raises `BudgetExceeded` with `kind == "credit"`; with allowance 1 and one old cost row of 0.5 it passes, then raises at the next 0.5).
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_settings_store.py tests/test_budget.py` (under the lock). Expected: FAIL.
 - [ ] **Step 3:** Implement; mirror the four fields in `web/lib/settings.ts`. Run the two test files, `cd web && node --env-file=.env.local --env-file=../.env --import tsx scripts/settings_groups.mts`, `npx tsc --noEmit`. Expected: pass.
@@ -50,7 +50,7 @@ Group A (sequential, no migration, no real writes): Tasks 1, 2, 3. Then Group B 
 - `lead_released(lead: dict, touches: list[dict], today: date, days: int, max_rounds: int) -> bool`: true only when `lead.status == "sent"`, the place id is not `TEST_`/`REHEARSAL_`, no touch is in `drafted, held, edited, approved, scheduled, sending`, the newest sent touch is `days` old or more, and `lead.round < max_rounds`.
 - `notion_outcome(status: str, reply: str, dnc: bool) -> str` (strictest wins: DNC, Bounce, Negative or Not Interested, Disqualified, Call Booked, Client, any other reply or status Replied, Out of Office is `auto_reply`, Sent or Follow-up Due or Cadence Complete is `no_reply`, else `unknown`).
 - `last_sent_bound(initial: date, last: date | None) -> date` = `max(last, initial + 7 days)`.
-- [ ] **Step 1:** Failing tests in `tests/test_recontact.py` (pure, no database): `test_keys_lowercase_and_drop_empty`; `test_released_keys_lifts_a_clear_old_cooldown_contact`; `test_released_keys_needs_a_ledger_row`; `test_released_keys_never_lifts_a_permanent_reason` (parametrized: do-not-contact, notion-bounce, bounce, not-interested, opt-out reply, sheet-dropped, an unknown reason); `test_a_permanent_row_on_any_shared_key_blocks_the_whole_contact` (bounced email row plus a `notion-contacted` domain row plus a clear ledger row: neither key is released); `test_released_keys_boundary_day_90_in_day_89_out`; `test_released_keys_unclear_outcome_recent_date_or_round_at_cap_blocks` (parametrized, including `unknown`); `test_one_unclear_ledger_row_taints_a_shared_domain`; `test_released_keys_is_always_a_subset_of_cooldown_keys_and_misses_permanent_keys` (seeded random data, 200 cases); `test_lead_released_only_when_sent_old_enough_and_closed` (parametrized: replied, booked, bounced, unsubscribed, suppressed, drafted touch open, 89 days, round at cap, TEST_ and REHEARSAL_ place ids all False; Touch 3 sent 90 days ago True); `test_notion_outcome_precedence` (parametrized over the table in the spec); `test_last_sent_bound_is_the_later_of_last_contacted_and_day_seven`.
+- [ ] **Step 1:** Failing tests in `tests/test_recontact.py` (pure, no database): `test_keys_lowercase_and_drop_empty`; `test_released_keys_lifts_a_clear_old_cooldown_contact`; `test_released_keys_needs_a_ledger_row`; `test_released_keys_never_lifts_a_permanent_reason` (parametrized: do-not-contact, notion-bounce, bounce, not-interested, opt-out reply, sheet-dropped, an unknown reason); `test_a_permanent_row_on_any_shared_key_blocks_the_whole_contact` (bounced email row plus a `notion-contacted` domain row plus a clear ledger row: neither key is released); `test_released_keys_boundary_day_90_in_day_89_out`; `test_released_keys_unclear_outcome_recent_date_or_round_at_cap_blocks` (parametrized, including `unknown`); `test_one_unclear_ledger_row_taints_a_shared_domain`; `test_released_keys_is_always_a_subset_of_cooldown_keys_and_misses_permanent_keys` (seeded random data, 200 cases); `test_lead_released_only_when_sent_old_enough_and_closed` (parametrized: replied, booked, bounced, unsubscribed, suppressed, drafted touch open, 89 days, round at cap, TEST_ and REHEARSAL_ place ids all False; Touch 3 sent 60 days ago True); `test_notion_outcome_precedence` (parametrized over the table in the spec); `test_last_sent_bound_is_the_later_of_last_contacted_and_day_seven`.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_recontact.py`. Expected: FAIL (module missing).
 - [ ] **Step 3:** Implement pure functions, no imports from `gtm.db`. Rerun. Expected: pass.
 - [ ] **Step 4:** Commit `feat: recontact policy core`.
@@ -88,7 +88,7 @@ Group A (sequential, no migration, no real writes): Tasks 1, 2, 3. Then Group B 
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_recontact_pass.py`. Expected: FAIL. Implement. Rerun. Expected: pass.
 - [ ] **Step 3:** Commit `feat: recontact pass`.
 
-### Task 7: Optional Gmail cross-check (Group B, gated, may be skipped)
+### Task 7: Optional Gmail cross-check (Group B, gated; SKIPPED by the owner 2026-11-26)
 **Files:** Create `scripts/history_gmail_check.py`, `tests/test_history_gmail_check.py`.
 **Interfaces:** Produces `classify_thread(messages: list[dict], mailbox: str, address: str) -> {"first_out": date | None, "last_out": date | None, "outcome": str}` (pure: any inbound human message is `replied`, a delivery-failure notice naming the address is `bounce`, an auto-reply is `auto_reply`, ambiguous is `replied`, none is `no_reply`) and a read-only `main()` that lists the sending mailbox's messages per ledger address through the existing `gmail_service` and prints counts only. With `--confirm` it may set exact dates and outcomes on ledger rows, but only to a stricter outcome or from `unknown`; it never loosens a row.
 - [ ] **Step 1:** Failing tests: `test_inbound_human_message_is_replied`; `test_delivery_failure_naming_the_address_is_bounce`; `test_only_our_messages_is_no_reply_with_exact_dates`; `test_auto_reply_is_auto_reply`; `test_ambiguous_inbound_is_replied`; `test_confirm_never_loosens_an_outcome`.
@@ -126,3 +126,6 @@ Group A (sequential, no migration, no real writes): Tasks 1, 2, 3. Then Group B 
 
 ## Self-review
 Spec coverage: policy and fail-closed core (Tasks 1-3), schema (4), backfill and its date and outcome rules (5), re-entry, identity and twin handling (6), Gmail cross-check (7), CLI, worker, autopilot interplay (8), UI (9), parity, docs, gates (10). Names consistent: `contact_history`, `released_keys`, `lead_released`, `notion_outcome`, `last_sent_bound`, `recontact_on`, `recontact_days`, `recontact_max_rounds`, `recontact_hunter_allowance_credits`, `hunter_recontact`, `history_id`, `round`, `recontact:<ledger id>`. Open owner decisions are in the spec (five); the code ships with everything off and the allowance at 0, so none blocks building.
+
+## Owner answers (2026-11-26)
+60 days (default `recontact_days` 60). Backfill: Notion dates where they exist; sheet-sent rows without a date get the placeholder `last_sent_on` 2026-11-18 with outcome `no_reply` (eligible 2027-01-17). Task 7 (Gmail cross-check) is skipped. See spec section 12.
