@@ -1,0 +1,14 @@
+-- The database refuses a second identical open job: same kind and same argv while one is queued or running.
+-- Two browser tabs, or the UI and the Python autopilot, can no longer both insert it (select-then-insert races; an in-process lock cannot stop another process).
+--
+-- Why only queued and running: both are "will run or is running" and a duplicate would run the pass twice. paused_budget is dormant and the autopilot ignores it
+-- (autopilot.load_state counts only queued/running as open), so a capped pass must be re-enqueueable the next day or after Resume; with paused_budget in the index
+-- an old paused job would block that retry forever. The UI's own check (enqueueJobOnce) still treats paused_budget as open.
+-- md5, not the jsonb itself: a btree entry over about 2.7 kB fails, and a redraft instruction in argv can be long.
+-- Rows with no argv key (hand-made or test rows, never the web or the autopilot) have a NULL key and are never twins.
+--
+-- PREFLIGHT, run first. It must return no rows, or the CREATE fails; cancel the extra job of each pair, then apply:
+--   select kind, md5((payload->'argv')::text) as argv_md5, count(*) as n, array_agg(id order by created_at) as ids
+--   from jobs where status in ('queued','running') and payload->'argv' is not null
+--   group by 1, 2 having count(*) > 1;
+create unique index jobs_open_unique on jobs (kind, md5((payload->'argv')::text)) where status in ('queued', 'running');

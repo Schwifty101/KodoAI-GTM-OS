@@ -3,10 +3,13 @@ import { SETTING_FIELDS, validSetting } from "./settings";
 import { CONFIRM_KINDS, PREVIEW_MAX_AGE_MS, alreadyApplied, baseKind, findPreview, isConfirmFlag, jobPayload, type JobRow } from "./runnow";
 
 // Every operator write goes through here so scripts/verify.ts can exercise the exact same calls under RLS.
-async function ok<T extends { error: { message: string } | null }>(p: PromiseLike<T>): Promise<void> {
+async function ok<T extends { error: { message: string; code?: string } | null }>(p: PromiseLike<T>, onDuplicate?: string): Promise<void> {
   const { error } = await p;
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(error.code === "23505" && onDuplicate ? onDuplicate : error.message);
 }
+
+/** Postgres 23505 on `jobs` is the unique index on open jobs (migration 0016): another tab or the autopilot queued the same kind and argv first. */
+const OPEN_TWIN = "an identical job is already open";
 
 /** Approve = ready for the draft pass. Only leads still `selected` are touched. */
 export const approveLeads = (ids: string[]) =>
@@ -69,23 +72,23 @@ export async function autopilotSpent(since: string): Promise<number> {
 }
 
 /** Queue a worker job: `argv` is the CLI pass arguments, e.g. ["--batch", "B1"]. A `_test` kind is marked so the live worker skips it (jobPayload). */
-export const enqueueJob = (kind: string, argv: string[]) => ok(supabase.from("jobs").insert({ kind, payload: jobPayload(kind, argv) }));
+export const enqueueJob = (kind: string, argv: string[]) => ok(supabase.from("jobs").insert({ kind, payload: jobPayload(kind, argv) }), OPEN_TWIN);
 
 export const cancelJob = (id: string) => ok(supabase.from("jobs").update({ status: "cancelled" }).eq("id", id).eq("status", "queued"));
 
 export const retryJob = (id: string) =>
-  ok(supabase.from("jobs").update({ status: "queued", error: null, run_after: new Date().toISOString() }).eq("id", id).in("status", ["failed", "paused_budget"]));
+  ok(supabase.from("jobs").update({ status: "queued", error: null, run_after: new Date().toISOString() }).eq("id", id).in("status", ["failed", "paused_budget"]), OPEN_TWIN);
 
-const inFlight = new Set<string>(); // ponytail: closes the double click in one tab (two calls overlap before the first insert lands); a second tab or process still races, only a unique partial index on open jobs closes that (migration, owner gate)
-/** Like enqueueJob, but refuses a second identical job (same kind and argv) while one is queued, running or paused for budget. */
+const inFlight = new Set<string>(); // first line of defence: a double click in one tab never reaches the database. A second tab or process is refused by the unique index on queued/running jobs (migration 0016, enqueueJob maps its 23505).
+/** Like enqueueJob, but refuses a second identical job (same kind and argv) while one is queued, running or paused for budget (the index covers queued and running; paused_budget is only checked here). */
 export async function enqueueJobOnce(kind: string, argv: string[]) {
   const key = JSON.stringify([kind, argv]);
-  if (inFlight.has(key)) throw new Error("an identical job is already open");
+  if (inFlight.has(key)) throw new Error(OPEN_TWIN);
   inFlight.add(key);
   try {
     const { data, error } = await supabase.from("jobs").select("payload").eq("kind", kind).in("status", ["queued", "running", "paused_budget"]);
     if (error) throw new Error(error.message);
-    if ((data ?? []).some((j) => JSON.stringify(j.payload?.argv ?? []) === JSON.stringify(argv))) throw new Error("an identical job is already open");
+    if ((data ?? []).some((j) => JSON.stringify(j.payload?.argv ?? []) === JSON.stringify(argv))) throw new Error(OPEN_TWIN);
     await enqueueJob(kind, argv);
   } finally {
     inFlight.delete(key);

@@ -90,6 +90,15 @@ try {
   await admin.from("jobs").update({ status: "done" }).eq("kind", KIND).contains("payload", { argv: RACE });
   check("a new Preview is allowed once the old one is done (in-flight lock released)", (await throws(enqueuePreview(KIND, RACE))) === "" && (await exact(KIND, RACE)).length === 2);
 
+  // Two tabs, or the UI and the autopilot, are two processes: only the unique index on open jobs (migration 0016) can admit one of two inserts racing to the database.
+  await clear();
+  const XP = ["--batch", `${TAG}_xp`];
+  const race = await Promise.all([1, 2].map(() => admin.from("jobs").insert({ kind: KIND, payload: { argv: XP, test: true } })));
+  check("two racing inserts of an identical open job: the database keeps exactly one row", (await exact(KIND, XP)).length === 1);
+  check("  ...and refuses the other with 23505", race.filter((r) => r.error?.code === "23505").length === 1);
+  await admin.from("jobs").update({ status: "paused_budget" }).eq("kind", KIND).contains("payload", { argv: XP });
+  check("a paused_budget twin does not block a new job (autopilot retries a capped pass)", !(await admin.from("jobs").insert({ kind: KIND, payload: { argv: XP, test: true } })).error);
+
   // Draft buttons (drafts/send pages): draftBatch and draftFollowups are enqueueJobOnce("draft", ["--batch-no", N]) and
   // enqueueJobOnce("followups", []). Real kinds are paid passes, so the same call shape is run on the *_test kinds.
   const DRAFT = ["--batch-no", `${TAG}_n`];
