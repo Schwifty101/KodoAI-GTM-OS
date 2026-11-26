@@ -192,7 +192,7 @@ export function byAngle(leads: LeadRow[], touches: TouchRow[], batchNo?: number)
 export function whereLeadsDie(leads: LeadRow[]): { reason: string; n: number }[] {
   const m = new Map<string, number>();
   for (const l of real(leads)) {
-    const r = l.status === "rejected" ? (l.reject_reason ?? "rejected, no reason")
+    const r = l.status === "rejected" ? (l.reject_reason?.trim() || "rejected, no reason")
       : l.status === "no_buyer" ? (l.owner_name?.trim() ? "no_buyer: owner named" : "no_buyer: no owner found") : null;
     if (r) m.set(r, (m.get(r) ?? 0) + 1);
   }
