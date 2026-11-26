@@ -51,22 +51,34 @@ export async function loadOutreachBatches(base: Record<number, number> = {}): Pr
   return outreachRows(leads, base);
 }
 
+export type BatchSpend = Pick<BatchNoRow, "apify_usd" | "hunter_credits" | "prospeo_credits" | "serper_queries" | "gemini_usd">;
+const NO_SPEND: BatchSpend = { apify_usd: 0, hunter_credits: 0, prospeo_credits: 0, serper_queries: 0, gemini_usd: 0 };
+
+/** Spend recorded against each batch of 100 (batch_no_spend: only cost rows that carry a lead). A batch with no row has no recorded cost: callers count zero. */
+export async function loadBatchSpend(): Promise<Map<number, BatchSpend>> {
+  const sp = await supabase.from("batch_no_spend").select("*");
+  if (sp.error) throw new Error(sp.error.message);
+  return new Map((sp.data ?? []).map((s) => [Number(s.batch_no), {
+    apify_usd: Number(s.apify_usd ?? 0), hunter_credits: Number(s.hunter_credits ?? 0), prospeo_credits: Number(s.prospeo_credits ?? 0),
+    serper_queries: Number(s.serper_queries ?? 0), gemini_usd: Number(s.gemini_usd ?? 0),
+  }]));
+}
+
+export type BatchCard = OutreachBatch & BatchSpend;
+
+/** The Outreach batches cards: each batch's counts plus the spend recorded against it (zero when the view has no row). */
+export const batchCards = (rows: OutreachBatch[], spend: Map<number, BatchSpend>): BatchCard[] =>
+  rows.map((r) => ({ ...r, ...(spend.get(r.batch_no) ?? NO_SPEND) }));
+
 /** Batches of 100 (leads.batch_no), newest first; a batch with no spend row (the view is empty until a lead-linked cost is logged) counts zero. */
 export async function loadBatchNos(): Promise<BatchNoRow[]> {
   const leads = await fetchAll<{ batch_no: number; status: string }>((f, t) =>
     supabase.from("leads").select("batch_no,status").not("batch_no", "is", null).order("batch_no").order("id").range(f, t));
-  const sp = await supabase.from("batch_no_spend").select("*");
-  if (sp.error) throw new Error(sp.error.message);
-  const spend = new Map((sp.data ?? []).map((s) => [Number(s.batch_no), s]));
+  const spend = await loadBatchSpend();
   const rows = new Map<number, BatchNoRow>();
   for (const l of leads) {
     let r = rows.get(l.batch_no);
-    if (!r) {
-      const s = spend.get(l.batch_no);
-      r = { batch_no: l.batch_no, leads: 0, byStatus: {}, apify_usd: Number(s?.apify_usd ?? 0), hunter_credits: Number(s?.hunter_credits ?? 0),
-        prospeo_credits: Number(s?.prospeo_credits ?? 0), serper_queries: Number(s?.serper_queries ?? 0), gemini_usd: Number(s?.gemini_usd ?? 0) };
-      rows.set(l.batch_no, r);
-    }
+    if (!r) rows.set(l.batch_no, r = { batch_no: l.batch_no, leads: 0, byStatus: {}, ...(spend.get(l.batch_no) ?? NO_SPEND) });
     r.leads++;
     r.byStatus[l.status] = (r.byStatus[l.status] ?? 0) + 1;
   }
@@ -95,9 +107,29 @@ export async function loadRetryCandidates(): Promise<RetryRow[]> {
 
 export const retryArgv = (batchId: string) => ["--batch", batchId, "--retry-no-buyer", "--named-only"];
 
-export const retryOpen = (jobs: Pick<Job, "kind" | "status" | "payload">[], batchId: string) =>
-  jobs.some((j) => j.kind === "enrich" && ["queued", "running", "paused_budget"].includes(j.status)
+type JobLike = Pick<Job, "kind" | "status" | "payload">;
+
+const retryJobs = (jobs: JobLike[], batchId: string) =>
+  jobs.filter((j) => j.kind === "enrich" && ["queued", "running", "paused_budget"].includes(j.status)
     && JSON.stringify(j.payload?.argv ?? []) === JSON.stringify(retryArgv(batchId)));
+
+export const retryOpen = (jobs: JobLike[], batchId: string) => retryJobs(jobs, batchId).length > 0;
+
+/** Why the Retry later button of one scrape run is disabled ("" = enabled). A retry paused on budget is not "queued or running": it waits for credit. */
+export function retryWhy(jobs: JobLike[], batchId: string, named: number, allBlocked: boolean): string {
+  if (named === 0) return "no named owners";
+  const open = retryJobs(jobs, batchId);
+  if (open.some((j) => j.status !== "paused_budget")) return "already queued or running";
+  if (open.length) return "paused on budget";
+  return allBlocked ? "Hunter and Prospeo are both blocked" : "";
+}
+
+/** A scrape run with no leads (an empty tile) and no intake-step job naming it: hidden behind the "show empty runs" toggle. */
+export const isEmptyRun = (run: { batch_id: string; scraped: number }, jobs: JobRow[]) =>
+  Number(run.scraped) === 0 && !jobs.some((j) => (j.payload?.argv ?? []).includes(run.batch_id));
+
+/** The Autopilot card's inputs start from the stored limit (0 = no limit), so Start / Resume never resets it to the built-in default. */
+export const limitInputs = (stored: number) => ({ limit: stored === 0 ? "" : String(stored), noLimit: stored === 0 });
 
 // Intake runs: the per-run pipeline row. Job rows come from loadBatchJobs; step gating is stepState in runnow.ts.
 const STEP_KINDS = ["clean", "verify-sheet", "enrich", "signals", "select", "import-sheet"];
