@@ -204,7 +204,7 @@ All Python is run as `uv run python -m gtm.cli <pass>` from the repo root. Lead 
 | `web/app/leads/page.tsx` | Filters (status, batch, city, state, vector, has email), sort, row detail with evidence |
 | `web/app/review/page.tsx` | `selected` leads with reason + evidence; bulk approve/reject, per-lead override |
 | `web/app/outreach/page.tsx` | Sequence tracker, mailbox pause clear, reply outcome marking, mark booked. Other pages: see CLAUDE.md, Commands |
-| `web/app/dashboard/page.tsx` | Per-batch funnel and spend from `batch_metrics` |
+| `web/app/dashboard/page.tsx`, `web/lib/dashboard.ts` | Funnel and spend per outreach batch of 100 (`leads.batch_no`, same rules as the `batch_metrics` view, spend from `loadBatchNos`); scrape runs (scraped > 0) in a collapsed detail. Pure logic checked by `web/scripts/dashboard_unit.mts` |
 | `web/app/settings/page.tsx` | Owner settings (budget, Google credit, Allow paid Gemini, API prices, daily caps), spend meter from `spend_summary`, last 50 jobs with enqueue, cancel (queued) and retry (failed or paused_budget). `web/lib/settings.ts` mirrors `DEFAULTS` in `gtm/settings_store.py` |
 | `web/components/Evidence.tsx` | Quote + summary + source link display |
 | `web/lib/args.ts` | `splitArgs`: shell-style splitting so quoted job args (`--query "med spa"`) work |
