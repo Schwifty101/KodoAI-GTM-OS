@@ -119,6 +119,6 @@ Scrape page (`/scrape`):
 Batches page (`/batches`):
 1. n of 100 with the newest batch "open".
 2. Status columns sum to the lead count.
-3. Houston's 8 selected match `/review`; scrape runs agree with `/dashboard`.
+3. Houston's 8 selected match `/review`; scrape runs agree with `/metrics`.
 4. Retry later card shows Hunter and Prospeo today/cap; named count for Houston (plan expects 2: unverified).
 5. Retry button is disabled when named = 0; an enabled button shows the credit-spend confirm text. Cancel unless a real paid job is wanted.
