@@ -1,16 +1,31 @@
 """Rows of the `jobs` table: enqueue, claim, finish. The worker runs them."""
 from datetime import datetime, timedelta, timezone
 
+from postgrest.exceptions import APIError
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def enqueue(db, kind: str, payload: dict | None = None, run_after: datetime | None = None) -> str:
+    """Queue a job and return its id. A queued or running job with the same kind and argv makes the database refuse the insert (unique index jobs_open_unique,
+    migration 0016; another tab or the autopilot won the race): that open job's id comes back instead, which is what every caller wanted anyway."""
     row = {"kind": kind, "payload": payload or {}}
     if run_after:
         row["run_after"] = run_after.isoformat()
-    return db.table("jobs").insert(row).execute().data[0]["id"]
+    try:
+        return db.table("jobs").insert(row).execute().data[0]["id"]
+    except APIError as e:
+        twin = _open_twin(db, kind, row["payload"].get("argv")) if e.code == "23505" else None
+        if not twin:
+            raise  # not a duplicate, or the twin finished in the meantime: the next tick tries again
+        return twin
+
+
+def _open_twin(db, kind: str, argv) -> str | None:
+    rows = db.table("jobs").select("id,payload").eq("kind", kind).in_("status", ["queued", "running"]).execute().data
+    return next((r["id"] for r in rows if (r["payload"] or {}).get("argv") == argv), None)
 
 
 def claim(db, include_test: bool = False) -> dict | None:
