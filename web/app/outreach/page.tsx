@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
 import type { Mailbox, Touch } from "@/lib/types";
-import { clearPause, markBooked, setOutcome } from "@/lib/actions";
+import { clearPause } from "@/lib/actions";
 import { fetchAll } from "@/lib/fetchAll";
 
 const TOUCH_COLS = "id,lead_id,touch_no,status,subject,body,scheduled_for,sent_at,outcome,leads(name,owner_email,status,mailbox_id)";
@@ -35,14 +35,13 @@ export default function Outreach() {
   const sentToday = (m: Mailbox) => touches.filter((t) => t.status === "sent" && (t.sent_at ?? "").slice(0, 10) === today() && t.leads?.mailbox_id === m.id).length;
   const byLead = new Map<string, Touch[]>();
   touches.forEach((t) => byLead.set(t.lead_id, [...(byLead.get(t.lead_id) ?? []), t]));
-  const answered = [...byLead.entries()].filter(([, ts]) => ["replied", "bounced", "unsubscribed", "booked"].includes(ts[0].leads?.status ?? ""));
   const tracker = [...byLead.entries()].filter(([, ts]) => ts[0].leads?.status === "sent");
 
   return (
     <>
       <h1>Outreach</h1>
       {err && <p className="err">{err}</p>}
-      <p className="muted">Sending is a separate, explicit step: <code>uv run python -m gtm.cli send --confirm</code>. Drafts live in Gmail; edit them there, the Gmail draft is what goes out.</p>
+      <p className="muted">Sending is started and paused on the Send page. Edit drafts in the OS: the database text is what goes out.</p>
 
       <h2>Mailboxes</h2>
       <div className="grid">
@@ -78,25 +77,6 @@ export default function Outreach() {
           return <tr key={id}><td>{ts[0].leads?.name}</td><td>{cell(1)}</td><td>{cell(2)}</td><td>{cell(3)}</td></tr>;
         })}
       </tbody></table>
-
-      <h2>Replies and outcomes ({answered.length})</h2>
-      {answered.map(([id, ts]) => {
-        const last = [...ts].filter((t) => t.status === "sent").sort((a, b) => b.touch_no - a.touch_no)[0];
-        return (
-          <div className="card" key={id}>
-            <div className="bar" style={{ marginBottom: 0 }}>
-              <strong>{ts[0].leads?.name}</strong><span className="pill">{ts[0].leads?.status}</span>
-              <span className="muted">classified: {last?.outcome ?? "none"}</span>
-              {ts[0].leads?.status === "replied" && <>
-                <button onClick={() => act(() => setOutcome(id, "positive"))}>Positive</button>
-                <button onClick={() => act(() => setOutcome(id, "negative"))}>Negative</button>
-                <button className="primary" onClick={() => act(() => markBooked(id))}>Mark booked</button>
-              </>}
-            </div>
-          </div>
-        );
-      })}
-      {!answered.length && <p className="muted">No replies yet.</p>}
     </>
   );
 }
