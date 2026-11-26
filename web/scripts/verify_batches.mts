@@ -25,11 +25,12 @@ if (ap.data[0]?.value === true && process.env.ALLOW_LIVE_AUTOPILOT !== "1") {
 
 const { data: batch } = await admin.from("batches").insert({ name: "TEST batches verify" }).select("id").single();
 const { data: empty } = await admin.from("batches").insert({ name: "TEST batches empty" }).select("id").single();
-const mk = (i: number, status: string, batch_no: number | null, extra: object = {}) => ({ place_id: `TEST_b${i}`, name: `Spa ${i}`, status, batch_id: batch!.id, batch_no, ...extra });
-await admin.from("leads").insert([
+const mk = (i: number, status: string, batch_no: number | null, extra: object = {}) => ({ place_id: `TEST_b${i}`, name: `Spa ${i}`, status, batch_id: batch!.id, batch_no, approved: false, ...extra });
+const seed = await admin.from("leads").insert([
   mk(1, "drafted", 9998), mk(2, "drafted", 9998, { approved: true }), mk(3, "sent", 9998), mk(4, "drafted", 9999),
   mk(5, "no_buyer", null, { owner_name: "Jane Doe", owner_title: "Owner" }), mk(6, "no_buyer", null),
 ]);
+if (seed.error) throw new Error(`seed leads: ${seed.error.message}`);
 const l1 = (await admin.from("leads").select("id").eq("place_id", "TEST_b1").single()).data!.id;
 await admin.from("cost_log").insert([
   { provider: "hunter", units: 2, usd: 0, lead_id: l1 }, { provider: "apify", units: 1, usd: 0.01, lead_id: l1 },
