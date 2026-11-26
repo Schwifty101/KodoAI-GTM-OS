@@ -22,7 +22,9 @@ def _clean_up(d):
 
 
 @pytest.fixture
-def db():
+def db(monkeypatch):
+    real = coverage.setting  # these tests assume plain seq order; yield order and its every-third exploration depend on live coverage counts
+    monkeypatch.setattr(coverage, "setting", lambda k, *a, **kw: False if k == "walk_yield_order" else real(k, *a, **kw))
     d = get_db()
     _clean_up(d)
     seed_coverage(d, ROWS)
