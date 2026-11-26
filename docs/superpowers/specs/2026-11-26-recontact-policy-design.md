@@ -58,7 +58,7 @@ Fail-closed core of C: with no ledger row, no flag or any error, nothing is lift
 
 **One choke point.** `_blocklists(db, today=None)` keeps its return type. With the flag off it runs today's code and never reads the ledger. With it on, `suppressed` is every suppression key minus `released_keys(...)`, and `contacted` is the sent-touch keys minus released leads. A ledger read error raises: passes abort rather than open. Every caller inherits it; none changes.
 
-**Schema (migration 0016, applied by the owner).**
+**Schema (migration 0018, applied by the owner).**
 ```sql
 create table contact_history (
   id uuid primary key default gen_random_uuid(),
@@ -100,7 +100,7 @@ Rules for dates and outcomes (never earlier or looser than provable): `last_sent
 
 ## Rollout and hard gates
 1. Pure logic, settings, wiring and UI built and tested with no migration: flag off changes nothing (a parity test proves it).
-2. Owner applies migration 0016.
+2. Owner applies migration 0018.
 3. Backfill dry run (counts per outcome and per eligibility week), owner reads it, then `backfill-contacts --confirm` writes the new table only.
 4. Optional Gmail cross-check, owner's yes to read the mailbox and a second yes to write its results.
 5. Read-only parity run on the real database: flag-off sets equal the old function; the flag-on report shows how many keys would lift, by reason, no addresses.

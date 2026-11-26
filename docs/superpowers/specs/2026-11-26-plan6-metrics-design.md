@@ -72,7 +72,7 @@ Cost attribution has three options. Lead-linked only (today's `batch_no_spend`) 
 | Angle | `leads.vector` and lane (`signal_led` true = signal-led, else relevance-led) |
 | Money | recorded dollars where `cost_log.usd` is set (apify, gemini, harvest); credits where only `units` are logged (hunter, hunter_import, prospeo, serper, serper_maps); groq stays tokens and never becomes money. Priced dollars = recorded + credits times the optional price settings (0 = unpriced) |
 
-### 7.2 Data changes (migration `0016`, additive, owner gate)
+### 7.2 Data changes (migration `0017`, additive, owner gate)
 - `touches.outcome_at timestamptz`: a trigger sets it to `now()` the first time `outcome` becomes non-null (insert or update) and never overwrites it. Covers the Python reply pass and the web `setOutcome` with no code change. Outcomes already stored stay null: they count in every cohort rate and show as "undated" in the history.
 - `leads.booked_at timestamptz`: same trigger rule on status becoming `booked`.
 - View `cost_daily(day date, provider text, run_id uuid, units numeric, usd numeric)`: `cost_log` grouped by UTC day, provider and `coalesce(cost_log.batch_id, leads.batch_id)` (a lead-only row follows its lead's scrape run); `security_invoker`. It does not filter test data: the TypeScript drops test runs (so the verify script can read its own TEST rows).
@@ -101,7 +101,7 @@ Pure logic by `tsx` scripts (`metrics_unit.mts`, `home_unit.mts`, run under two 
 Exact SQL spelling of the triggers and view (the semantics above are fixed); column order and spacing; text bars versus plain numbers; how a page batches its reads (one load per visit, no polling); copy of the explanatory notes; whether the history range defaults to the last 8 periods; pagination of long tables.
 
 ## 9. Gates
-Applying `0016` to the real database needs the owner's yes. Verify scripts and db tests only with autopilot paused, TEST rows only. No VM deploy. No paid call. No change to real settings values. The real send stays on hold: Replies is exercised with TEST rows, never by sending.
+Applying `0017` to the real database needs the owner's yes. Verify scripts and db tests only with autopilot paused, TEST rows only. No VM deploy. No paid call. No change to real settings values. The real send stays on hold: Replies is exercised with TEST rows, never by sending.
 
 ## 10. Calls made (mine; correct any)
 Cohort rates use delivered as the denominator for reply, positive and booked; history is event-based and rate-free; UTC for the Metrics page and local time for Home's "yesterday"; the Dashboard route is renamed Metrics and Outreach keeps mailboxes and sequences; the 20 percent credit base is the entered `credit_balance_usd`; no small-sample flag (it needs a threshold nobody has measured), only "k of n"; the Notion rows are a typed constant with a unit test pinning the doc's totals.

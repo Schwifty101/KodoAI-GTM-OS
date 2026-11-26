@@ -28,8 +28,8 @@
 ## Task groups (parallelisable)
 Group A (parallel, disjoint files): Tasks 1, 2, 3. Then Task 4 (consumes Task 3's `Spend` and `Prices`). Then Group B in parallel (disjoint files): Tasks 5, 6, 7, 8. Then Group C: Tasks 9, 10, 11.
 
-### Task 1: Migration 0016 and event-timestamp tests (Group A)
-**Files:** Create `supabase/migrations/0016_metrics_events.sql`, `tests/test_metrics_events.py`.
+### Task 1: Migration 0017 and event-timestamp tests (Group A)
+**Files:** Create `supabase/migrations/0017_metrics_events.sql`, `tests/test_metrics_events.py`.
 **Interfaces:** Produces `touches.outcome_at timestamptz`, `leads.booked_at timestamptz`, view `cost_daily(day date, provider text, run_id uuid, units numeric, usd numeric)`.
 - [ ] **Step 0 (read-only, selects only, nothing written):** from the real project count `cost_log` rows total and with both `batch_id` and `lead_id` null, `touches` with `outcome` not null, and `touches` with status `sent`. Put the four numbers in the handoff note (they size the "no batch or lead" and "undated" lines); commit nothing.
 - [ ] **Step 1:** In `tests/test_metrics_events.py` write, all `@pytest.mark.db`, `TEST_mev` place ids, a `new_batch(db, "TEST metrics events", ...)` batch, cleanup in `finally`: `test_outcome_at_is_set_when_outcome_first_set` (insert a touch with `outcome="positive"`: `outcome_at` is not null; update a touch from null to `negative`: set), `test_outcome_at_is_not_overwritten_when_outcome_changes` (positive then negative: same `outcome_at`), `test_outcome_at_stays_null_without_an_outcome`, `test_booked_at_is_set_when_status_becomes_booked_and_kept` (replied to booked sets it; a later update leaves it), `test_cost_daily_groups_by_utc_day_provider_and_run` (two apify rows one run one day sum; a 23:30Z and a 00:30Z row land on two days), `test_cost_daily_attributes_a_lead_only_row_to_the_leads_run`, `test_cost_daily_keeps_a_row_with_no_batch_or_lead_as_null_run`, `test_cost_daily_is_empty_for_a_signed_out_visitor` (publishable key, expects `[]`, as `test_signed_out_visitors_see_nothing_through_the_view`).
@@ -120,11 +120,11 @@ Group A (parallel, disjoint files): Tasks 1, 2, 3. Then Task 4 (consumes Task 3'
 - [ ] **Step 4:** Delete every TEST row. `git status` shows only Plan 6 files (Codex files untouched).
 
 ### Task 11: Nav and docs (Group C)
-**Files:** Modify `web/app/layout.tsx` (nav: Home first, Replies after Send, Dashboard becomes Metrics), `CLAUDE.md` (one bullet in Commands: pages Home, Metrics, Replies and `0016`), `docs/HANDOFF.md` (section 0 (a) Plan 6 row and the file map row for `web/app/dashboard/page.tsx`), `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` (row 6 BUILT), `docs/runbooks/cloud-runner.md` (line 122: `/dashboard` to `/metrics`).
+**Files:** Modify `web/app/layout.tsx` (nav: Home first, Replies after Send, Dashboard becomes Metrics), `CLAUDE.md` (one bullet in Commands: pages Home, Metrics, Replies and `0017`), `docs/HANDOFF.md` (section 0 (a) Plan 6 row and the file map row for `web/app/dashboard/page.tsx`), `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` (row 6 BUILT), `docs/runbooks/cloud-runner.md` (line 122: `/dashboard` to `/metrics`).
 - [ ] **Step 1:** Edit; keep each to a few lines. Commit `docs: plan 6`.
 
 ## Hard gates (stop and ask the owner)
-1. Applying migration `0016` to the real database (Task 1 Step 4). It is additive; no backfill of existing rows.
+1. Applying migration `0017` to the real database (Task 1 Step 4). It is additive; no backfill of existing rows.
 2. Any verify script or db test while `autopilot_on` is true; TEST rows only, never real batches or real settings values.
 3. Any VM deploy: none is planned (triggers capture the timestamps; the worker is unchanged).
 4. Any paid call: none is planned. Entering real credit prices is the owner's act in Settings.

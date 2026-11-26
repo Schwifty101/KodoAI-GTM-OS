@@ -4,7 +4,7 @@
 
 **Goal:** A contact the OS or the owner mailed can be approached again about 90 days after its last send when it never replied, with no block weakened; the pre-OS history qualifies from a backfill.
 
-**Architecture:** A pure policy module `gtm/recontact.py` (what is released), one flag-gated change inside `_blocklists` in `gtm/select.py` (the single choke point every caller uses), a new table `contact_history` (migration 0016, owner applies), a backfill module, and a `recontact` pass that creates a new lead per round after Hunter re-verification. `suppression` and `touches` do not change.
+**Architecture:** A pure policy module `gtm/recontact.py` (what is released), one flag-gated change inside `_blocklists` in `gtm/select.py` (the single choke point every caller uses), a new table `contact_history` (migration 0018, owner applies), a backfill module, and a `recontact` pass that creates a new lead per round after Hunter re-verification. `suppression` and `touches` do not change.
 
 **Tech Stack:** Python, pytest, supabase-py, Next.js, TypeScript, tsx scripts.
 
@@ -64,11 +64,11 @@ Group A (sequential, no migration, no real writes): Tasks 1, 2, 3. Then Group B 
 - [ ] **Step 4:** Commit `select: recontact release behind recontact_on`.
 
 ### Task 4: Migration file and schema test (Group B)
-**Files:** Create `supabase/migrations/0016_contact_history.sql`, `tests/test_contact_history_schema.py`.
+**Files:** Create `supabase/migrations/0018_contact_history.sql`, `tests/test_contact_history_schema.py`.
 **Interfaces:** Produces the SQL in the spec (table, unique index, `leads.round`, `leads.history_id`, partial unique index, RLS `operator_only` copied from 0015). The file is written, never applied by the agent.
-- [ ] **Step 1:** Tests (`db`; skip with "migration 0016 not applied" when the table is missing): `test_contact_history_unique_per_source_key_and_round`; `test_contact_history_needs_an_email_or_a_domain`; `test_contact_history_rejects_an_unknown_outcome_or_date_basis`; `test_leads_round_defaults_to_one`; `test_leads_history_id_is_unique_when_set`. Cleanup by `source_ref = 'TEST'` and returned ids only.
+- [ ] **Step 1:** Tests (`db`; skip with "migration 0018 not applied" when the table is missing): `test_contact_history_unique_per_source_key_and_round`; `test_contact_history_needs_an_email_or_a_domain`; `test_contact_history_rejects_an_unknown_outcome_or_date_basis`; `test_leads_round_defaults_to_one`; `test_leads_history_id_is_unique_when_set`. Cleanup by `source_ref = 'TEST'` and returned ids only.
 - [ ] **Step 2:** Write the migration; `uv run pytest -q tests/test_contact_history_schema.py`. Expected now: skipped. After the owner applies it (gate 1): all pass.
-- [ ] **Step 3:** Commit `db: migration 0016 contact_history (not applied)`.
+- [ ] **Step 3:** Commit `db: migration 0018 contact_history (not applied)`.
 
 ### Task 5: Backfill parsing and `backfill-contacts` (Group B)
 **Files:** Create `gtm/contact_backfill.py`, `tests/test_contact_backfill.py`.
@@ -77,7 +77,7 @@ Group A (sequential, no migration, no real writes): Tasks 1, 2, 3. Then Group B 
 - `notion_ledger_rows(records: list[dict]) -> tuple[list[dict], list[tuple[str, str]]]` (rows, skipped with reasons). One ledger row per contact: both keys, `source 'notion'`, `source_ref` the Campaign Batch, `date_basis 'exact'` only when Last Contacted is already the later date else `'upper_bound'`. A key seen in two batches merges to the latest date and the strictest outcome.
 - `sheet_ledger_rows(rows: list[MappedRow], sheet_sent: dict[tuple, date], known: set[str]) -> list[dict]` (green rows only by import-time `sheet_rows.colour_seen`; `source 'sheet'`, outcome `unknown`, `upper_bound`, date from the matching `sheet-sent` suppression row; a row whose key is already in the Notion ledger is skipped).
 - `run_backfill(db, rows: list[dict], confirm: bool) -> dict[str, int]` (writes only `contact_history`, in chunks of 200, only with `confirm`; never touches `suppression`; counts per outcome and per first-eligible week, no addresses).
-- [ ] **Step 1:** Failing tests: `test_notion_row_becomes_one_ledger_row_with_both_keys`; `test_webmail_and_booking_domains_are_never_a_ledger_domain`; `test_row_without_a_send_date_gets_no_ledger_row_and_is_reported`; `test_datetime_initial_sent_is_cut_to_a_date`; `test_cadence_complete_with_no_reply_is_no_reply`; `test_out_of_office_is_auto_reply_and_dnc_beats_everything`; `test_same_contact_in_two_batches_merges_to_latest_date_and_strictest_outcome`; `test_sheet_green_row_is_unknown_with_an_upper_bound_date_from_its_suppression_row`; `test_sheet_row_already_in_the_notion_ledger_is_skipped`; `test_run_backfill_dry_run_writes_nothing` (stub fails on any insert); `test_run_backfill_never_writes_suppression` (stub fails on any `suppression` write); `test_run_backfill_is_idempotent_on_the_unique_key` (`db`, skip when 0016 is not applied, `source_ref 'TEST'`).
+- [ ] **Step 1:** Failing tests: `test_notion_row_becomes_one_ledger_row_with_both_keys`; `test_webmail_and_booking_domains_are_never_a_ledger_domain`; `test_row_without_a_send_date_gets_no_ledger_row_and_is_reported`; `test_datetime_initial_sent_is_cut_to_a_date`; `test_cadence_complete_with_no_reply_is_no_reply`; `test_out_of_office_is_auto_reply_and_dnc_beats_everything`; `test_same_contact_in_two_batches_merges_to_latest_date_and_strictest_outcome`; `test_sheet_green_row_is_unknown_with_an_upper_bound_date_from_its_suppression_row`; `test_sheet_row_already_in_the_notion_ledger_is_skipped`; `test_run_backfill_dry_run_writes_nothing` (stub fails on any insert); `test_run_backfill_never_writes_suppression` (stub fails on any `suppression` write); `test_run_backfill_is_idempotent_on_the_unique_key` (`db`, skip when 0018 is not applied, `source_ref 'TEST'`).
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_contact_backfill.py`. Expected: FAIL. Implement. Rerun. Expected: pass (the `db` test skipped until the migration).
 - [ ] **Step 3:** Commit `feat: contact history backfill parsing`.
 
@@ -110,12 +110,12 @@ Group A (sequential, no migration, no real writes): Tasks 1, 2, 3. Then Group B 
 
 ### Task 10: Parity run, docs, verification (Group D)
 **Files:** Create `scripts/recontact_parity.py`; Modify `CLAUDE.md` (Commands and Sending: one bullet each), `docs/HANDOFF.md` section 0, `docs/runbooks/cloud-runner.md` (a short "Recontact" section with the gates).
-- [ ] **Step 1:** `scripts/recontact_parity.py` (read-only, counts only): loads real suppression, sent touches and, when migration 0016 exists, the ledger; asserts the flag-off `_blocklists` sets equal the legacy function's; prints, for a simulated flag on (never stored), keys released by reason and ledger rows by outcome and first-eligible week. Run it once against the real database. Expected: parity holds; before 0016 the released count is 0.
-- [ ] **Step 2:** Full suite once under the lock, output to a file. Expected: green except `db` tests that need 0016 (skipped, listed in the report).
+- [ ] **Step 1:** `scripts/recontact_parity.py` (read-only, counts only): loads real suppression, sent touches and, when migration 0018 exists, the ledger; asserts the flag-off `_blocklists` sets equal the legacy function's; prints, for a simulated flag on (never stored), keys released by reason and ledger rows by outcome and first-eligible week. Run it once against the real database. Expected: parity holds; before 0018 the released count is 0.
+- [ ] **Step 2:** Full suite once under the lock, output to a file. Expected: green except `db` tests that need 0018 (skipped, listed in the report).
 - [ ] **Step 3:** Edit the three docs; commit `docs: plan 9 status`. One whole-branch review on the most capable model (Review Focus list). Push and deploy only with the owner's yes.
 
 ## Hard gates (stop and ask the owner)
-1. Applying migration 0016 to the real Supabase project.
+1. Applying migration 0018 to the real Supabase project.
 2. The real backfill: `backfill-contacts --confirm` (first show the dry-run counts per outcome and eligibility week; it writes only the new table).
 3. Reading the sending mailbox for the Gmail cross-check (read-only, owner's yes) and writing its results to the ledger (second yes).
 4. Any change to real settings (`recontact_on`, `recontact_days`, `recontact_max_rounds`, `recontact_hunter_allowance_credits`) and any edit, insert or delete of a real `suppression` row. This plan does neither.
