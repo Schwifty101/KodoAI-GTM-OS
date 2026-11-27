@@ -92,6 +92,19 @@ Then delete the `gtm-worker` service account if unused. Queued jobs stay in the 
 - Token to the VM: `gcloud secrets create sheets-token --data-file=.secrets/token_sheets.json --project gen-lang-client-0603350481` (new versions with `gcloud secrets versions add sheets-token --data-file=...`), `deploy/fetch_secrets.py` fetches the optional `sheets-token` secret and writes `token_sheets.json`, so creating the secret is enough; `deploy/secrets.txt` (the plain secrets list) needs no entry for it. A headless worker never opens a browser.
 - Morning queue: with setting `sheet_queue_on` true the worker enqueues one `sheet-queue --confirm` job per UTC day once the hour passes `sheet_queue_hour_utc`. Only the schedule is gated by `sheet_queue_on`: a manual `enqueue sheet-queue --confirm` ignores it. `sheet-paint` is gated by `sheet_writeback_on` (it exits before building the Sheets service when off). Leave both off until the gates above are cleared.
 
+## Recontact (Plan 9; built, all OFF, migration 0018 NOT applied)
+
+With `recontact_on`, `select` may lift `notion-contacted` and `sheet-sent` suppression keys whose ledger row is clear (no reply or auto-reply, 60 days, round under 3) and the `recontact` job creates round + 1 leads. Rule: `CLAUDE.md`, Rules. Each gate below needs the owner's yes; no code or agent clears one.
+
+1. Apply migration 0018 (`psql -v ON_ERROR_STOP=1 -f supabase/migrations/0018_contact_history.sql` through the Tokyo pooler, see `docs/HANDOFF.md` section 0). It adds `contact_history`, `leads.round` and `leads.history_id`.
+2. `backfill-contacts FILE --sheet` as a dry run; read the counts per outcome and first-eligible week; then `--confirm` (writes only `contact_history`, never `suppression`).
+3. `PYTHONPATH=. uv run python scripts/recontact_parity.py` (read-only, counts only): parity must hold.
+4. VM deploy with `recontact_on` OFF and the queue idle. A deploy cancels a running job, so check the queue first; with the flag off the deployed worker behaves as before.
+5. Set `recontact_on` and `recontact_hunter_allowance_credits` (default 0 means it cannot spend). Before the first send, decide the footer (opt-out line, postal address) and the email strategy.
+6. `recontact --limit N` Preview, then Apply on a small N (0.5 Hunter credit per email). Then Review, Draft and Send, each a separate action. Autopilot has no recontact stage and never approves or sends.
+
+The Gmail cross-check of the ledger (plan Task 7) was skipped by the owner. Tests and verify scripts never run `recontact --confirm` or `backfill-contacts --confirm` against the real database.
+
 ## Open items
 
 - Verified 2026-11-12: a real `clean` job on the Houston batch ran to `done` on the VM.

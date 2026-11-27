@@ -132,6 +132,38 @@ def cmd_sheet_format(a: argparse.Namespace) -> None:
         sys.exit(str(e))
 
 
+def cmd_recontact(a: argparse.Namespace) -> None:
+    from gtm.recontact_pass import run_recontact
+
+    pool = HunterPool(get_settings().hunter_keys) if a.confirm else None  # a dry run reads only and never builds the pool
+    try:
+        run_recontact(get_db(), pool, a.limit, a.confirm, date.today())  # prints its own counts; refuses --confirm without recontact_on, --limit or allowance
+    except ValueError as e:
+        sys.exit(str(e))
+
+
+def cmd_backfill_contacts(a: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from gtm import contact_backfill as cb
+
+    try:
+        text = Path(a.file).read_text(encoding="utf-8-sig")  # a Notion export starts with a BOM
+    except (OSError, UnicodeDecodeError) as e:
+        sys.exit(f"cannot read {a.file}: {getattr(e, 'strerror', None) or type(e).__name__}")
+    sid = _sheet_id(a) if a.sheet else None  # --sheet reads the sheet_id setting, never writes it
+    db = get_db()
+    rows, skipped = cb.plan_backfill(db, text, sid)
+    counts = cb.run_backfill(db, rows, a.confirm, skipped=skipped)
+    totals = {k: v for k, v in counts.items() if ":" not in k}
+    print(f"backfill-contacts {'applied' if a.confirm else 'dry run'}: {totals}")  # counts only: no address, name or company is ever printed
+    for group in ("outcome", "week", "skipped"):
+        if lines := sorted((k, v) for k, v in counts.items() if k.startswith(f"{group}:")):  # week keys are ISO dates, so they sort oldest first
+            print(f"{group}:\n" + "\n".join(f"  {k.partition(':')[2]} {v}" for k, v in lines))
+    if not a.confirm:
+        print("dry run: nothing written (use --confirm)")
+
+
 def cmd_seed_coverage(a: argparse.Namespace) -> None:
     from gtm.coverage import load_metros, seed_coverage
 
@@ -353,6 +385,15 @@ def build_parser() -> argparse.ArgumentParser:
     rb.set_defaults(fn=cmd_renumber_batch)
     t = sub.add_parser("tz-backfill", help="set tz on leads that have none (free)")
     t.set_defaults(fn=cmd_tz_backfill)
+    rc = sub.add_parser("recontact", help="re-verify and re-enter released past contacts as new leads (dry run unless --confirm; Apply needs --limit)")
+    rc.add_argument("--limit", type=int, help="max new leads this run (required with --confirm)")
+    rc.add_argument("--confirm", action="store_true")
+    rc.set_defaults(fn=cmd_recontact)
+    bc = sub.add_parser("backfill-contacts", help="load the Notion tracker CSV (and with --sheet the green sheet rows) into contact_history (dry run unless --confirm)")
+    bc.add_argument("file", help="Notion CSV export")
+    bc.add_argument("--sheet", action="store_true", help="also read the sheet_id setting's sheet for green rows (read only)")
+    bc.add_argument("--confirm", action="store_true")
+    bc.set_defaults(fn=cmd_backfill_contacts)
     return p
 
 

@@ -250,3 +250,134 @@ def test_draft_takes_exactly_one_of_batch_and_batch_no():
     for argv in (["draft"], ["draft", "--batch", "b1", "--batch-no", "3"]):
         with pytest.raises(SystemExit):
             p.parse_args(argv)
+
+
+# --- Plan 9: recontact and backfill-contacts. Fakes only: never the real ledger, Hunter or settings. ---
+class _ReadOnlyDb:
+    """Every read returns no rows; any write is a failure."""
+    not_ = property(lambda self: self)
+
+    def table(self, name):
+        return self
+
+    def execute(self):
+        return argparse.Namespace(data=[])
+
+    def __getattr__(self, name):
+        if name in ("insert", "update", "upsert", "delete"):
+            raise AssertionError(f"dry run wrote via {name}")
+        return lambda *a, **k: self
+
+
+# two rows with a send date (the later one first, to prove the week lines are sorted), one without (skipped)
+NOTION_CSV = (
+    "Founder,Role,Company,Email,Website,State,Status,Initial Sent\n"
+    "Jane Doe,Owner,Secret Clinic,jane.doe@secretclinic.example,https://secretclinic.example,TX,Sent,2026-10-01\n"
+    "Sam Poe,Founder,Quiet Spa,sam@quietspa.example,https://quietspa.example,UT,Sent,2026-09-01\n"
+    "John Roe,Founder,Hidden Spa,john@hiddenspa.example,https://hiddenspa.example,UT,Sent,\n")
+
+
+def _ledger_env(monkeypatch, tmp_path):
+    import gtm.contact_backfill as cb
+
+    f = tmp_path / "notion.csv"
+    f.write_bytes(b"\xef\xbb\xbf" + NOTION_CSV.encode())  # a BOM, as Notion exports it
+    monkeypatch.setattr(cli, "get_db", lambda: _ReadOnlyDb())
+    monkeypatch.setattr(cb, "setting", lambda key, db=None: 60)
+    return str(f)
+
+
+def test_recontact_and_backfill_commands_parse_and_confirm_defaults_false():
+    p = cli.build_parser()
+    a = p.parse_args(["recontact"])
+    assert (a.confirm, a.limit, a.fn) == (False, None, cli.cmd_recontact)
+    a = p.parse_args(["recontact", "--limit", "5", "--confirm"])
+    assert (a.confirm, a.limit) == (True, 5)
+    b = p.parse_args(["backfill-contacts", "n.csv"])
+    assert (b.file, b.sheet, b.confirm, b.fn) == ("n.csv", False, False, cli.cmd_backfill_contacts)
+    b = p.parse_args(["backfill-contacts", "n.csv", "--sheet", "--confirm"])
+    assert (b.sheet, b.confirm) == (True, True)
+    with pytest.raises(SystemExit):
+        p.parse_args(["backfill-contacts"])  # FILE is required
+
+
+def test_recontact_dry_run_builds_no_hunter_pool(monkeypatch, capsys):
+    import gtm.recontact_pass as rp
+
+    monkeypatch.setattr(cli, "HunterPool", lambda *a, **k: pytest.fail("built a Hunter pool"))
+    monkeypatch.setattr(cli, "get_db", lambda: _ReadOnlyDb())  # a write raises
+    monkeypatch.setattr(rp, "setting", lambda key, db=None: {"recontact_days": 60, "recontact_max_rounds": 3, "recontact_hunter_allowance_credits": 0.0}[key])
+    cli.main(["recontact", "--limit", "5"])
+    out = capsys.readouterr().out
+    assert "recontact dry run" in out and "nothing written" in out
+
+
+def test_recontact_confirm_builds_the_pool_and_passes_the_limit(monkeypatch):
+    from datetime import date
+
+    import gtm.recontact_pass as rp
+
+    seen = []
+    monkeypatch.setattr(cli, "get_db", lambda: "db")
+    monkeypatch.setattr(cli, "get_settings", lambda: argparse.Namespace(hunter_keys=["k1"], daily_cap=40))  # build_parser reads daily_cap
+    monkeypatch.setattr(cli, "HunterPool", lambda keys, **kw: ("pool", keys))
+    monkeypatch.setattr(rp, "run_recontact", lambda *a: seen.append(a))
+    cli.main(["recontact", "--limit", "5", "--confirm"])
+    assert seen == [("db", ("pool", ["k1"]), 5, True, date.today())]
+
+
+def test_recontact_refusal_exits_with_the_reason(monkeypatch):
+    import gtm.recontact_pass as rp
+
+    def refuse(*a):
+        raise ValueError("--limit N (a positive number) is required with --confirm")
+
+    monkeypatch.setattr(cli, "get_db", lambda: "db")
+    monkeypatch.setattr(cli, "get_settings", lambda: argparse.Namespace(hunter_keys=[], daily_cap=40))
+    monkeypatch.setattr(cli, "HunterPool", lambda *a, **k: None)
+    monkeypatch.setattr(rp, "run_recontact", refuse)
+    with pytest.raises(SystemExit, match="--limit"):
+        cli.main(["recontact", "--confirm"])
+
+
+def test_backfill_contacts_dry_run_writes_nothing(monkeypatch, tmp_path, capsys):
+    path = _ledger_env(monkeypatch, tmp_path)  # the db fake raises on any insert/update/upsert/delete
+    cli.main(["backfill-contacts", path])
+    out = capsys.readouterr().out
+    assert "inserted': 0" in out and "dry run: nothing written" in out
+
+
+def test_backfill_contacts_prints_counts_only(monkeypatch, tmp_path, capsys):
+    import re
+
+    path = _ledger_env(monkeypatch, tmp_path)
+    cli.main(["backfill-contacts", path])
+    out = capsys.readouterr().out
+    assert "outcome:\n  no_reply 2" in out and "skipped:\n  no_send_date 1" in out
+    weeks = re.findall(r"^  (\d{4}-\d{2}-\d{2}) 1$", out, re.M)
+    assert len(weeks) == 2 and weeks == sorted(weeks)  # one line per week, oldest first (the CSV lists the later contact first)
+    for private in ("jane", "doe", "sam", "poe", "roe", "secret", "quiet", "hidden", "example", "@"):
+        assert private not in out.lower()
+
+
+def test_backfill_contacts_missing_file_is_a_clear_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "get_db", lambda: pytest.fail("touched the database"))
+    with pytest.raises(SystemExit, match="cannot read"):
+        cli.main(["backfill-contacts", str(tmp_path / "nope.csv")])
+
+
+def test_backfill_contacts_sheet_flag_reads_the_setting_or_refuses(monkeypatch, tmp_path):
+    import gtm.contact_backfill as cb
+    import gtm.settings_store as ss
+
+    path = _ledger_env(monkeypatch, tmp_path)
+    monkeypatch.setattr(ss, "setting", lambda key, db=None: "")
+    monkeypatch.setattr(cb, "plan_backfill", lambda *a, **k: pytest.fail("planned without a sheet id"))
+    with pytest.raises(SystemExit, match="sheet_id"):
+        cli.main(["backfill-contacts", path, "--sheet"])
+    seen = []
+    monkeypatch.setattr(ss, "setting", lambda key, db=None: "SHEET123")
+    monkeypatch.setattr(cb, "plan_backfill", lambda db, text, sheet_id=None, svc=None: seen.append(sheet_id) or ([], []))
+    cli.main(["backfill-contacts", path, "--sheet"])
+    cli.main(["backfill-contacts", path])
+    assert seen == ["SHEET123", None]  # without --sheet no sheet is read

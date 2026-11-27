@@ -31,6 +31,8 @@ DEFAULTS: dict[str, bool | int | float | str | dict] = {
     # Autopilot: state and started_at are written by the controller/UI; limit 0 = no limit; batch_base = leads already in a batch outside the OS
     "autopilot_on": False, "autopilot_limit_usd": 2.0, "autopilot_started_at": "", "autopilot_state": "off",
     "autopilot_target": 100, "batch_base": {"3": 32},
+    # Plan 9: recontact policy. days and max_rounds below 1 fall back to the default (see _ok); allowance 0 = no Hunter spend
+    "recontact_on": False, "recontact_days": 60, "recontact_max_rounds": 3, "recontact_hunter_allowance_credits": 0.0,
 }
 TTL = 60
 _cache: dict[str, tuple[float, Any]] = {}
@@ -44,6 +46,8 @@ def _ok(key: str, v: Any) -> bool:
         return isinstance(v, (int, float)) and v >= 0
     if key.startswith("price_"):
         return isinstance(v, (int, float)) and v >= 0
+    if key in ("recontact_days", "recontact_max_rounds"):
+        return isinstance(v, int) and v >= 1  # a stored 0 or negative must never lift every cooldown
     if isinstance(d, float):
         return isinstance(v, (int, float))
     if key in ("credit_end_date", "credit_balance_as_of"):

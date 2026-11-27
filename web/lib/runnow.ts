@@ -5,7 +5,7 @@ import type { Job } from "./types";
 export type JobRow = Pick<Job, "id" | "kind" | "status" | "payload" | "result" | "error" | "created_at" | "finished_at">;
 
 /** Kinds whose CLI pass has a dry run and takes --confirm to write; only these go through Preview/Apply. */
-export const CONFIRM_KINDS = ["import-sheet", "verify-sheet", "sheet-queue", "sheet-paint"];
+export const CONFIRM_KINDS = ["import-sheet", "verify-sheet", "sheet-queue", "sheet-paint", "recontact"];
 
 /** Test jobs use a `_test` kind suffix; the guard treats them like the real kind. */
 export const baseKind = (kind: string) => kind.replace(/_test$/, "");

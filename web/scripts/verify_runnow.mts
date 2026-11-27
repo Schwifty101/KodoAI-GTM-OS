@@ -1,5 +1,5 @@
 // Verifies the Preview/Apply guard (enqueuePreview, enqueueApply, enqueueGuarded) against the real database under RLS.
-// TEST rows only: kinds verify-sheet_test, import-sheet_test, enrich_test, draft_test, followups_test and argv naming TEST_runnow. enqueueJob marks every *_test job
+// TEST rows only: kinds verify-sheet_test, import-sheet_test, recontact_test, enrich_test, draft_test, followups_test and argv naming TEST_runnow. enqueueJob marks every *_test job
 // with payload.test = true, which claim_job skips, so the live worker never takes one (the admin-inserted rows carry it too). Rows are removed in `finally`.
 // Run: node --env-file=.env.local --env-file=../.env --import tsx scripts/verify_runnow.mts
 import { createClient } from "@supabase/supabase-js";
@@ -18,7 +18,7 @@ const rows = async (kind: string, argv: string[]) => (await admin.from("jobs").s
 const exact = async (kind: string, argv: string[]) => (await rows(kind, argv)).filter((r) => JSON.stringify(r.payload.argv) === JSON.stringify(argv));
 const clear = async () => {
   await admin.from("jobs").delete().like("payload->>argv", `%TEST_runnow%`);
-  await admin.from("jobs").delete().in("kind", ["import-sheet_test", "draft_test", "followups_test"]);
+  await admin.from("jobs").delete().in("kind", ["import-sheet_test", "draft_test", "followups_test", "recontact_test"]);
 };
 // hoursOld 0 leaves created_at to the database clock, so a later apply (also database time) is ordered after it whatever this machine's clock says.
 const doneJob = (kind: string, argv: string[], hoursOld = 0) => admin.from("jobs").insert({
@@ -74,6 +74,10 @@ try {
   check("enqueueGuarded import-sheet_test --confirm throws (no preview)", (await throws(enqueueGuarded("import-sheet_test", ["--confirm"]))) === "no done preview for this argv");
   check("enqueueGuarded import-sheet_test --conf throws (abbreviation)", (await throws(enqueueGuarded("import-sheet_test", ["--conf"]))) === "no done preview for this argv");
   check("  ...and inserted nothing", (await admin.from("jobs").select("id").eq("kind", "import-sheet_test")).data!.length === 0);
+  // recontact (paid Hunter verify) is a confirm kind: Apply needs a done preview, and the Jobs dropdown cannot bypass it.
+  check("enqueueApply recontact_test --limit 5 with no preview throws", (await throws(enqueueApply("recontact_test", ["--limit", "5"]))) === "no done preview for this argv");
+  check("enqueueGuarded recontact_test --limit 5 --confirm throws (no preview)", (await throws(enqueueGuarded("recontact_test", ["--limit", "5", "--confirm"]))) === "no done preview for this argv");
+  check("  ...and inserted nothing", (await admin.from("jobs").select("id").eq("kind", "recontact_test")).data!.length === 0);
   await admin.from("jobs").delete().like("payload->>argv", `%TEST_runnow%`).eq("status", "queued");
   check("enqueueGuarded verify-sheet_test --confirm with a done preview routes to apply", (await throws(enqueueGuarded(KIND, [...ARGV, "--confirm"]))) === "" && (await exact(KIND, [...ARGV, "--confirm"])).length === 1);
   await admin.from("jobs").delete().like("payload->>argv", `%TEST_runnow%`).eq("status", "queued");

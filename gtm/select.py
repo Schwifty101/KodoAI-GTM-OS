@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from gtm.db import fetch_all
+from gtm.recontact import OPEN_TOUCH_STATUSES, keys as row_keys, lead_released, released_keys
+from gtm.settings_store import setting
 from gtm.signals import VECTORS
 from gtm.costs import spend_context
 from gtm.status import Status
@@ -53,7 +57,36 @@ def _reason(llm, lead: dict, lane: str) -> str:
     return text.strip() if isinstance(text, str) and text.strip() else _fallback(lead, lane)
 
 
-def _blocklists(db) -> tuple[set[str], set[str]]:
+def _recontact_on(db) -> bool:
+    """Only the flag read may fail soft, and only toward off (nothing lifted = today's behaviour). Once the flag is on, errors propagate."""
+    try:
+        return setting("recontact_on", db) is True
+    except Exception:
+        return False
+
+
+def _released_blocklists(db, today: date) -> tuple[set[str], set[str]]:
+    """Recontact on: today's blocklists minus the keys the policy releases (see gtm/recontact.py). Any read error aborts the pass."""
+    days, max_rounds = setting("recontact_days", db), setting("recontact_max_rounds", db)
+    hist = fetch_all(lambda: db.table("contact_history").select("email,domain,outcome,last_sent_on,round").order("id"))  # first: it must fail before leads.round is read
+    sup_rows = fetch_all(lambda: db.table("suppression").select("email,domain,reason").order("id"))
+    suppressed = {k for r in sup_rows for k in row_keys(r["email"], r["domain"])} - released_keys(sup_rows, hist, today, days, max_rounds)
+    statuses = ["sent", *sorted(OPEN_TOUCH_STATUSES)]
+    touches: dict[str, list[dict]] = {}
+    for t in fetch_all(lambda: db.table("touches").select("lead_id,status,sent_at").in_("status", statuses).order("id")):
+        touches.setdefault(t["lead_id"], []).append(t)
+    sent = [lid for lid, ts in touches.items() if any(t["status"] == "sent" for t in ts)]
+    contacted: set[str] = set()
+    for i in range(0, len(sent), 100):
+        for r in db.table("leads").select("id,owner_email,domain,status,place_id,round").in_("id", sent[i : i + 100]).execute().data:
+            if not lead_released(r, touches[r["id"]], today, days, max_rounds):
+                contacted |= row_keys(r["owner_email"], r["domain"])
+    return suppressed, contacted
+
+
+def _blocklists(db, today: date | None = None) -> tuple[set[str], set[str]]:
+    if _recontact_on(db):
+        return _released_blocklists(db, today or date.today())
     sup = set()
     for r in fetch_all(lambda: db.table("suppression").select("email,domain").order("id")):
         sup |= {v.lower() for v in (r["email"], r["domain"]) if v}

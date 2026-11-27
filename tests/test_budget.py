@@ -141,3 +141,16 @@ def test_require_daily_cap_kind_is_daily_and_allowance_kind_is_credit(world):
         budget.require("hunter_import", 1, now=NOW)
     assert e.value.kind == "credit"
     assert budget.BudgetExceeded("x").kind == "credit"
+
+
+def test_hunter_recontact_is_a_lifetime_allowance_that_defaults_to_zero(world):
+    with pytest.raises(budget.BudgetExceeded) as e:
+        budget.require("hunter_recontact", 0.5, now=NOW)  # default allowance 0 blocks all spend
+    assert e.value.kind == "credit"
+    world["set"]["recontact_hunter_allowance_credits"] = 1.0
+    world["rows"] = [("hunter_recontact", 0.5, None, utc(2026, 1, 1))]  # old row still counts: lifetime, not daily
+    budget.require("hunter_recontact", 0.5, now=NOW)
+    world["rows"].append(("hunter_recontact", 0.5, None, utc(2026, 1, 2)))
+    with pytest.raises(budget.BudgetExceeded) as e:
+        budget.require("hunter_recontact", 0.5, now=NOW)
+    assert e.value.kind == "credit"

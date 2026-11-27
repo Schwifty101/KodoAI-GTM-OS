@@ -15,7 +15,7 @@ from gtm.llm import complete_reply_json
 from gtm.schedule import paint_tick, queue_tick, tick
 from gtm.send import send_tick
 
-ALLOWED = {"scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "walk", "check-drafts", "redraft", "import-sheet", "verify-sheet", "sheet-queue", "sheet-paint"}
+ALLOWED = {"scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "walk", "check-drafts", "redraft", "import-sheet", "verify-sheet", "sheet-queue", "sheet-paint", "recontact"}
 BEAT_SECONDS = 30.0
 
 

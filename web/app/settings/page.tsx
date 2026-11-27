@@ -18,7 +18,7 @@ const METER: [string, string, "usd" | "units"][] = [
   ["apify", "cap_apify_usd_day", "usd"], ["serper", "cap_serper_queries_day", "units"], ["gemini", "cap_gemini_usd_day", "usd"],
   ["hunter", "cap_hunter_credits_day", "units"], ["prospeo", "cap_prospeo_credits_day", "units"], ["harvest", "cap_harvest_usd_day", "usd"],
 ];
-const JOB_KINDS = ["scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "import-sheet", "verify-sheet", "sheet-queue", "sheet-paint"];
+const JOB_KINDS = ["scrape", "clean", "enrich", "signals", "select", "draft", "followups", "replies", "import-sheet", "verify-sheet", "sheet-queue", "sheet-paint", "recontact"];
 // The sheet passes with a real dry run. Their argv pins the sheet (--sheet-id), so a preview on one sheet never unlocks Apply on another.
 const SHEET_PASSES = ["import-sheet", "sheet-queue", "sheet-paint"];
 
@@ -30,6 +30,7 @@ export default function Settings() {
   const [kind, setKind] = useState("clean");
   const [argv, setArgv] = useState("");
   const [err, setErr] = useState("");
+  const [recLimit, setRecLimit] = useState("5");
 
   const load = useCallback(async () => {
     try {
@@ -48,6 +49,7 @@ export default function Settings() {
   const act = async (fn: () => Promise<void>) => { try { await fn(); await load(); await reload(); } catch (e) { setErr((e as Error).message); } };
   const gemini = vals.allow_paid_gemini === true;
   const sheetId = String(vals.sheet_id ?? "").trim();
+  const recN = /^[1-9]\d*$/.test(recLimit.trim()) ? recLimit.trim() : "";
 
   return (
     <>
@@ -76,6 +78,14 @@ export default function Settings() {
                   </div>
                 );
               })}
+            </>
+          )}
+          {g === "Recontact" && (
+            <>
+              <p className="muted">Preview is a free dry run (counts, skips, Hunter cost, allowance left). Apply verifies that many emails with Hunter and creates the leads; it needs recontact_on, a Hunter allowance and a done preview of the same lead count from the last 24 hours.</p>
+              <label>Leads to recontact <input type="number" min={1} value={recLimit} onChange={(e) => setRecLimit(e.target.value)} /></label>
+              <PreviewApply kind="recontact" argv={recN ? ["--limit", recN] : []} label="recontact" cost="0.5 Hunter credit per email"
+                disabledReason={vals.recontact_on !== true ? "turn on recontact_on" : !recN ? "enter a lead count" : undefined} />
             </>
           )}
         </div>

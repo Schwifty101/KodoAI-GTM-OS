@@ -80,7 +80,9 @@ assert.equal(baseKind("a_test_test"), "a_test", "strips one suffix only");
 assert.ok(sameArgv(["--batch", "x"], ["--batch", "x"]));
 assert.ok(!sameArgv(["--batch", "x"], ["--batch", "y"]));
 assert.ok(!sameArgv(["a", "b"], ["b", "a"]), "order matters");
-assert.deepEqual(CONFIRM_KINDS, ["import-sheet", "verify-sheet", "sheet-queue", "sheet-paint"]);
+assert.deepEqual(CONFIRM_KINDS, ["import-sheet", "verify-sheet", "sheet-queue", "sheet-paint", "recontact"]);
+assert.equal(baseKind("recontact_test"), "recontact", "the recontact test kind is guarded as recontact");
+assert.ok(CONFIRM_KINDS.includes(baseKind("recontact_test")), "recontact (paid Hunter verify) goes through Preview/Apply");
 
 // isConfirmFlag: argparse accepts any unambiguous prefix, so --conf must count as --confirm
 for (const a of ["--confirm", "--confirm=1", "--conf", "--con", "--c"]) assert.ok(isConfirmFlag(a), a);

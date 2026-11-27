@@ -16,8 +16,10 @@ CAP_KEYS = {
     "hunter": "cap_hunter_credits_day", "prospeo": "cap_prospeo_credits_day", "harvest": "cap_harvest_usd_day",
     "serper_maps": "cap_serper_maps_credits_day",
     "hunter_import": "import_hunter_allowance_credits",  # lifetime allowance, not daily
+    "hunter_recontact": "recontact_hunter_allowance_credits",  # lifetime allowance, not daily
 }
 USD = {"apify", "gemini", "harvest"}
+LIFETIME = {"hunter_import", "hunter_recontact"}
 
 
 def _cost_rows(db, provider: str, since: datetime) -> list[dict]:
@@ -54,6 +56,6 @@ def require(provider: str, amount: float = 1.0, db=None, now: datetime | None = 
     if provider == "gemini" and not gemini_allowed(db, now.date()):
         raise BudgetExceeded("gemini: credit ended or used up and paid Gemini is off or at its monthly cap")
     cap = setting(key, db)
-    since = datetime(1970, 1, 1, tzinfo=timezone.utc) if provider == "hunter_import" else _midnight(now.date())
+    since = datetime(1970, 1, 1, tzinfo=timezone.utc) if provider in LIFETIME else _midnight(now.date())
     if spent_since(db, provider, since) + amount > cap:
-        raise BudgetExceeded(f"{provider}: {'lifetime allowance' if provider == 'hunter_import' else 'daily cap'} {cap} reached ({key})", "credit" if provider == "hunter_import" else "daily")
+        raise BudgetExceeded(f"{provider}: {'lifetime allowance' if provider in LIFETIME else 'daily cap'} {cap} reached ({key})", "credit" if provider in LIFETIME else "daily")

@@ -16,6 +16,7 @@ export default function Leads() {
   const [open, setOpen] = useState<string | null>(null);
   const [f, setF] = useState({ status: "", batch: "", city: "", state: "", vector: "", hasEmail: false, sort: "created_at" });
   const [err, setErr] = useState("");
+  const [rounds, setRounds] = useState<Record<string, number>>({});
 
   const load = useCallback(async () => {
     let q = supabase.from("leads").select(LEAD_COLUMNS).order(f.sort, { ascending: f.sort === "name", nullsFirst: false }).limit(300);
@@ -32,6 +33,10 @@ export default function Leads() {
   useEffect(() => { if (ready) load(); }, [ready, load]);
   useEffect(() => {
     if (ready) supabase.from("batches").select("id,name").order("created_at", { ascending: false }).then(({ data }) => setBatches(data ?? []));
+  }, [ready]);
+
+  useEffect(() => { // round > 1 only; leads.round is added by migration 0018, so until it is applied this read errors and no label shows (LEAD_COLUMNS above must stay without it)
+    if (ready) supabase.from("leads").select("id,round").gt("round", 1).limit(1000).then(({ data, error }) => setRounds(error ? {} : Object.fromEntries((data ?? []).map((r) => [r.id, r.round]))));
   }, [ready]);
 
   if (!ready) return null;
@@ -66,7 +71,7 @@ export default function Leads() {
               <tr className="row" onClick={() => setOpen(open === l.id ? null : l.id)}>
                 <td>{l.name}<div className="muted">{l.domain}</div></td>
                 <td>{[l.city, l.state].filter(Boolean).join(", ")}</td>
-                <td><span className={`pill ${l.status === "selected" || l.status === "sent" ? "ok" : l.status === "rejected" || l.status === "bounced" ? "bad" : ""}`}>{l.status}</span>{l.status === "signalled" && l.reject_reason && <div className="muted">not selected: {l.reject_reason}</div>}</td>
+                <td><span className={`pill ${l.status === "selected" || l.status === "sent" ? "ok" : l.status === "rejected" || l.status === "bounced" ? "bad" : ""}`}>{l.status}</span>{rounds[l.id] > 1 && <span className="muted"> round {rounds[l.id]}</span>}{l.status === "signalled" && l.reject_reason && <div className="muted">not selected: {l.reject_reason}</div>}</td>
                 <td>{l.owner_name ?? <span className="muted">none</span>}<div className="muted">{l.owner_title}</div></td>
                 <td>{l.vector ?? ""}</td>
                 <td>{l.vector ? (l.signal_led ? "signal-led" : "relevance-led") : ""}</td>
