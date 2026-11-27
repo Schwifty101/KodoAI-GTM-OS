@@ -1,10 +1,11 @@
 import type { BatchNoRow } from "./batches";
+import { isOwner, isPositive, isReplied } from "./metrics";
 
 // Dashboard by outreach batch (leads.batch_no). Pure logic only (no supabase import) so scripts/dashboard_unit.mts runs without env. Funnel rules are the batch_metrics view's (supabase/migrations/0006), re-keyed from scrape run to batch number.
 
 export type DashTouch = { touch_no: number; status: string; outcome: string | null };
-export type DashLead = { batch_no: number | null; status: string; owner_email: string | null; email_verified: boolean | null; touches: DashTouch[] };
-export const DASH_LEAD_SELECT = "batch_no,status,owner_email,email_verified,touches(touch_no,status,outcome)";
+export type DashLead = { place_id?: string; batch_no: number | null; status: string; owner_email: string | null; email_verified: boolean | null; touches: DashTouch[] };
+export const DASH_LEAD_SELECT = "place_id,batch_no,status,owner_email,email_verified,touches(touch_no,status,outcome)";
 
 /** `of` is the column a rate is taken from; bounced and replied are both shares of sent (replied of bounced would mean nothing). */
 export const COLS = [
@@ -21,7 +22,6 @@ export type Col = (typeof COLS)[number]["key"];
 export type Funnel = Record<Col, number>;
 export type BatchFunnel = { batch_no: number; f: Funnel };
 
-const REPLY_OUTCOMES = ["positive", "negative", "other", "opt_out"];
 const PIPELINE = ["cleaned", "enriched", "signalled", "selected", "drafted", "sent", "replied", "booked", "bounced", "unsubscribed"];
 
 export const batchLabel = (n: number) => `Batch ${String(n).padStart(2, "0")}`;
@@ -35,16 +35,17 @@ export function pct(v: number, of: number): string | null {
 
 const zero = (): Funnel => ({ leads: 0, enriched: 0, drafted: 0, sent: 0, bounced: 0, replied: 0, positive: 0, booked: 0 });
 
-/** Same tests as the batch_metrics view: replied and positive come from lead status or a touch outcome. */
+/** Same tests as the batch_metrics view (rules in metrics.ts): replied and positive come from lead status or a touch outcome. */
 function add(f: Funnel, l: DashLead) {
   const t = l.touches ?? [];
+  const outs = t.map((x) => x.outcome);
   f.leads++;
-  if (l.owner_email && l.email_verified) f.enriched++;
+  if (isOwner(l)) f.enriched++;
   if (t.some((x) => x.touch_no === 1)) f.drafted++;
   if (t.some((x) => x.touch_no === 1 && x.status === "sent")) f.sent++;
   if (l.status === "bounced") f.bounced++;
-  if (["replied", "unsubscribed", "booked"].includes(l.status) || t.some((x) => x.outcome && REPLY_OUTCOMES.includes(x.outcome))) f.replied++;
-  if (l.status === "booked" || t.some((x) => x.outcome === "positive")) f.positive++;
+  if (isReplied(l.status, outs)) f.replied++;
+  if (isPositive(l.status, outs)) f.positive++;
   if (l.status === "booked") f.booked++;
 }
 

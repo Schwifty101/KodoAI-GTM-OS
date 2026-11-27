@@ -14,6 +14,10 @@ export const SETTING_FIELDS: SettingField[] = [
   { key: "gemini_output_usd_per_m", label: "Gemini output USD per 1M tokens", type: "float", group: "API prices", def: 9 },
   { key: "gemini_lite_input_usd_per_m", label: "Gemini Lite input USD per 1M tokens", type: "float", group: "API prices", def: 0.25 },
   { key: "gemini_lite_output_usd_per_m", label: "Gemini Lite output USD per 1M tokens", type: "float", group: "API prices", def: 1.5 },
+  // Credit prices: 0 = unpriced. Hunter covers hunter and hunter_import; Serper covers serper and serper_maps.
+  { key: "price_hunter_usd_per_credit", label: "Hunter USD per credit", type: "float", group: "API prices", def: 0, min: 0 },
+  { key: "price_prospeo_usd_per_credit", label: "Prospeo USD per credit", type: "float", group: "API prices", def: 0, min: 0 },
+  { key: "price_serper_usd_per_credit", label: "Serper USD per credit", type: "float", group: "API prices", def: 0, min: 0 },
   { key: "cap_apify_usd_day", label: "Apify USD per day", type: "float", group: "Daily caps", def: 2 },
   { key: "cap_serper_queries_day", label: "Serper queries per day", type: "int", group: "Daily caps", def: 700 },
   { key: "cap_gemini_usd_day", label: "Gemini USD per day", type: "float", group: "Daily caps", def: 5 },

@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { useRequireSession } from "@/lib/useRequireSession";
 import { LEAD_COLUMNS, STATUSES, VECTORS, type Lead } from "@/lib/types";
 import { Evidence } from "@/components/Evidence";
+import { LeadActivity } from "@/components/LeadActivity";
 
 type Batch = { id: string; name: string };
 
@@ -79,6 +80,7 @@ export default function Leads() {
                     {l.select_reason && <p><strong>Why selected:</strong> {l.select_reason}</p>}
                     {l.reject_reason && <p className="muted">Reason not selected: {l.reject_reason}</p>}
                     <Evidence lead={l} />
+                    <LeadActivity leadId={l.id} />
                   </div>
                 </td></tr>
               )}

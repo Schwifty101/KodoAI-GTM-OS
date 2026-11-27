@@ -112,3 +112,48 @@ def test_autopilot_defaults_and_types():
     db.table("settings").upsert({"key": "batch_base", "value": "x"}).execute()
     clear_cache()
     assert setting("batch_base") == {"3": 32}
+
+
+class _FakeDb:
+    """Canned settings rows, records upserts: no real row is read or written."""
+
+    def __init__(self, rows):
+        self.rows, self.upserts = rows, []
+
+    def table(self, name):
+        return self
+
+    def select(self, *a):
+        return self
+
+    def eq(self, *a):
+        return self
+
+    def upsert(self, row):
+        self.upserts.append(row)
+        return self
+
+    def execute(self):
+        return type("R", (), {"data": self.rows})
+
+
+class TestCreditPrices:
+    PRICES = ("price_hunter_usd_per_credit", "price_prospeo_usd_per_credit", "price_serper_usd_per_credit")
+
+    @pytest.fixture(autouse=True)
+    def restore(self):  # overrides the module fixture, which deletes real settings rows
+        clear_cache()
+        yield
+        clear_cache()
+
+    def test_credit_price_defaults_are_zero_floats_meaning_unpriced(self):
+        from gtm.settings_store import DEFAULTS
+        for k in self.PRICES:
+            assert k in DEFAULTS and DEFAULTS[k] == 0.0 and type(DEFAULTS[k]) is float, k
+
+    def test_negative_credit_price_falls_back_to_default(self):
+        fake = _FakeDb([{"value": -1}])
+        assert setting("price_hunter_usd_per_credit", fake) == 0.0
+        with pytest.raises(ValueError):
+            set_setting(fake, "price_hunter_usd_per_credit", -1)
+        assert fake.upserts == []
