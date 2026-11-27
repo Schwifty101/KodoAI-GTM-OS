@@ -250,3 +250,23 @@ def test_send_loop_prints_the_tick_result_only_when_something_happened(monkeypat
 
 def test_worker_allows_the_sheet_kinds():
     assert {"import-sheet", "verify-sheet", "sheet-queue", "sheet-paint"} <= worker.ALLOWED
+
+
+def test_recontact_is_an_allowed_worker_kind():
+    assert "recontact" in worker.ALLOWED
+
+
+def test_worker_recontact_job_builds_the_hunter_pool_only_with_confirm_in_argv(monkeypatch):
+    from types import SimpleNamespace
+
+    import gtm.recontact_pass as rp
+    from gtm import cli
+
+    seen = []
+    monkeypatch.setattr(cli, "get_db", lambda: "db")
+    monkeypatch.setattr(cli, "get_settings", lambda: SimpleNamespace(hunter_keys=["k"], daily_cap=40))  # build_parser reads daily_cap
+    monkeypatch.setattr(cli, "HunterPool", lambda keys, **kw: "pool")
+    monkeypatch.setattr(rp, "run_recontact", lambda db, pool, limit, confirm, today: seen.append((pool, limit, confirm)))
+    _run_pass("recontact", ["--limit", "5"])
+    _run_pass("recontact", ["--limit", "5", "--confirm"])
+    assert seen == [(None, 5, False), ("pool", 5, True)]
