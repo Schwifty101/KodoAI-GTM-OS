@@ -9,7 +9,7 @@ import { batchBase, fillLabel, loadBatchNos, type BatchNoRow } from "@/lib/batch
 import { COLS, DASH_LEAD_SELECT, batchLabel, costRows, dashboardRows, pct, type DashLead, type Funnel } from "@/lib/dashboard";
 import type { BatchMetrics } from "@/lib/types";
 import {
-  addSpend, allocateSpend, batchRows, byAngle, hint0017, historyRows, isTestLead, perUnit, previousRange, pricedUsd, spendFrom, undatedCounts, whereLeadsDie,
+  addSpend, allocateSpend, batchRows, byAngle, hint0017, historyRows, isTestLead, isTestRun, perUnit, previousRange, pricedUsd, spendFrom, undatedCounts, whereLeadsDie,
   type CostDay, type Grain, type HistoryRow, type LeadRow, type Prices, type Spend, type TouchRow,
 } from "@/lib/metrics";
 import { loadMetricsData } from "@/lib/metricsData";
@@ -146,7 +146,7 @@ export default function Metrics() {
     </>
   );
 
-  const runs = rows.filter((r) => r.scraped > 0);
+  const runs = rows.filter((r) => r.scraped > 0 && !isTestRun(r.name)); // TEST and REHEARSAL runs never count
   const counts = (r: BatchMetrics) => r as unknown as Counts;
   const all: Counts = Object.fromEntries(STAGES.map((s) => [s.key, runs.reduce((a, r) => a + Number(counts(r)[s.key] ?? 0), 0)]));
   const otherText = Object.entries(d.other).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${n} ${s}`).join(", ");
