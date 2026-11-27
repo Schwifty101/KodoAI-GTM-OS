@@ -19,6 +19,16 @@ Read section 0, then `CLAUDE.md`. Section 0 is the current state and is enough t
 
 Plans: `docs/superpowers/plans/2026-11-12-gtm-os-roadmap.md` (six-plan roadmap), the Plan 4 spec and plan above. Design: `docs/superpowers/specs/2026-11-12-gtm-os-operating-layer-design.md`.
 
+### Plan 9 recontact policy (built and tested 2026-11-27; migration 0018 written, NOT applied; everything OFF)
+
+Spec `docs/superpowers/specs/2026-11-26-recontact-policy-design.md` (section 12, the owner's answers, wins), plan `docs/superpowers/plans/2026-11-26-recontact-policy.md`. Built: settings `recontact_on` (off), `recontact_days` 60, `recontact_max_rounds` 3, `recontact_hunter_allowance_credits` 0; the pure policy `gtm/recontact.py`; flag-gated `_blocklists` in `gtm/select.py` (flag off = old behaviour, ledger never read); `gtm/contact_backfill.py`; `gtm/recontact_pass.py`; CLI `recontact` and `backfill-contacts` plus the `recontact` worker kind; the Settings block; `scripts/recontact_parity.py`. `supabase/migrations/0018_contact_history.sql` is in the repo only: the real database has no `contact_history` table and no `leads.round` yet. Task 7 (Gmail cross-check) was SKIPPED by the owner. Rule in CLAUDE.md, Rules; runbook `docs/runbooks/cloud-runner.md`, Recontact.
+
+Owner gates, in order: (1) apply 0018; (2) `backfill-contacts FILE --sheet --confirm`, only after reading the dry-run counts; (3) the parity run; (4) VM deploy with the flag off and the queue idle; (5) set `recontact_on` and the Hunter allowance, and decide the footer (opt-out line, postal address) and the email strategy; (6) `recontact --limit N` Preview, then Apply on a small N, then Review, Draft and Send as usual.
+
+Backfill DRY RUN, 2026-11-27 (counts only, nothing written): 234 ledger rows (218 from Notion, 16 from the sheet); 1 Notion row skipped for no send date; 74 sheet rows skipped because Notion already has them. Outcomes: no_reply 215, do_not_contact 11, bounce 6, replied 1, auto_reply 1. 92 contacts are already past 60 days. First-eligible weeks (Monday dates, clear outcomes): Oct 5: 5, Oct 12: 22, Oct 19: 17, Oct 26: 38, Nov 2: 10, Nov 30: 33, Dec 7: 45, Dec 14: 30, Jan 11 2027: 16 (the 16 sheet rows, placeholder last send 2026-11-18, eligible 2027-01-17).
+
+Parity run 2026-11-27, before 0018 (`scripts/recontact_parity.py`, read-only): flag-off `_blocklists` equals the pre-Plan-9 function on the real rows (522 suppression keys, 0 OS-contacted keys); the ledger table is missing, so a simulated flag on releases 0. Run it again after the backfill: it then prints keys released per suppression reason, contacted keys freed and ledger rows per outcome and first-eligible week.
+
 ### (b) What runs where
 
 | Piece | Where |
