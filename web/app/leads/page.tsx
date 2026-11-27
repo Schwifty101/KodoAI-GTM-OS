@@ -39,7 +39,7 @@ export default function Leads() {
   }, [ready]);
 
   if (!ready) return null;
-  const set =(k: keyof typeof f, v: string | boolean) => setF({ ...f, [k]: v });
+  const set = (k: keyof typeof f, v: string | boolean) => setF({ ...f, [k]: v });
 
   return (
     <>
