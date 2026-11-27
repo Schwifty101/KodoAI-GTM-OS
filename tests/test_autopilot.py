@@ -295,3 +295,55 @@ def test_load_state_records_draft_count_from_done_job(world):
     db, bid, cfg = world
     db.table("jobs").insert({"kind": "draft", "status": "done", "created_at": NOW.isoformat(), "payload": {"argv": ["--batch", bid], "n": 2, "test": "ap"}}).execute()
     assert ("draft", bid, 2) in ap.load_state(db, NOW).tried
+
+
+def test_autopilot_never_enqueues_recontact():
+    """Recontact is a manual, owner-applied pass: it is no pipeline stage, and no state the autopilot can see makes it queue one."""
+    from itertools import product
+
+    assert "recontact" not in ap.PIPELINE and "recontact" not in {k for k, _, _ in ap.STAGES}
+    fields = ("scraped", "sheet_email_cleaned", "cleaned", "enriched", "signalled", "approved_undrafted")
+    kinds = set()
+    for vals, tiles, fill in product(product((0, 1), repeat=len(fields)), (True, False), (0, 100)):
+        d = decide(S(batches=[B(**dict(zip(fields, vals)))], tiles_left=tiles, current_fill=fill))
+        if d.enqueue:
+            kinds.add(d.enqueue[0])
+    assert {"clean", "enrich", "signals", "select", "draft", "walk"} <= kinds <= set(ap.PIPELINE)
+
+
+class _FakeDb:
+    """Reads only: `rows` by table name; the numbered-leads read (`select("batch_no")`) finds none, as for recontact leads."""
+    def __init__(self, **rows):
+        self.rows, self.cols = rows, ""
+
+    def table(self, name):
+        q = _FakeDb(**self.rows)
+        q.name = name
+        return q
+
+    def select(self, cols, *a, **k):
+        self.cols = cols
+        return self
+
+    not_ = property(lambda self: self)
+
+    def __getattr__(self, name):
+        return lambda *a, **k: self
+
+    def execute(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(data=[] if self.cols == "batch_no" else self.rows.get(self.name, []))
+
+
+def test_autopilot_treats_enriched_recontact_leads_like_any_enriched_lead(monkeypatch):
+    cfg = {"autopilot_on": True, "autopilot_started_at": "", "autopilot_limit_usd": 0.0, "autopilot_target": 100, "batch_base": {},
+           "walk_tiles_per_run": 3, "import_hunter_allowance_credits": 0.0}
+    monkeypatch.setattr(ap, "setting", lambda key, db=None: cfg[key])
+    monkeypatch.setattr(ap, "spent_since", lambda *a, **k: 0.0)
+    lead = {"batch_id": "b1", "status": "enriched", "email_source": "hunter", "email_verified": True, "owner_email": "a@x.example", "approved": False, "reject_reason": None}
+    recontact = {**lead, "batch_id": "b2", "place_id": "recontact:h1", "email_source": "history", "round": 2, "history_id": "h1"}
+    s = ap.load_state(_FakeDb(leads=[lead, recontact]), NOW)
+    assert {b.batch_id: b.enriched for b in s.batches} == {"b1": 1, "b2": 1} and s.in_flight == 2
+    only = ap.load_state(_FakeDb(leads=[recontact]), NOW)
+    assert decide(only).enqueue == ("signals", ["--batch", "b2"])  # signals runs on it like on any enriched lead
