@@ -38,7 +38,7 @@ export default function Replies() {
     <>
       <h1>Replies</h1>
       {err && <p className="err">{err}</p>}
-      <p className="muted">Replies last read: {checkedAt ? new Date(checkedAt).toLocaleString() : "never"}. The Gmail link format is unverified until the owner opens a real thread from here; if it does not land on the thread, use the thread id.</p>
+      <p className="muted">Replies last read: {checkedAt ? new Date(checkedAt).toLocaleString() : "never"}.</p>
 
       {SECTIONS.map(({ key, title }) => {
         const list = rows.filter((r) => replyBucket(r.status, r.outcome) === key);
